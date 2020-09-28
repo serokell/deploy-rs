@@ -1,6 +1,6 @@
 use merge::Merge;
 
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 #[derive(Deserialize, Debug, Clone, Merge)]
 pub struct GenericSettings {

@@ -156,8 +156,57 @@ async fn deploy_all_profiles(
 
     Ok(())
 }
-#[tokio::main]
 
+async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
+    Ok(Command::new("nix")
+        .arg("eval")
+        .arg("--expr")
+        .arg("builtins.getFlake")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await?
+        .success())
+}
+
+async fn get_deployment_data(
+    supports_flakes: bool,
+    repo: &str,
+) -> Result<utils::data::Data, Box<dyn std::error::Error>> {
+    let data_json = match supports_flakes {
+        true => {
+            let c = Command::new("nix")
+                .arg("eval")
+                .arg("--json")
+                .arg(format!("{}#deploy", repo))
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                // TODO forward input args?
+                .output()
+                .await?;
+
+            String::from_utf8(c.stdout)?
+        }
+        false => {
+            let c = Command::new("nix-instanciate")
+                        .arg("--strict")
+                        .arg("--read-write-mode")
+                        .arg("--json")
+                        .arg("--eval")
+                        .arg("--E")
+                        .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", repo))
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .output()
+                        .await?;
+
+            String::from_utf8(c.stdout)?
+        }
+    };
+
+    Ok(serde_json::from_str(&data_json)?)
+}
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("DEPLOY_LOG").is_err() {
         std::env::set_var("DEPLOY_LOG", "info");
@@ -171,49 +220,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         SubCommand::Deploy(deploy_opts) => {
             let deploy_flake = utils::parse_flake(deploy_opts.flake.as_str());
 
-            let test_flake_status = Command::new("nix")
-                .arg("eval")
-                .arg("--expr")
-                .arg("builtins.getFlake")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await?;
+            let supports_flakes = test_flake_support().await?;
 
-            let supports_flakes = test_flake_status.success();
-
-            let data_json = match supports_flakes {
-                true => {
-                    let c = Command::new("nix")
-                        .arg("eval")
-                        .arg("--json")
-                        .arg(format!("{}#deploy", deploy_flake.repo))
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        // TODO forward input args?
-                        .output()
-                        .await?;
-
-                    String::from_utf8(c.stdout)?
-                }
-                false => {
-                    let c = Command::new("nix-instanciate")
-                        .arg("--strict")
-                        .arg("--read-write-mode")
-                        .arg("--json")
-                        .arg("--eval")
-                        .arg("--E")
-                        .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", deploy_flake.repo))
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .output()
-                        .await?;
-
-                    String::from_utf8(c.stdout)?
-                }
-            };
-
-            let data: utils::data::Data = serde_json::from_str(&data_json)?;
+            let data = get_deployment_data(supports_flakes, deploy_flake.repo).await?;
 
             match (deploy_flake.node, deploy_flake.profile) {
                 (Some(node_name), Some(profile_name)) => {

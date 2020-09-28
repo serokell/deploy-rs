@@ -1,6 +1,5 @@
 use super::data;
 
-
 use tokio::process::Command;
 
 pub async fn deploy_profile(
