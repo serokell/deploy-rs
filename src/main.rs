@@ -5,8 +5,6 @@ use tokio::process::Command;
 
 use merge::Merge;
 
-use std::path::Path;
-
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
@@ -158,69 +156,6 @@ async fn deploy_all_profiles(
 
     Ok(())
 }
-
-#[derive(PartialEq, Debug)]
-struct DeployFlake<'a> {
-    repo: &'a str,
-    node: Option<&'a str>,
-    profile: Option<&'a str>,
-}
-
-fn parse_flake(flake: &str) -> DeployFlake {
-    let flake_fragment_start = flake.find('#');
-    let (repo, maybe_fragment) = match flake_fragment_start {
-        Some(s) => (&flake[..s], Some(&flake[s + 1..])),
-        None => (flake, None),
-    };
-
-    let (node, profile) = match maybe_fragment {
-        Some(fragment) => {
-            let fragment_profile_start = fragment.find('.');
-            match fragment_profile_start {
-                Some(s) => (Some(&fragment[..s]), Some(&fragment[s + 1..])),
-                None => (Some(fragment), None),
-            }
-        }
-        None => (None, None),
-    };
-
-    DeployFlake {
-        repo,
-        node,
-        profile,
-    }
-}
-
-#[test]
-fn test_parse_flake() {
-    assert_eq!(
-        parse_flake("../deploy/examples/system#example"),
-        DeployFlake {
-            repo: "../deploy/examples/system",
-            node: Some("example"),
-            profile: None
-        }
-    );
-
-    assert_eq!(
-        parse_flake("../deploy/examples/system#example.system"),
-        DeployFlake {
-            repo: "../deploy/examples/system",
-            node: Some("example"),
-            profile: Some("system")
-        }
-    );
-
-    assert_eq!(
-        parse_flake("../deploy/examples/system"),
-        DeployFlake {
-            repo: "../deploy/examples/system",
-            node: None,
-            profile: None,
-        }
-    );
-}
-
 #[tokio::main]
 
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -234,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match opts.subcmd {
         SubCommand::Deploy(deploy_opts) => {
-            let deploy_flake = parse_flake(deploy_opts.flake.as_str());
+            let deploy_flake = utils::parse_flake(deploy_opts.flake.as_str());
 
             let test_flake_status = Command::new("nix")
                 .arg("eval")
@@ -364,102 +299,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
         }
         SubCommand::Activate(activate_opts) => {
-            info!("Activating profile");
-
-            Command::new("nix-env")
-                .arg("-p")
-                .arg(&activate_opts.profile_path)
-                .arg("--set")
-                .arg(&activate_opts.closure)
-                .stdout(Stdio::null())
-                .spawn()?
-                .await?;
-
-            if let (Some(bootstrap_cmd), false) = (
+            utils::activate::activate(
+                activate_opts.profile_path,
+                activate_opts.closure,
+                activate_opts.activate_cmd,
                 activate_opts.bootstrap_cmd,
-                !Path::new(&activate_opts.profile_path).exists(),
-            ) {
-                let bootstrap_status = Command::new("bash")
-                    .arg("-c")
-                    .arg(&bootstrap_cmd)
-                    .env("PROFILE", &activate_opts.profile_path)
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await;
-
-                match bootstrap_status {
-                    Ok(s) if s.success() => (),
-                    _ => {
-                        tokio::fs::remove_file(&activate_opts.profile_path).await?;
-                        good_panic!("Failed to execute bootstrap command");
-                    }
-                }
-            }
-
-            if let Some(activate_cmd) = activate_opts.activate_cmd {
-                let activate_status = Command::new("bash")
-                    .arg("-c")
-                    .arg(&activate_cmd)
-                    .env("PROFILE", &activate_opts.profile_path)
-                    .status()
-                    .await;
-
-                match activate_status {
-                    Ok(s) if s.success() => (),
-                    _ if activate_opts.auto_rollback => {
-                        Command::new("nix-env")
-                            .arg("-p")
-                            .arg(&activate_opts.profile_path)
-                            .arg("--rollback")
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn()?
-                            .await?;
-
-                        let c = Command::new("nix-env")
-                            .arg("-p")
-                            .arg(&activate_opts.profile_path)
-                            .arg("--list-generations")
-                            .output()
-                            .await?;
-                        let generations_list = String::from_utf8(c.stdout)?;
-
-                        let last_generation_line = generations_list
-                            .lines()
-                            .last()
-                            .expect("Expected to find a generation in list");
-
-                        let last_generation_id = last_generation_line
-                            .split_whitespace()
-                            .next()
-                            .expect("Expected to get ID from generation entry");
-
-                        debug!("Removing generation entry {}", last_generation_line);
-                        warn!("Removing generation by ID {}", last_generation_id);
-
-                        Command::new("nix-env")
-                            .arg("-p")
-                            .arg(&activate_opts.profile_path)
-                            .arg("--delete-generations")
-                            .arg(last_generation_id)
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn()?
-                            .await?;
-
-                        // TODO: Find some way to make sure this command never changes, otherwise this will not work
-                        Command::new("bash")
-                            .arg("-c")
-                            .arg(&activate_cmd)
-                            .spawn()?
-                            .await?;
-
-                        good_panic!("Failed to execute activation command");
-                    }
-                    _ => {}
-                }
-            }
+                activate_opts.auto_rollback,
+            )
+            .await?;
         }
     }
 

@@ -1,15 +1,79 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
 
-pub mod data;
-pub mod deploy;
-pub mod push;
-
+#[macro_export]
 macro_rules! good_panic {
     ($($tts:tt)*) => {{
         error!($($tts)*);
         std::process::exit(1);
     }}
+}
+
+pub mod activate;
+pub mod data;
+pub mod deploy;
+pub mod push;
+
+#[derive(PartialEq, Debug)]
+pub struct DeployFlake<'a> {
+    pub repo: &'a str,
+    pub node: Option<&'a str>,
+    pub profile: Option<&'a str>,
+}
+
+pub fn parse_flake(flake: &str) -> DeployFlake {
+    let flake_fragment_start = flake.find('#');
+    let (repo, maybe_fragment) = match flake_fragment_start {
+        Some(s) => (&flake[..s], Some(&flake[s + 1..])),
+        None => (flake, None),
+    };
+
+    let (node, profile) = match maybe_fragment {
+        Some(fragment) => {
+            let fragment_profile_start = fragment.find('.');
+            match fragment_profile_start {
+                Some(s) => (Some(&fragment[..s]), Some(&fragment[s + 1..])),
+                None => (Some(fragment), None),
+            }
+        }
+        None => (None, None),
+    };
+
+    DeployFlake {
+        repo,
+        node,
+        profile,
+    }
+}
+
+#[test]
+fn test_parse_flake() {
+    assert_eq!(
+        parse_flake("../deploy/examples/system#example"),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: Some("example"),
+            profile: None
+        }
+    );
+
+    assert_eq!(
+        parse_flake("../deploy/examples/system#example.system"),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: Some("example"),
+            profile: Some("system")
+        }
+    );
+
+    assert_eq!(
+        parse_flake("../deploy/examples/system"),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: None,
+            profile: None,
+        }
+    );
 }
 
 pub struct DeployData<'a> {
