@@ -1,6 +1,6 @@
 use clap::Clap;
 use merge::Merge;
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use std::borrow::Cow;
 
@@ -137,25 +137,19 @@ pub struct Data {
     pub nodes: HashMap<String, Node>,
 }
 
-async fn deploy_profile(
-    profile: &Profile,
+struct DeployData<'a> {
+    pub sudo: Option<String>,
+    pub ssh_user: Cow<'a, str>,
+    pub profile_user: Cow<'a, str>,
+    pub profile_path: String,
+    pub current_exe: PathBuf,
+}
+
+async fn make_deploy_data<'a>(
     profile_name: &str,
-    node: &Node,
     node_name: &str,
-    top_settings: &GenericSettings,
-    supports_flakes: bool,
-    check_sigs: bool,
-    repo: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    info!(
-        "Deploying profile `{}` for node `{}`",
-        profile_name, node_name
-    );
-
-    let mut merged_settings = top_settings.clone();
-    merged_settings.merge(node.generic_settings.clone());
-    merged_settings.merge(profile.generic_settings.clone());
-
+    merged_settings: &'a GenericSettings,
+) -> Result<DeployData<'a>, Box<dyn std::error::Error>> {
     let ssh_user: Cow<str> = match &merged_settings.ssh_user {
         Some(u) => u.into(),
         None => whoami::username().into(),
@@ -173,11 +167,6 @@ async fn deploy_profile(
         },
     };
 
-    let sudo: Option<String> = match merged_settings.user {
-        Some(ref user) if user != &ssh_user => Some(format!("sudo -u {}", user).into()),
-        _ => None,
-    };
-
     let profile_path = match &profile_user[..] {
         "root" => format!("/nix/var/nix/profiles/{}", profile_name),
         _ => format!(
@@ -185,6 +174,42 @@ async fn deploy_profile(
             profile_user, profile_name
         ),
     };
+
+    let sudo: Option<String> = match merged_settings.user {
+        Some(ref user) if user != &ssh_user => Some(format!("sudo -u {}", user).into()),
+        _ => None,
+    };
+
+    let current_exe = std::env::current_exe().expect("Expected to find current executable path");
+
+    if !current_exe.starts_with("/nix/store/") {
+        good_panic!("The deploy binary must be in the Nix store");
+    }
+
+    Ok(DeployData {
+        sudo,
+        ssh_user,
+        profile_user,
+        profile_path,
+        current_exe,
+    })
+}
+
+async fn push_profile(
+    profile: &Profile,
+    profile_name: &str,
+    node: &Node,
+    node_name: &str,
+    supports_flakes: bool,
+    check_sigs: bool,
+    repo: &str,
+    merged_settings: &GenericSettings,
+    deploy_data: &DeployData<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!(
+        "Deploying profile `{}` for node `{}`",
+        profile_name, node_name
+    );
 
     info!(
         "Building profile `{}` for node `{}`",
@@ -216,12 +241,6 @@ async fn deploy_profile(
             .await?;
     }
 
-    let current_exe = std::env::current_exe().expect("Expected to find current executable path");
-
-    if !current_exe.starts_with("/nix/store/") {
-        good_panic!("The deploy binary must be in the Nix store");
-    }
-
     if let Ok(local_key) = std::env::var("LOCAL_KEY") {
         info!(
             "Signing key present! Signing profile `{}` for node `{}`",
@@ -234,7 +253,7 @@ async fn deploy_profile(
             .arg("-k")
             .arg(local_key)
             .arg(&profile.profile_settings.path)
-            .arg(&current_exe)
+            .arg(&deploy_data.current_exe)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?
@@ -266,16 +285,27 @@ async fn deploy_profile(
         .arg("--to")
         .arg(format!(
             "ssh://{}@{}",
-            ssh_user, node.node_settings.hostname
+            deploy_data.ssh_user, node.node_settings.hostname
         ))
         .arg(&profile.profile_settings.path)
-        .arg(&current_exe)
+        .arg(&deploy_data.current_exe)
         .env("NIX_SSHOPTS", ssh_opts_str)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?
         .await?;
 
+    Ok(())
+}
+
+async fn deploy_profile(
+    profile: &Profile,
+    profile_name: &str,
+    node: &Node,
+    node_name: &str,
+    merged_settings: &GenericSettings,
+    deploy_data: &DeployData<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "Activating profile `{}` for node `{}`",
         profile_name, node_name
@@ -283,12 +313,12 @@ async fn deploy_profile(
 
     let mut self_activate_command = format!(
         "{} activate '{}' '{}'",
-        current_exe.as_path().to_str().unwrap(),
-        profile_path,
+        deploy_data.current_exe.as_path().to_str().unwrap(),
+        deploy_data.profile_path,
         profile.profile_settings.path,
     );
 
-    if let Some(sudo_cmd) = sudo {
+    if let Some(sudo_cmd) = &deploy_data.sudo {
         self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
     }
 
@@ -309,14 +339,56 @@ async fn deploy_profile(
     let mut c = Command::new("ssh");
     let mut ssh_command = c.arg(format!(
         "ssh://{}@{}",
-        ssh_user, node.node_settings.hostname
+        deploy_data.ssh_user, node.node_settings.hostname
     ));
 
-    for ssh_opt in merged_settings.ssh_opts {
+    for ssh_opt in &merged_settings.ssh_opts {
         ssh_command = ssh_command.arg(ssh_opt);
     }
 
     ssh_command.arg(self_activate_command).spawn()?.await?;
+
+    Ok(())
+}
+
+async fn deploy_profile_todo(
+    top_settings: &GenericSettings,
+    profile: &Profile,
+    profile_name: &str,
+    node: &Node,
+    node_name: &str,
+    supports_flakes: bool,
+    check_sigs: bool,
+    repo: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut merged_settings = top_settings.clone();
+    merged_settings.merge(node.generic_settings.clone());
+    merged_settings.merge(profile.generic_settings.clone());
+
+    let deploy_data = make_deploy_data(profile_name, node_name, &merged_settings).await?;
+
+    push_profile(
+        profile,
+        profile_name,
+        node,
+        node_name,
+        supports_flakes,
+        check_sigs,
+        repo,
+        &merged_settings,
+        &deploy_data,
+    )
+    .await?;
+
+    deploy_profile(
+        profile,
+        profile_name,
+        node,
+        node_name,
+        &merged_settings,
+        &deploy_data,
+    )
+    .await?;
 
     Ok(())
 }
@@ -341,12 +413,12 @@ async fn deploy_all_profiles(
             None => good_panic!("No system profile was found, needed for priming"),
         };
 
-        deploy_profile(
-            &profile,
+        deploy_profile_todo(
+            top_settings,
+            profile,
             "system",
             node,
             node_name,
-            top_settings,
             supports_flakes,
             check_sigs,
             repo,
@@ -374,12 +446,12 @@ async fn deploy_all_profiles(
             continue;
         }
 
-        deploy_profile(
-            &profile,
+        deploy_profile_todo(
+            top_settings,
+            profile,
             profile_name,
             node,
             node_name,
-            top_settings,
             supports_flakes,
             check_sigs,
             repo,
@@ -475,12 +547,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         None => good_panic!("No profile was found named `{}`", profile_name),
                     };
 
-                    deploy_profile(
-                        &profile,
+                    deploy_profile_todo(
+                        &data.generic_settings,
+                        profile,
                         profile_name,
                         node,
                         node_name,
-                        &data.generic_settings,
                         supports_flakes,
                         deploy_opts.checksigs,
                         repo,
