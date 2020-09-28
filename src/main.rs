@@ -122,6 +122,12 @@ pub struct Node {
     pub node_settings: NodeSettings,
 
     pub profiles: HashMap<String, Profile>,
+    #[serde(
+        skip_serializing_if = "Vec::is_empty",
+        default,
+        rename(deserialize = "profilesOrder")
+    )]
+    pub profiles_order: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -348,7 +354,21 @@ async fn deploy_all_profiles(
         .await?;
     }
 
-    for (profile_name, profile) in &node.profiles {
+    let mut profiles_list: Vec<&str> = node.profiles_order.iter().map(|x| x.as_ref()).collect();
+
+    // Add any profiles which weren't in the provided order list
+    for (profile_name, _) in &node.profiles {
+        if !profiles_list.contains(&profile_name.as_str()) {
+            profiles_list.push(&profile_name);
+        }
+    }
+
+    for profile_name in profiles_list {
+        let profile = match node.profiles.get(profile_name) {
+            Some(x) => x,
+            None => good_panic!("No profile was found named `{}`", profile_name),
+        };
+
         // This will have already been deployed
         if prime && profile_name == "system" {
             continue;
