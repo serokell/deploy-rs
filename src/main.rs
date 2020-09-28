@@ -46,6 +46,9 @@ struct DeployOpts {
     /// Prepare server (for first deployments)
     #[clap(short, long)]
     prime: bool,
+    /// Check signatures when using `nix copy`
+    #[clap(short, long)]
+    checksigs: bool,
 }
 
 /// Activate a profile on your current machine
@@ -135,6 +138,7 @@ async fn deploy_profile(
     node_name: &str,
     top_settings: &GenericSettings,
     supports_flakes: bool,
+    check_sigs: bool,
     repo: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
@@ -240,6 +244,10 @@ async fn deploy_profile(
         copy_command = copy_command.arg("--substitute-on-destination");
     }
 
+    if !check_sigs {
+        copy_command = copy_command.arg("--no-check-sigs");
+    }
+
     let ssh_opts_str = merged_settings
         .ssh_opts
         // This should provide some extra safety, but it also breaks for some reason, oh well
@@ -249,7 +257,6 @@ async fn deploy_profile(
         .join(" ");
 
     copy_command
-        .arg("--no-check-sigs")
         .arg("--to")
         .arg(format!(
             "ssh://{}@{}",
@@ -316,6 +323,7 @@ async fn deploy_all_profiles(
     repo: &str,
     top_settings: &GenericSettings,
     prime: bool,
+    check_sigs: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Deploying all profiles for `{}`", node_name);
 
@@ -334,6 +342,7 @@ async fn deploy_all_profiles(
             node_name,
             top_settings,
             supports_flakes,
+            check_sigs,
             repo,
         )
         .await?;
@@ -352,6 +361,7 @@ async fn deploy_all_profiles(
             node_name,
             top_settings,
             supports_flakes,
+            check_sigs,
             repo,
         )
         .await?;
@@ -374,7 +384,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match opts.subcmd {
         SubCommand::Deploy(deploy_opts) => {
             let flake_fragment_start = deploy_opts.flake.find('#');
-
             let (repo, maybe_fragment) = match flake_fragment_start {
                 Some(s) => (&deploy_opts.flake[..s], Some(&deploy_opts.flake[s + 1..])),
                 None => (deploy_opts.flake.as_str(), None),
@@ -453,6 +462,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         node_name,
                         &data.generic_settings,
                         supports_flakes,
+                        deploy_opts.checksigs,
                         repo,
                     )
                     .await?;
@@ -470,6 +480,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         repo,
                         &data.generic_settings,
                         deploy_opts.prime,
+                        deploy_opts.checksigs,
                     )
                     .await?;
                 }
@@ -484,6 +495,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             repo,
                             &data.generic_settings,
                             deploy_opts.prime,
+                            deploy_opts.checksigs,
                         )
                         .await?;
                     }
