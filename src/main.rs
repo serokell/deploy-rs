@@ -43,9 +43,6 @@ struct DeployOpts {
     /// The flake to deploy
     #[clap(default_value = ".")]
     flake: String,
-    /// Prepare server (for first deployments)
-    #[clap(short, long)]
-    prime: bool,
     /// Check signatures when using `nix copy`
     #[clap(short, long)]
     checksigs: bool,
@@ -207,14 +204,15 @@ async fn push_profile(
     deploy_data: &DeployData<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
-        "Deploying profile `{}` for node `{}`",
+        "Pushing profile `{}` for node `{}`",
         profile_name, node_name
     );
 
-    info!(
-        "Building profile `{}` for node `{}`",
+    debug!(
+        "Building profile `{} for node `{}`",
         profile_name, node_name
     );
+
     if supports_flakes {
         Command::new("nix")
             .arg("build")
@@ -260,7 +258,7 @@ async fn push_profile(
             .await?;
     }
 
-    info!("Copying profile `{} for node `{}`", profile_name, node_name);
+    debug!("Copying profile `{} for node `{}`", profile_name, node_name);
 
     let mut copy_command_ = Command::new("nix");
     let mut copy_command = copy_command_.arg("copy");
@@ -360,7 +358,7 @@ async fn push_all_profiles(
     top_settings: &GenericSettings,
     check_sigs: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Deploying all profiles for `{}`", node_name);
+    info!("Pushing all profiles for `{}`", node_name);
 
     let mut profiles_list: Vec<&str> = node.profiles_order.iter().map(|x| x.as_ref()).collect();
 
