@@ -123,6 +123,7 @@ async fn deploy_all_profiles(
 }
 
 /// Returns if the available Nix installation supports flakes
+#[inline]
 async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
     Ok(Command::new("nix")
         .arg("eval")
@@ -136,6 +137,7 @@ async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
 }
 
 /// Evaluates the Nix in the given `repo` and return the processed Data from it
+#[inline]
 async fn get_deployment_data(
     supports_flakes: bool,
     repo: &str,
