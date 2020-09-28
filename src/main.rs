@@ -1,15 +1,11 @@
 use clap::Clap;
-use merge::Merge;
-use std::{collections::HashMap, path::PathBuf};
-
-use std::borrow::Cow;
 
 use std::process::Stdio;
 use tokio::process::Command;
 
-use std::path::Path;
+use merge::Merge;
 
-use std::process;
+use std::path::Path;
 
 extern crate pretty_env_logger;
 #[macro_use]
@@ -18,12 +14,10 @@ extern crate log;
 #[macro_use]
 extern crate serde_derive;
 
-macro_rules! good_panic {
-    ($($tts:tt)*) => {{
-        error!($($tts)*);
-        process::exit(1);
-    }}
-}
+#[macro_use]
+mod utils;
+
+// use utils::*;
 
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
 #[derive(Clap, Debug)]
@@ -73,289 +67,13 @@ enum SubCommand {
     Activate(ActivateOpts),
 }
 
-#[derive(Deserialize, Debug, Clone, Merge)]
-pub struct GenericSettings {
-    #[serde(rename(deserialize = "sshUser"))]
-    pub ssh_user: Option<String>,
-    pub user: Option<String>,
-    #[serde(
-        skip_serializing_if = "Vec::is_empty",
-        default,
-        rename(deserialize = "sshOpts")
-    )]
-    #[merge(strategy = merge::vec::append)]
-    pub ssh_opts: Vec<String>,
-    #[serde(rename(deserialize = "fastConnection"))]
-    pub fast_connection: Option<bool>,
-    #[serde(rename(deserialize = "autoRollback"))]
-    pub auto_rollback: Option<String>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct NodeSettings {
-    pub hostname: String,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct ProfileSettings {
-    pub path: String,
-    pub activate: Option<String>,
-    pub bootstrap: Option<String>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct Profile {
-    #[serde(flatten)]
-    pub profile_settings: ProfileSettings,
-    #[serde(flatten)]
-    pub generic_settings: GenericSettings,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct Node {
-    #[serde(flatten)]
-    pub generic_settings: GenericSettings,
-    #[serde(flatten)]
-    pub node_settings: NodeSettings,
-
-    pub profiles: HashMap<String, Profile>,
-    #[serde(
-        skip_serializing_if = "Vec::is_empty",
-        default,
-        rename(deserialize = "profilesOrder")
-    )]
-    pub profiles_order: Vec<String>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct Data {
-    #[serde(flatten)]
-    pub generic_settings: GenericSettings,
-    pub nodes: HashMap<String, Node>,
-}
-
-struct DeployData<'a> {
-    pub sudo: Option<String>,
-    pub ssh_user: Cow<'a, str>,
-    pub profile_user: Cow<'a, str>,
-    pub profile_path: String,
-    pub current_exe: PathBuf,
-}
-
-async fn make_deploy_data<'a>(
-    profile_name: &str,
-    node_name: &str,
-    merged_settings: &'a GenericSettings,
-) -> Result<DeployData<'a>, Box<dyn std::error::Error>> {
-    let ssh_user: Cow<str> = match &merged_settings.ssh_user {
-        Some(u) => u.into(),
-        None => whoami::username().into(),
-    };
-
-    let profile_user: Cow<str> = match &merged_settings.user {
-        Some(x) => x.into(),
-        None => match &merged_settings.ssh_user {
-            Some(x) => x.into(),
-            None => good_panic!(
-                "Neither user nor sshUser set for profile `{}` of node `{}`",
-                profile_name,
-                node_name
-            ),
-        },
-    };
-
-    let profile_path = match &profile_user[..] {
-        "root" => format!("/nix/var/nix/profiles/{}", profile_name),
-        _ => format!(
-            "/nix/var/nix/profiles/per-user/{}/{}",
-            profile_user, profile_name
-        ),
-    };
-
-    let sudo: Option<String> = match merged_settings.user {
-        Some(ref user) if user != &ssh_user => Some(format!("sudo -u {}", user).into()),
-        _ => None,
-    };
-
-    let current_exe = std::env::current_exe().expect("Expected to find current executable path");
-
-    if !current_exe.starts_with("/nix/store/") {
-        good_panic!("The deploy binary must be in the Nix store");
-    }
-
-    Ok(DeployData {
-        sudo,
-        ssh_user,
-        profile_user,
-        profile_path,
-        current_exe,
-    })
-}
-
-async fn push_profile(
-    profile: &Profile,
-    profile_name: &str,
-    node: &Node,
-    node_name: &str,
-    supports_flakes: bool,
-    check_sigs: bool,
-    repo: &str,
-    merged_settings: &GenericSettings,
-    deploy_data: &DeployData<'_>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    info!(
-        "Pushing profile `{}` for node `{}`",
-        profile_name, node_name
-    );
-
-    debug!(
-        "Building profile `{} for node `{}`",
-        profile_name, node_name
-    );
-
-    if supports_flakes {
-        Command::new("nix")
-            .arg("build")
-            .arg("--no-link")
-            .arg(format!(
-                "{}#deploy.nodes.{}.profiles.{}.path",
-                repo, node_name, profile_name
-            ))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?
-            .await?;
-    } else {
-        Command::new("nix-build")
-            .arg(&repo)
-            .arg("-A")
-            .arg(format!(
-                "deploy.nodes.{}.profiles.{}.path",
-                node_name, profile_name
-            ))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?
-            .await?;
-    }
-
-    if let Ok(local_key) = std::env::var("LOCAL_KEY") {
-        info!(
-            "Signing key present! Signing profile `{}` for node `{}`",
-            profile_name, node_name
-        );
-
-        Command::new("nix")
-            .arg("sign-paths")
-            .arg("-r")
-            .arg("-k")
-            .arg(local_key)
-            .arg(&profile.profile_settings.path)
-            .arg(&deploy_data.current_exe)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?
-            .await?;
-    }
-
-    debug!("Copying profile `{} for node `{}`", profile_name, node_name);
-
-    let mut copy_command_ = Command::new("nix");
-    let mut copy_command = copy_command_.arg("copy");
-
-    if let Some(true) = merged_settings.fast_connection {
-        copy_command = copy_command.arg("--substitute-on-destination");
-    }
-
-    if !check_sigs {
-        copy_command = copy_command.arg("--no-check-sigs");
-    }
-
-    let ssh_opts_str = merged_settings
-        .ssh_opts
-        // This should provide some extra safety, but it also breaks for some reason, oh well
-        // .iter()
-        // .map(|x| format!("'{}'", x))
-        // .collect::<Vec<String>>()
-        .join(" ");
-
-    copy_command
-        .arg("--to")
-        .arg(format!(
-            "ssh://{}@{}",
-            deploy_data.ssh_user, node.node_settings.hostname
-        ))
-        .arg(&profile.profile_settings.path)
-        .arg(&deploy_data.current_exe)
-        .env("NIX_SSHOPTS", ssh_opts_str)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?
-        .await?;
-
-    Ok(())
-}
-
-async fn deploy_profile(
-    profile: &Profile,
-    profile_name: &str,
-    node: &Node,
-    node_name: &str,
-    merged_settings: &GenericSettings,
-    deploy_data: &DeployData<'_>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    info!(
-        "Activating profile `{}` for node `{}`",
-        profile_name, node_name
-    );
-
-    let mut self_activate_command = format!(
-        "{} activate '{}' '{}'",
-        deploy_data.current_exe.as_path().to_str().unwrap(),
-        deploy_data.profile_path,
-        profile.profile_settings.path,
-    );
-
-    if let Some(sudo_cmd) = &deploy_data.sudo {
-        self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
-    }
-
-    if let Some(ref bootstrap_cmd) = profile.profile_settings.bootstrap {
-        self_activate_command = format!(
-            "{} --bootstrap-cmd '{}'",
-            self_activate_command, bootstrap_cmd
-        );
-    }
-
-    if let Some(ref activate_cmd) = profile.profile_settings.activate {
-        self_activate_command = format!(
-            "{} --activate-cmd '{}'",
-            self_activate_command, activate_cmd
-        );
-    }
-
-    let mut c = Command::new("ssh");
-    let mut ssh_command = c.arg(format!(
-        "ssh://{}@{}",
-        deploy_data.ssh_user, node.node_settings.hostname
-    ));
-
-    for ssh_opt in &merged_settings.ssh_opts {
-        ssh_command = ssh_command.arg(ssh_opt);
-    }
-
-    ssh_command.arg(self_activate_command).spawn()?.await?;
-
-    Ok(())
-}
-
 #[inline]
 async fn push_all_profiles(
-    node: &Node,
+    node: &utils::data::Node,
     node_name: &str,
     supports_flakes: bool,
     repo: &str,
-    top_settings: &GenericSettings,
+    top_settings: &utils::data::GenericSettings,
     check_sigs: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Pushing all profiles for `{}`", node_name);
@@ -379,9 +97,10 @@ async fn push_all_profiles(
         merged_settings.merge(node.generic_settings.clone());
         merged_settings.merge(profile.generic_settings.clone());
 
-        let deploy_data = make_deploy_data(profile_name, node_name, &merged_settings).await?;
+        let deploy_data =
+            utils::make_deploy_data(profile_name, node_name, &merged_settings).await?;
 
-        push_profile(
+        utils::push::push_profile(
             profile,
             profile_name,
             node,
@@ -400,9 +119,9 @@ async fn push_all_profiles(
 
 #[inline]
 async fn deploy_all_profiles(
-    node: &Node,
+    node: &utils::data::Node,
     node_name: &str,
-    top_settings: &GenericSettings,
+    top_settings: &utils::data::GenericSettings,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Deploying all profiles for `{}`", node_name);
 
@@ -425,9 +144,10 @@ async fn deploy_all_profiles(
         merged_settings.merge(node.generic_settings.clone());
         merged_settings.merge(profile.generic_settings.clone());
 
-        let deploy_data = make_deploy_data(profile_name, node_name, &merged_settings).await?;
+        let deploy_data =
+            utils::make_deploy_data(profile_name, node_name, &merged_settings).await?;
 
-        deploy_profile(
+        utils::deploy::deploy_profile(
             profile,
             profile_name,
             node,
@@ -513,7 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            let data: Data = serde_json::from_str(&data_json)?;
+            let data: utils::data::Data = serde_json::from_str(&data_json)?;
 
             match (maybe_node, maybe_profile) {
                 (Some(node_name), Some(profile_name)) => {
@@ -531,9 +251,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     merged_settings.merge(profile.generic_settings.clone());
 
                     let deploy_data =
-                        make_deploy_data(profile_name, node_name, &merged_settings).await?;
+                        utils::make_deploy_data(profile_name, node_name, &merged_settings).await?;
 
-                    push_profile(
+                    utils::push::push_profile(
                         profile,
                         profile_name,
                         node,
@@ -546,7 +266,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     )
                     .await?;
 
-                    deploy_profile(
+                    utils::deploy::deploy_profile(
                         profile,
                         profile_name,
                         node,
