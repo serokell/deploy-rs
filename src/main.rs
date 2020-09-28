@@ -351,80 +351,16 @@ async fn deploy_profile(
     Ok(())
 }
 
-async fn deploy_profile_todo(
-    top_settings: &GenericSettings,
-    profile: &Profile,
-    profile_name: &str,
-    node: &Node,
-    node_name: &str,
-    supports_flakes: bool,
-    check_sigs: bool,
-    repo: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut merged_settings = top_settings.clone();
-    merged_settings.merge(node.generic_settings.clone());
-    merged_settings.merge(profile.generic_settings.clone());
-
-    let deploy_data = make_deploy_data(profile_name, node_name, &merged_settings).await?;
-
-    push_profile(
-        profile,
-        profile_name,
-        node,
-        node_name,
-        supports_flakes,
-        check_sigs,
-        repo,
-        &merged_settings,
-        &deploy_data,
-    )
-    .await?;
-
-    deploy_profile(
-        profile,
-        profile_name,
-        node,
-        node_name,
-        &merged_settings,
-        &deploy_data,
-    )
-    .await?;
-
-    Ok(())
-}
-
 #[inline]
-async fn deploy_all_profiles(
+async fn push_all_profiles(
     node: &Node,
     node_name: &str,
     supports_flakes: bool,
     repo: &str,
     top_settings: &GenericSettings,
-    prime: bool,
     check_sigs: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Deploying all profiles for `{}`", node_name);
-
-    if prime {
-        info!("Bootstrapping {}", node_name);
-
-        let profile = match node.profiles.get("system") {
-            Some(x) => x,
-            None => good_panic!("No system profile was found, needed for priming"),
-        };
-
-        deploy_profile_todo(
-            top_settings,
-            profile,
-            "system",
-            node,
-            node_name,
-            supports_flakes,
-            check_sigs,
-            repo,
-        )
-        .await?;
-    }
 
     let mut profiles_list: Vec<&str> = node.profiles_order.iter().map(|x| x.as_ref()).collect();
 
@@ -441,13 +377,13 @@ async fn deploy_all_profiles(
             None => good_panic!("No profile was found named `{}`", profile_name),
         };
 
-        // This will have already been deployed
-        if prime && profile_name == "system" {
-            continue;
-        }
+        let mut merged_settings = top_settings.clone();
+        merged_settings.merge(node.generic_settings.clone());
+        merged_settings.merge(profile.generic_settings.clone());
 
-        deploy_profile_todo(
-            top_settings,
+        let deploy_data = make_deploy_data(profile_name, node_name, &merged_settings).await?;
+
+        push_profile(
             profile,
             profile_name,
             node,
@@ -455,6 +391,51 @@ async fn deploy_all_profiles(
             supports_flakes,
             check_sigs,
             repo,
+            &merged_settings,
+            &deploy_data,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+#[inline]
+async fn deploy_all_profiles(
+    node: &Node,
+    node_name: &str,
+    top_settings: &GenericSettings,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Deploying all profiles for `{}`", node_name);
+
+    let mut profiles_list: Vec<&str> = node.profiles_order.iter().map(|x| x.as_ref()).collect();
+
+    // Add any profiles which weren't in the provided order list
+    for (profile_name, _) in &node.profiles {
+        if !profiles_list.contains(&profile_name.as_str()) {
+            profiles_list.push(&profile_name);
+        }
+    }
+
+    for profile_name in profiles_list {
+        let profile = match node.profiles.get(profile_name) {
+            Some(x) => x,
+            None => good_panic!("No profile was found named `{}`", profile_name),
+        };
+
+        let mut merged_settings = top_settings.clone();
+        merged_settings.merge(node.generic_settings.clone());
+        merged_settings.merge(profile.generic_settings.clone());
+
+        let deploy_data = make_deploy_data(profile_name, node_name, &merged_settings).await?;
+
+        deploy_profile(
+            profile,
+            profile_name,
+            node,
+            node_name,
+            &merged_settings,
+            &deploy_data,
         )
         .await?;
     }
@@ -547,8 +528,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         None => good_panic!("No profile was found named `{}`", profile_name),
                     };
 
-                    deploy_profile_todo(
-                        &data.generic_settings,
+                    let mut merged_settings = data.generic_settings.clone();
+                    merged_settings.merge(node.generic_settings.clone());
+                    merged_settings.merge(profile.generic_settings.clone());
+
+                    let deploy_data =
+                        make_deploy_data(profile_name, node_name, &merged_settings).await?;
+
+                    push_profile(
                         profile,
                         profile_name,
                         node,
@@ -556,6 +543,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         supports_flakes,
                         deploy_opts.checksigs,
                         repo,
+                        &merged_settings,
+                        &deploy_data,
+                    )
+                    .await?;
+
+                    deploy_profile(
+                        profile,
+                        profile_name,
+                        node,
+                        node_name,
+                        &merged_settings,
+                        &deploy_data,
                     )
                     .await?;
                 }
@@ -565,31 +564,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         None => good_panic!("No node was found named `{}`", node_name),
                     };
 
-                    deploy_all_profiles(
+                    push_all_profiles(
                         node,
                         node_name,
                         supports_flakes,
                         repo,
                         &data.generic_settings,
-                        deploy_opts.prime,
                         deploy_opts.checksigs,
                     )
                     .await?;
+
+                    deploy_all_profiles(node, node_name, &data.generic_settings).await?;
                 }
                 (None, None) => {
                     info!("Deploying all profiles on all nodes");
 
                     for (node_name, node) in &data.nodes {
-                        deploy_all_profiles(
+                        push_all_profiles(
                             node,
                             node_name,
                             supports_flakes,
                             repo,
                             &data.generic_settings,
-                            deploy_opts.prime,
                             deploy_opts.checksigs,
                         )
                         .await?;
+                    }
+
+                    for (node_name, node) in &data.nodes {
+                        deploy_all_profiles(node, node_name, &data.generic_settings).await?;
                     }
                 }
                 (None, Some(_)) => good_panic!(
