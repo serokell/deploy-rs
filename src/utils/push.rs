@@ -74,7 +74,7 @@ pub async fn push_profile(
     let mut copy_command_ = Command::new("nix");
     let mut copy_command = copy_command_.arg("copy");
 
-    if let Some(true) = merged_settings.fast_connection {
+    if merged_settings.fast_connection {
         copy_command = copy_command.arg("--substitute-on-destination");
     }
 

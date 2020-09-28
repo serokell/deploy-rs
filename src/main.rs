@@ -19,48 +19,12 @@ mod utils;
 #[derive(Clap, Debug)]
 #[clap(version = "1.0", author = "notgne2 <gen2@gen2.space>")]
 struct Opts {
-    /// Log verbosity
-    #[clap(short, long, parse(from_occurrences))]
-    verbose: i32,
-
-    #[clap(subcommand)]
-    subcmd: SubCommand,
-}
-
-/// Deploy profiles
-#[derive(Clap, Debug)]
-struct DeployOpts {
     /// The flake to deploy
     #[clap(default_value = ".")]
     flake: String,
     /// Check signatures when using `nix copy`
     #[clap(short, long)]
     checksigs: bool,
-}
-
-/// Activate a profile on your current machine
-#[derive(Clap, Debug)]
-struct ActivateOpts {
-    profile_path: String,
-    closure: String,
-
-    /// Command for activating the given profile
-    #[clap(short, long)]
-    activate_cmd: Option<String>,
-
-    /// Command for bootstrapping
-    #[clap(short, long)]
-    bootstrap_cmd: Option<String>,
-
-    /// Auto rollback if failure
-    #[clap(short, long)]
-    auto_rollback: bool,
-}
-
-#[derive(Clap, Debug)]
-enum SubCommand {
-    Deploy(DeployOpts),
-    Activate(ActivateOpts),
 }
 
 #[inline]
@@ -150,6 +114,7 @@ async fn deploy_all_profiles(
             node_name,
             &merged_settings,
             &deploy_data,
+            merged_settings.auto_rollback,
         )
         .await?;
     }
@@ -157,6 +122,7 @@ async fn deploy_all_profiles(
     Ok(())
 }
 
+/// Returns if the available Nix installation supports flakes
 async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
     Ok(Command::new("nix")
         .arg("eval")
@@ -169,6 +135,7 @@ async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
         .success())
 }
 
+/// Evaluates the Nix in the given `repo` and return the processed Data from it
 async fn get_deployment_data(
     supports_flakes: bool,
     repo: &str,
@@ -216,108 +183,95 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let opts: Opts = Opts::parse();
 
-    match opts.subcmd {
-        SubCommand::Deploy(deploy_opts) => {
-            let deploy_flake = utils::parse_flake(deploy_opts.flake.as_str());
+    let deploy_flake = utils::parse_flake(opts.flake.as_str());
 
-            let supports_flakes = test_flake_support().await?;
+    let supports_flakes = test_flake_support().await?;
 
-            let data = get_deployment_data(supports_flakes, deploy_flake.repo).await?;
+    let data = get_deployment_data(supports_flakes, deploy_flake.repo).await?;
 
-            match (deploy_flake.node, deploy_flake.profile) {
-                (Some(node_name), Some(profile_name)) => {
-                    let node = match data.nodes.get(node_name) {
-                        Some(x) => x,
-                        None => good_panic!("No node was found named `{}`", node_name),
-                    };
-                    let profile = match node.profiles.get(profile_name) {
-                        Some(x) => x,
-                        None => good_panic!("No profile was found named `{}`", profile_name),
-                    };
-
-                    let mut merged_settings = data.generic_settings.clone();
-                    merged_settings.merge(node.generic_settings.clone());
-                    merged_settings.merge(profile.generic_settings.clone());
-
-                    let deploy_data =
-                        utils::make_deploy_data(profile_name, node_name, &merged_settings).await?;
-
-                    utils::push::push_profile(
-                        profile,
-                        profile_name,
-                        node,
-                        node_name,
-                        supports_flakes,
-                        deploy_opts.checksigs,
-                        deploy_flake.repo,
-                        &merged_settings,
-                        &deploy_data,
-                    )
-                    .await?;
-
-                    utils::deploy::deploy_profile(
-                        profile,
-                        profile_name,
-                        node,
-                        node_name,
-                        &merged_settings,
-                        &deploy_data,
-                    )
-                    .await?;
-                }
-                (Some(node_name), None) => {
-                    let node = match data.nodes.get(node_name) {
-                        Some(x) => x,
-                        None => good_panic!("No node was found named `{}`", node_name),
-                    };
-
-                    push_all_profiles(
-                        node,
-                        node_name,
-                        supports_flakes,
-                        deploy_flake.repo,
-                        &data.generic_settings,
-                        deploy_opts.checksigs,
-                    )
-                    .await?;
-
-                    deploy_all_profiles(node, node_name, &data.generic_settings).await?;
-                }
-                (None, None) => {
-                    info!("Deploying all profiles on all nodes");
-
-                    for (node_name, node) in &data.nodes {
-                        push_all_profiles(
-                            node,
-                            node_name,
-                            supports_flakes,
-                            deploy_flake.repo,
-                            &data.generic_settings,
-                            deploy_opts.checksigs,
-                        )
-                        .await?;
-                    }
-
-                    for (node_name, node) in &data.nodes {
-                        deploy_all_profiles(node, node_name, &data.generic_settings).await?;
-                    }
-                }
-                (None, Some(_)) => good_panic!(
-                    "Profile provided without a node, this is not (currently) supported"
-                ),
+    match (deploy_flake.node, deploy_flake.profile) {
+        (Some(node_name), Some(profile_name)) => {
+            let node = match data.nodes.get(node_name) {
+                Some(x) => x,
+                None => good_panic!("No node was found named `{}`", node_name),
             };
-        }
-        SubCommand::Activate(activate_opts) => {
-            utils::activate::activate(
-                activate_opts.profile_path,
-                activate_opts.closure,
-                activate_opts.activate_cmd,
-                activate_opts.bootstrap_cmd,
-                activate_opts.auto_rollback,
+            let profile = match node.profiles.get(profile_name) {
+                Some(x) => x,
+                None => good_panic!("No profile was found named `{}`", profile_name),
+            };
+
+            let mut merged_settings = data.generic_settings.clone();
+            merged_settings.merge(node.generic_settings.clone());
+            merged_settings.merge(profile.generic_settings.clone());
+
+            let deploy_data =
+                utils::make_deploy_data(profile_name, node_name, &merged_settings).await?;
+
+            utils::push::push_profile(
+                profile,
+                profile_name,
+                node,
+                node_name,
+                supports_flakes,
+                opts.checksigs,
+                deploy_flake.repo,
+                &merged_settings,
+                &deploy_data,
+            )
+            .await?;
+
+            utils::deploy::deploy_profile(
+                profile,
+                profile_name,
+                node,
+                node_name,
+                &merged_settings,
+                &deploy_data,
+                merged_settings.auto_rollback,
             )
             .await?;
         }
-    }
+        (Some(node_name), None) => {
+            let node = match data.nodes.get(node_name) {
+                Some(x) => x,
+                None => good_panic!("No node was found named `{}`", node_name),
+            };
+
+            push_all_profiles(
+                node,
+                node_name,
+                supports_flakes,
+                deploy_flake.repo,
+                &data.generic_settings,
+                opts.checksigs,
+            )
+            .await?;
+
+            deploy_all_profiles(node, node_name, &data.generic_settings).await?;
+        }
+        (None, None) => {
+            info!("Deploying all profiles on all nodes");
+
+            for (node_name, node) in &data.nodes {
+                push_all_profiles(
+                    node,
+                    node_name,
+                    supports_flakes,
+                    deploy_flake.repo,
+                    &data.generic_settings,
+                    opts.checksigs,
+                )
+                .await?;
+            }
+
+            for (node_name, node) in &data.nodes {
+                deploy_all_profiles(node, node_name, &data.generic_settings).await?;
+            }
+        }
+        (None, Some(_)) => {
+            good_panic!("Profile provided without a node, this is not (currently) supported")
+        }
+    };
 
     Ok(())
 }

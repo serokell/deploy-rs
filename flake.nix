@@ -16,7 +16,7 @@
 
         defaultApp = {
           type = "app";
-          program = "${self.defaultPackage."${system}"}/bin/deploy-rs";
+          program = "${self.defaultPackage."${system}"}/bin/deploy";
         };
       });
 }

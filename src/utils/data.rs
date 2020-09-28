@@ -14,10 +14,12 @@ pub struct GenericSettings {
     )]
     #[merge(strategy = merge::vec::append)]
     pub ssh_opts: Vec<String>,
-    #[serde(rename(deserialize = "fastConnection"))]
-    pub fast_connection: Option<bool>,
-    #[serde(rename(deserialize = "autoRollback"))]
-    pub auto_rollback: Option<String>,
+    #[serde(rename(deserialize = "fastConnection"), default)]
+    #[merge(strategy = merge::bool::overwrite_false)]
+    pub fast_connection: bool,
+    #[serde(rename(deserialize = "autoRollback"), default)]
+    #[merge(strategy = merge::bool::overwrite_false)]
+    pub auto_rollback: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]

@@ -9,6 +9,7 @@ pub async fn deploy_profile(
     node_name: &str,
     merged_settings: &data::GenericSettings,
     deploy_data: &super::DeployData<'_>,
+    auto_rollback: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "Activating profile `{}` for node `{}`",
@@ -16,8 +17,16 @@ pub async fn deploy_profile(
     );
 
     let mut self_activate_command = format!(
-        "{} activate '{}' '{}'",
-        deploy_data.current_exe.as_path().to_str().unwrap(),
+        "{} '{}' '{}'",
+        deploy_data
+            .current_exe
+            .as_path()
+            .parent()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned()
+            + "/activate",
         deploy_data.profile_path,
         profile.profile_settings.path,
     );
@@ -38,6 +47,10 @@ pub async fn deploy_profile(
             "{} --activate-cmd '{}'",
             self_activate_command, activate_cmd
         );
+    }
+
+    if auto_rollback {
+        self_activate_command = format!("{} --auto-rollback", self_activate_command);
     }
 
     let mut c = Command::new("ssh");
