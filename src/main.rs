@@ -159,6 +159,68 @@ async fn deploy_all_profiles(
     Ok(())
 }
 
+#[derive(PartialEq, Debug)]
+struct DeployFlake<'a> {
+    repo: &'a str,
+    node: Option<&'a str>,
+    profile: Option<&'a str>,
+}
+
+fn parse_flake(flake: &str) -> DeployFlake {
+    let flake_fragment_start = flake.find('#');
+    let (repo, maybe_fragment) = match flake_fragment_start {
+        Some(s) => (&flake[..s], Some(&flake[s + 1..])),
+        None => (flake, None),
+    };
+
+    let (node, profile) = match maybe_fragment {
+        Some(fragment) => {
+            let fragment_profile_start = fragment.find('.');
+            match fragment_profile_start {
+                Some(s) => (Some(&fragment[..s]), Some(&fragment[s + 1..])),
+                None => (Some(fragment), None),
+            }
+        }
+        None => (None, None),
+    };
+
+    DeployFlake {
+        repo,
+        node,
+        profile,
+    }
+}
+
+#[test]
+fn test_parse_flake() {
+    assert_eq!(
+        parse_flake("../deploy/examples/system#example"),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: Some("example"),
+            profile: None
+        }
+    );
+
+    assert_eq!(
+        parse_flake("../deploy/examples/system#example.system"),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: Some("example"),
+            profile: Some("system")
+        }
+    );
+
+    assert_eq!(
+        parse_flake("../deploy/examples/system"),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: None,
+            profile: None,
+        }
+    );
+}
+
 #[tokio::main]
 
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -172,22 +234,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match opts.subcmd {
         SubCommand::Deploy(deploy_opts) => {
-            let flake_fragment_start = deploy_opts.flake.find('#');
-            let (repo, maybe_fragment) = match flake_fragment_start {
-                Some(s) => (&deploy_opts.flake[..s], Some(&deploy_opts.flake[s + 1..])),
-                None => (deploy_opts.flake.as_str(), None),
-            };
-
-            let (maybe_node, maybe_profile) = match maybe_fragment {
-                Some(fragment) => {
-                    let fragment_profile_start = fragment.find('.');
-                    match fragment_profile_start {
-                        Some(s) => (Some(&fragment[..s]), Some(&fragment[s + 1..])),
-                        None => (Some(fragment), None),
-                    }
-                }
-                None => (None, None),
-            };
+            let deploy_flake = parse_flake(deploy_opts.flake.as_str());
 
             let test_flake_status = Command::new("nix")
                 .arg("eval")
@@ -205,7 +252,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let c = Command::new("nix")
                         .arg("eval")
                         .arg("--json")
-                        .arg(format!("{}#deploy", repo))
+                        .arg(format!("{}#deploy", deploy_flake.repo))
                         .stdout(Stdio::null())
                         .stderr(Stdio::null())
                         // TODO forward input args?
@@ -221,7 +268,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .arg("--json")
                         .arg("--eval")
                         .arg("--E")
-                        .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", repo))
+                        .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", deploy_flake.repo))
                         .stdout(Stdio::null())
                         .stderr(Stdio::null())
                         .output()
@@ -233,7 +280,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let data: utils::data::Data = serde_json::from_str(&data_json)?;
 
-            match (maybe_node, maybe_profile) {
+            match (deploy_flake.node, deploy_flake.profile) {
                 (Some(node_name), Some(profile_name)) => {
                     let node = match data.nodes.get(node_name) {
                         Some(x) => x,
@@ -258,7 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         node_name,
                         supports_flakes,
                         deploy_opts.checksigs,
-                        repo,
+                        deploy_flake.repo,
                         &merged_settings,
                         &deploy_data,
                     )
@@ -284,7 +331,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         node,
                         node_name,
                         supports_flakes,
-                        repo,
+                        deploy_flake.repo,
                         &data.generic_settings,
                         deploy_opts.checksigs,
                     )
@@ -300,7 +347,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             node,
                             node_name,
                             supports_flakes,
-                            repo,
+                            deploy_flake.repo,
                             &data.generic_settings,
                             deploy_opts.checksigs,
                         )
