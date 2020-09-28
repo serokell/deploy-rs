@@ -17,8 +17,6 @@ extern crate serde_derive;
 #[macro_use]
 mod utils;
 
-// use utils::*;
-
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
 #[derive(Clap, Debug)]
 #[clap(version = "1.0", author = "notgne2 <gen2@gen2.space>")]
@@ -81,7 +79,7 @@ async fn push_all_profiles(
     let mut profiles_list: Vec<&str> = node.profiles_order.iter().map(|x| x.as_ref()).collect();
 
     // Add any profiles which weren't in the provided order list
-    for (profile_name, _) in &node.profiles {
+    for profile_name in node.profiles.keys() {
         if !profiles_list.contains(&profile_name.as_str()) {
             profiles_list.push(&profile_name);
         }
@@ -128,7 +126,7 @@ async fn deploy_all_profiles(
     let mut profiles_list: Vec<&str> = node.profiles_order.iter().map(|x| x.as_ref()).collect();
 
     // Add any profiles which weren't in the provided order list
-    for (profile_name, _) in &node.profiles {
+    for profile_name in node.profiles.keys() {
         if !profiles_list.contains(&profile_name.as_str()) {
             profiles_list.push(&profile_name);
         }
@@ -164,7 +162,7 @@ async fn deploy_all_profiles(
 #[tokio::main]
 
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if let Err(_) = std::env::var("DEPLOY_LOG") {
+    if std::env::var("DEPLOY_LOG").is_err() {
         std::env::set_var("DEPLOY_LOG", "info");
     }
 
@@ -403,8 +401,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .spawn()?
                             .await?;
 
-                        // TODO: why are we doing this?
-                        // to run the older version as long as the command is the same?
+                        // TODO: Find some way to make sure this command never changes, otherwise this will not work
                         Command::new("bash")
                             .arg("-c")
                             .arg(&activate_cmd)
