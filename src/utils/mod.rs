@@ -9,7 +9,6 @@ macro_rules! good_panic {
     }}
 }
 
-pub mod activate;
 pub mod data;
 pub mod deploy;
 pub mod push;
