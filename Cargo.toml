@@ -1,7 +1,11 @@
+# SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+#
+# SPDX-License-Identifier: MPL-2.0
+
 [package]
 name = "deploy-rs"
 version = "0.1.0"
-authors = ["notgne2 <gen2@gen2.space>"]
+authors = ["Serokell <https://serokell.io/>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

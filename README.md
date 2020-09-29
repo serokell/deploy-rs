@@ -1,15 +1,25 @@
+<!--
+SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+
+SPDX-License-Identifier: MPL-2.0
+-->
+
 # deploy-rs
-#### A candidate for [serokell/deploy](https://github.com/serokell/deploy)
+
+A Simple multi-profile Nix-flake deploy tool.
 
 **This is very early development software, you should expect to find issues**
 
-## Usage examples
+## Usage
 
-Example Nix expressions/configurations are in the [examples folder](./examples), here are various ways to deploy
 
 - `nix run github:notgne2/deploy-rs your-flake#node.profile`
 - `nix run github:notgne2/deploy-rs your-flake#node`
 - `nix run github:notgne2/deploy-rs your-flake`
+
+## API
+
+Example Nix expressions/configurations are in the [examples folder](./examples).
 
 ## Idea
 
@@ -22,3 +32,10 @@ This type of design (as opposed to more traditional tools like NixOps or morph) 
 - ~~Ordered profiles~~
 - Automatic rollbacks if one profile on node failed to deploy (partially implemented)
 - UI (?)
+
+## About Serokell
+
+deploy-rs is maintained and funded with ❤️ by [Serokell](https://serokell.io/).
+The names and logo for Serokell are trademark of Serokell OÜ.
+
+We love open source software! See [our other projects](https://serokell.io/community?utm_source=github) or [hire us](https://serokell.io/hire-us?utm_source=github) to design, develop and grow your idea!

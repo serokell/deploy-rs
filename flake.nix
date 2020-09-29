@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+#
+# SPDX-License-Identifier: MPL-2.0
+
 {
   inputs = {
     naersk.url = "github:nmattia/naersk/master";
@@ -10,8 +14,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         naersk-lib = pkgs.callPackage naersk { };
-      in
-      {
+      in {
         defaultPackage = naersk-lib.buildPackage ./.;
 
         defaultApp = {
