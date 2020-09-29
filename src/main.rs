@@ -25,6 +25,8 @@ struct Opts {
     /// Check signatures when using `nix copy`
     #[clap(short, long)]
     checksigs: bool,
+    /// Extra arguments to be passed to nix build
+    extra_build_args: Vec<String>,
 }
 
 #[inline]
@@ -141,37 +143,46 @@ async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
 async fn get_deployment_data(
     supports_flakes: bool,
     repo: &str,
+    extra_build_args: Vec<String>,
 ) -> Result<utils::data::Data, Box<dyn std::error::Error>> {
-    let data_json = match supports_flakes {
-        true => {
-            let c = Command::new("nix")
-                .arg("eval")
-                .arg("--json")
-                .arg(format!("{}#deploy", repo))
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                // TODO forward input args?
-                .output()
-                .await?;
+    let mut c = match supports_flakes {
+        true => Command::new("nix"),
+        false => Command::new("nix-instanciate"),
+    };
 
-            String::from_utf8(c.stdout)?
+    let mut build_command = match supports_flakes {
+        true => {
+            c.arg("eval").arg("--json").arg(format!("{}#deploy", repo))
         }
         false => {
-            let c = Command::new("nix-instanciate")
+            c
                         .arg("--strict")
                         .arg("--read-write-mode")
                         .arg("--json")
                         .arg("--eval")
                         .arg("--E")
                         .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", repo))
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .output()
-                        .await?;
-
-            String::from_utf8(c.stdout)?
         }
     };
+
+    for extra_arg in extra_build_args {
+        build_command = build_command.arg(extra_arg);
+    }
+
+    let build_output = build_command
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .await?;
+
+    if !build_output.status.success() {
+        good_panic!(
+            "Error building deploy props for the provided flake: {}",
+            repo
+        );
+    }
+
+    let data_json = String::from_utf8(build_output.stdout)?;
 
     Ok(serde_json::from_str(&data_json)?)
 }
@@ -189,7 +200,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let supports_flakes = test_flake_support().await?;
 
-    let data = get_deployment_data(supports_flakes, deploy_flake.repo).await?;
+    let data =
+        get_deployment_data(supports_flakes, deploy_flake.repo, opts.extra_build_args).await?;
 
     match (deploy_flake.node, deploy_flake.profile) {
         (Some(node_name), Some(profile_name)) => {
