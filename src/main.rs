@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+//
+// SPDX-License-Identifier: MPL-2.0
+
 use clap::Clap;
 
 use std::process::Stdio;
@@ -17,7 +21,7 @@ mod utils;
 
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
 #[derive(Clap, Debug)]
-#[clap(version = "1.0", author = "notgne2 <gen2@gen2.space>")]
+#[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
 struct Opts {
     /// The flake to deploy
     #[clap(default_value = ".")]

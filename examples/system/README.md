@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+
+SPDX-License-Identifier: MPL-2.0
+-->
+
 # Example nixos system deployment
 
 This is an example of how to deploy a full nixos system with a separate user unit to a bare machine.

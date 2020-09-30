@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+#
+# SPDX-License-Identifier: MPL-2.0
+
 nixpkgs:
 let
   pkgs = nixpkgs.legacyPackages.x86_64-linux;
@@ -14,11 +18,10 @@ let
     text = mkService "hello" {
       unitConfig.WantedBy = [ "multi-user.target" ];
       path = [ pkgs.hello ];
-      script = "hello -g lel; touch $HOME/oof";
+      script = "hello";
     };
   };
-in
-pkgs.writeShellScriptBin "activate" ''
+in pkgs.writeShellScriptBin "activate" ''
   mkdir -p $HOME/.config/systemd/user
   rm $HOME/.config/systemd/user/hello.service
   ln -s ${service} $HOME/.config/systemd/user/hello.service

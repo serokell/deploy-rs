@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+//
+// SPDX-License-Identifier: MPL-2.0
+
 use clap::Clap;
 
 use std::process::Stdio;
