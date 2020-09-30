@@ -143,7 +143,7 @@ async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
 async fn get_deployment_data(
     supports_flakes: bool,
     repo: &str,
-    extra_build_args: Vec<String>,
+    extra_build_args: &[String],
 ) -> Result<utils::data::Data, Box<dyn std::error::Error>> {
     let mut c = match supports_flakes {
         true => Command::new("nix"),
@@ -156,12 +156,12 @@ async fn get_deployment_data(
         }
         false => {
             c
-                        .arg("--strict")
-                        .arg("--read-write-mode")
-                        .arg("--json")
-                        .arg("--eval")
-                        .arg("--E")
-                        .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", repo))
+                .arg("--strict")
+                .arg("--read-write-mode")
+                .arg("--json")
+                .arg("--eval")
+                .arg("--E")
+                .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", repo))
         }
     };
 
@@ -186,23 +186,13 @@ async fn get_deployment_data(
 
     Ok(serde_json::from_str(&data_json)?)
 }
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if std::env::var("DEPLOY_LOG").is_err() {
-        std::env::set_var("DEPLOY_LOG", "info");
-    }
 
-    pretty_env_logger::init_custom_env("DEPLOY_LOG");
-
-    let opts: Opts = Opts::parse();
-
-    let deploy_flake = utils::parse_flake(opts.flake.as_str());
-
-    let supports_flakes = test_flake_support().await?;
-
-    let data =
-        get_deployment_data(supports_flakes, deploy_flake.repo, opts.extra_build_args).await?;
-
+async fn run_deploy(
+    deploy_flake: utils::DeployFlake<'_>,
+    data: utils::data::Data,
+    supports_flakes: bool,
+    opts: &Opts,
+) -> Result<(), Box<dyn std::error::Error>> {
     match (deploy_flake.node, deploy_flake.profile) {
         (Some(node_name), Some(profile_name)) => {
             let node = match data.nodes.get(node_name) {
@@ -286,6 +276,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             good_panic!("Profile provided without a node, this is not (currently) supported")
         }
     };
+
+    Ok(())
+}
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var("DEPLOY_LOG").is_err() {
+        std::env::set_var("DEPLOY_LOG", "info");
+    }
+
+    pretty_env_logger::init_custom_env("DEPLOY_LOG");
+
+    let opts: Opts = Opts::parse();
+
+    let deploy_flake = utils::parse_flake(opts.flake.as_str());
+
+    let supports_flakes = test_flake_support().await?;
+
+    let data =
+        get_deployment_data(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
+
+    run_deploy(deploy_flake, data, supports_flakes, &opts).await?;
 
     Ok(())
 }
