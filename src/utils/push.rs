@@ -66,7 +66,9 @@ pub async fn push_profile(
             .arg("-k")
             .arg(local_key)
             .arg(&profile.profile_settings.path)
-            .arg(&deploy_data.current_exe)
+            .arg(&super::deploy_path_to_activate_path_str(
+                &deploy_data.current_exe,
+            )?)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?
@@ -101,10 +103,10 @@ pub async fn push_profile(
             deploy_data.ssh_user, node.node_settings.hostname
         ))
         .arg(&profile.profile_settings.path)
-        .arg(&deploy_data.current_exe)
+        .arg(&super::deploy_path_to_activate_path_str(
+            &deploy_data.current_exe,
+        )?)
         .env("NIX_SSHOPTS", ssh_opts_str)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
         .spawn()?
         .await?;
 

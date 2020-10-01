@@ -136,3 +136,27 @@ pub async fn make_deploy_data<'a>(
         current_exe,
     })
 }
+
+pub fn deploy_path_to_activate_path_str(
+    deploy_path: &std::path::Path,
+) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(format!(
+        "{}/activate",
+        deploy_path
+            .parent()
+            .ok_or("Deploy path too short")?
+            .to_str()
+            .ok_or("Deploy path is not valid utf8")?
+            .to_owned()
+    ))
+}
+
+#[test]
+fn test_activate_path_generation() {
+    match deploy_path_to_activate_path_str(&std::path::PathBuf::from(
+        "/blah/blah/deploy-rs/bin/deploy",
+    )) {
+        Err(_) => panic!(""),
+        Ok(x) => assert_eq!(x, "/blah/blah/deploy-rs/bin/activate".to_string()),
+    }
+}

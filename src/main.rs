@@ -149,6 +149,8 @@ async fn get_deployment_data(
     repo: &str,
     extra_build_args: &[String],
 ) -> Result<utils::data::Data, Box<dyn std::error::Error>> {
+    info!("Evaluating flake in {}", repo);
+
     let mut c = match supports_flakes {
         true => Command::new("nix"),
         false => Command::new("nix-instanciate"),
