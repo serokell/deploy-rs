@@ -31,6 +31,25 @@ struct Opts {
     checksigs: bool,
     /// Extra arguments to be passed to nix build
     extra_build_args: Vec<String>,
+
+    /// Override the SSH user with the given value
+    #[clap(long)]
+    ssh_user: Option<String>,
+    /// Override the profile user with the given value
+    #[clap(long)]
+    profile_user: Option<String>,
+    /// Override the SSH options used
+    #[clap(long)]
+    ssh_opts: Option<String>,
+    /// Override if the connecting to the target node should be considered fast
+    #[clap(long)]
+    fast_connection: Option<bool>,
+    /// Override if a rollback should be attempted if activation fails
+    #[clap(long)]
+    auto_rollback: Option<bool>,
+    /// Override hostname used for the node
+    #[clap(long)]
+    hostname: Option<String>,
 }
 
 #[inline]
@@ -41,6 +60,7 @@ async fn push_all_profiles(
     repo: &str,
     top_settings: &utils::data::GenericSettings,
     check_sigs: bool,
+    cmd_overrides: &utils::CmdOverrides,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Pushing all profiles for `{}`", node_name);
 
@@ -63,19 +83,23 @@ async fn push_all_profiles(
         merged_settings.merge(node.generic_settings.clone());
         merged_settings.merge(profile.generic_settings.clone());
 
-        let deploy_data =
-            utils::make_deploy_data(profile_name, node_name, &merged_settings).await?;
-
-        utils::push::push_profile(
-            profile,
-            profile_name,
+        let deploy_data = utils::make_deploy_data(
+            top_settings,
             node,
             node_name,
+            profile,
+            profile_name,
+            cmd_overrides,
+        )?;
+
+        let deploy_defs = deploy_data.defs();
+
+        utils::push::push_profile(
             supports_flakes,
             check_sigs,
             repo,
-            &merged_settings,
             &deploy_data,
+            &deploy_defs,
         )
         .await?;
     }
@@ -88,6 +112,7 @@ async fn deploy_all_profiles(
     node: &utils::data::Node,
     node_name: &str,
     top_settings: &utils::data::GenericSettings,
+    cmd_overrides: &utils::CmdOverrides,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Deploying all profiles for `{}`", node_name);
 
@@ -110,19 +135,18 @@ async fn deploy_all_profiles(
         merged_settings.merge(node.generic_settings.clone());
         merged_settings.merge(profile.generic_settings.clone());
 
-        let deploy_data =
-            utils::make_deploy_data(profile_name, node_name, &merged_settings).await?;
-
-        utils::deploy::deploy_profile(
-            profile,
-            profile_name,
+        let deploy_data = utils::make_deploy_data(
+            top_settings,
             node,
             node_name,
-            &merged_settings,
-            &deploy_data,
-            merged_settings.auto_rollback,
-        )
-        .await?;
+            profile,
+            profile_name,
+            cmd_overrides,
+        )?;
+
+        let deploy_defs = deploy_data.defs();
+
+        utils::deploy::deploy_profile(&deploy_data, &deploy_defs).await?;
     }
 
     Ok(())
@@ -197,7 +221,8 @@ async fn run_deploy(
     deploy_flake: utils::DeployFlake<'_>,
     data: utils::data::Data,
     supports_flakes: bool,
-    opts: &Opts,
+    check_sigs: bool,
+    cmd_overrides: utils::CmdOverrides,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match (deploy_flake.node, deploy_flake.profile) {
         (Some(node_name), Some(profile_name)) => {
@@ -210,36 +235,27 @@ async fn run_deploy(
                 None => good_panic!("No profile was found named `{}`", profile_name),
             };
 
-            let mut merged_settings = data.generic_settings.clone();
-            merged_settings.merge(node.generic_settings.clone());
-            merged_settings.merge(profile.generic_settings.clone());
+            let deploy_data = utils::make_deploy_data(
+                &data.generic_settings,
+                node,
+                node_name,
+                profile,
+                profile_name,
+                &cmd_overrides,
+            )?;
 
-            let deploy_data =
-                utils::make_deploy_data(profile_name, node_name, &merged_settings).await?;
+            let deploy_defs = deploy_data.defs();
 
             utils::push::push_profile(
-                profile,
-                profile_name,
-                node,
-                node_name,
                 supports_flakes,
-                opts.checksigs,
+                check_sigs,
                 deploy_flake.repo,
-                &merged_settings,
                 &deploy_data,
+                &deploy_defs,
             )
             .await?;
 
-            utils::deploy::deploy_profile(
-                profile,
-                profile_name,
-                node,
-                node_name,
-                &merged_settings,
-                &deploy_data,
-                merged_settings.auto_rollback,
-            )
-            .await?;
+            utils::deploy::deploy_profile(&deploy_data, &deploy_defs).await?;
         }
         (Some(node_name), None) => {
             let node = match data.nodes.get(node_name) {
@@ -253,11 +269,12 @@ async fn run_deploy(
                 supports_flakes,
                 deploy_flake.repo,
                 &data.generic_settings,
-                opts.checksigs,
+                check_sigs,
+                &cmd_overrides,
             )
             .await?;
 
-            deploy_all_profiles(node, node_name, &data.generic_settings).await?;
+            deploy_all_profiles(node, node_name, &data.generic_settings, &cmd_overrides).await?;
         }
         (None, None) => {
             info!("Deploying all profiles on all nodes");
@@ -269,13 +286,15 @@ async fn run_deploy(
                     supports_flakes,
                     deploy_flake.repo,
                     &data.generic_settings,
-                    opts.checksigs,
+                    check_sigs,
+                    &cmd_overrides,
                 )
                 .await?;
             }
 
             for (node_name, node) in &data.nodes {
-                deploy_all_profiles(node, node_name, &data.generic_settings).await?;
+                deploy_all_profiles(node, node_name, &data.generic_settings, &cmd_overrides)
+                    .await?;
             }
         }
         (None, Some(_)) => {
@@ -285,6 +304,7 @@ async fn run_deploy(
 
     Ok(())
 }
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("DEPLOY_LOG").is_err() {
@@ -297,12 +317,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let deploy_flake = utils::parse_flake(opts.flake.as_str());
 
+    let cmd_overrides = utils::CmdOverrides {
+        ssh_user: opts.ssh_user,
+        profile_user: opts.profile_user,
+        ssh_opts: opts.ssh_opts,
+        fast_connection: opts.fast_connection,
+        auto_rollback: opts.auto_rollback,
+        hostname: opts.hostname,
+    };
+
+    match (cmd_overrides.purity(), deploy_flake.node, deploy_flake.profile) {
+        (utils::OverridePurity::ErrorProfile, _, None) => good_panic!(
+            "You have specified an override not suitible for deploying to multiple profiles, please specify your target profile explicitly"
+        ),
+        (utils::OverridePurity::Error, None, _) => good_panic!(
+            "You have specified an override not suitible for deploying to multiple nodes, please specify your target node explicitly"
+        ),
+
+        (utils::OverridePurity::Warn, None, _) => warn!(
+            "Certain overrides you have provided might be dangerous when used on multiple nodes or profiles, be cautious"
+        ),
+        _ => (),
+    };
+
     let supports_flakes = test_flake_support().await?;
 
     let data =
         get_deployment_data(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
 
-    run_deploy(deploy_flake, data, supports_flakes, &opts).await?;
+    run_deploy(
+        deploy_flake,
+        data,
+        supports_flakes,
+        opts.checksigs,
+        cmd_overrides,
+    )
+    .await?;
 
     Ok(())
 }

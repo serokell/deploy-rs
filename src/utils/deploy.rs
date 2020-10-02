@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use super::data;
-
 use tokio::process::Command;
 
 fn build_activate_command(
@@ -68,38 +66,35 @@ fn test_activation_command_builder() {
 }
 
 pub async fn deploy_profile(
-    profile: &data::Profile,
-    profile_name: &str,
-    node: &data::Node,
-    node_name: &str,
-    merged_settings: &data::GenericSettings,
     deploy_data: &super::DeployData<'_>,
-    auto_rollback: bool,
+    deploy_defs: &super::DeployDefs<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "Activating profile `{}` for node `{}`",
-        profile_name, node_name
+        deploy_data.profile_name, deploy_data.node_name
     );
 
-    let activate_path_str = super::deploy_path_to_activate_path_str(&deploy_data.current_exe)?;
+    let activate_path_str = super::deploy_path_to_activate_path_str(&deploy_defs.current_exe)?;
 
     let self_activate_command = build_activate_command(
         activate_path_str,
-        &deploy_data.sudo,
-        &deploy_data.profile_path,
-        &profile.profile_settings.path,
-        &profile.profile_settings.activate,
-        &profile.profile_settings.bootstrap,
-        auto_rollback,
+        &deploy_defs.sudo,
+        &deploy_defs.profile_path,
+        &deploy_data.profile.profile_settings.path,
+        &deploy_data.profile.profile_settings.activate,
+        &deploy_data.profile.profile_settings.bootstrap,
+        deploy_data.merged_settings.auto_rollback,
     )?;
 
-    let mut c = Command::new("ssh");
-    let mut ssh_command = c.arg(format!(
-        "ssh://{}@{}",
-        deploy_data.ssh_user, node.node_settings.hostname
-    ));
+    let hostname = match deploy_data.cmd_overrides.hostname {
+        Some(ref x) => x,
+        None => &deploy_data.node.node_settings.hostname,
+    };
 
-    for ssh_opt in &merged_settings.ssh_opts {
+    let mut c = Command::new("ssh");
+    let mut ssh_command = c.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
+
+    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
         ssh_command = ssh_command.arg(ssh_opt);
     }
 
