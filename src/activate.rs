@@ -26,10 +26,6 @@ struct Opts {
     profile_path: String,
     closure: String,
 
-    /// Command for activating the given profile
-    #[clap(long)]
-    activate_cmd: Option<String>,
-
     /// Command for bootstrapping
     #[clap(long)]
     bootstrap_cmd: Option<String>,
@@ -42,20 +38,23 @@ struct Opts {
 pub async fn activate(
     profile_path: String,
     closure: String,
-    activate_cmd: Option<String>,
     bootstrap_cmd: Option<String>,
     auto_rollback: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Activating profile");
 
-    Command::new("nix-env")
+    let nix_env_set_exit_status = Command::new("nix-env")
         .arg("-p")
         .arg(&profile_path)
         .arg("--set")
         .arg(&closure)
         .stdout(Stdio::null())
-        .spawn()?
+        .status()
         .await?;
+
+    if !nix_env_set_exit_status.success() {
+        good_panic!("Failed to update nix-env generation");
+    }
 
     if let (Some(bootstrap_cmd), false) = (bootstrap_cmd, !Path::new(&profile_path).exists()) {
         let bootstrap_status = Command::new("bash")
@@ -76,87 +75,85 @@ pub async fn activate(
         }
     }
 
-    if let Some(activate_cmd) = activate_cmd {
-        let activate_status = Command::new("bash")
-            .arg("-c")
-            .arg(&activate_cmd)
-            .env("PROFILE", &profile_path)
-            .status()
-            .await;
+    let activate_status = Command::new(format!("{}/activate", profile_path))
+        .env("PROFILE", &profile_path)
+        .status()
+        .await;
 
-        match activate_status {
-            Ok(s) if s.success() => (),
-            _ if auto_rollback => {
-                error!("Failed to execute activation command");
+    match activate_status {
+        Ok(s) if s.success() => (),
+        _ if auto_rollback => {
+            error!("Failed to execute activation command");
 
-                let nix_env_rollback_exit_status = Command::new("nix-env")
-                    .arg("-p")
-                    .arg(&profile_path)
-                    .arg("--rollback")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await?;
+            let nix_env_rollback_exit_status = Command::new("nix-env")
+                .arg("-p")
+                .arg(&profile_path)
+                .arg("--rollback")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await?;
 
-                if !nix_env_rollback_exit_status.success() {
-                    good_panic!("`nix-env --rollback` failed");
-                }
-
-                let nix_env_list_generations_out = Command::new("nix-env")
-                    .arg("-p")
-                    .arg(&profile_path)
-                    .arg("--list-generations")
-                    .output()
-                    .await?;
-
-                if !nix_env_list_generations_out.status.success() {
-                    good_panic!("Listing `nix-env` generations failed");
-                }
-
-                let generations_list = String::from_utf8(nix_env_list_generations_out.stdout)?;
-
-                let last_generation_line = generations_list
-                    .lines()
-                    .last()
-                    .expect("Expected to find a generation in list");
-
-                let last_generation_id = last_generation_line
-                    .split_whitespace()
-                    .next()
-                    .expect("Expected to get ID from generation entry");
-
-                debug!("Removing generation entry {}", last_generation_line);
-                warn!("Removing generation by ID {}", last_generation_id);
-
-                let nix_env_delete_generation_exit_status = Command::new("nix-env")
-                    .arg("-p")
-                    .arg(&profile_path)
-                    .arg("--delete-generations")
-                    .arg(last_generation_id)
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await?;
-
-                if !nix_env_delete_generation_exit_status.success() {
-                    good_panic!("Failed to delete failed generation");
-                }
-
-                // TODO: Find some way to make sure this command never changes, otherwise this will not work
-                let re_activate_exit_status = Command::new("bash")
-                    .arg("-c")
-                    .arg(&activate_cmd)
-                    .status()
-                    .await?;
-
-                if !re_activate_exit_status.success() {
-                    good_panic!("Failed to re-activate the last generation");
-                }
-
-                std::process::exit(1);
+            if !nix_env_rollback_exit_status.success() {
+                good_panic!("`nix-env --rollback` failed");
             }
-            _ => {}
+
+            debug!("Listing generations");
+
+            let nix_env_list_generations_out = Command::new("nix-env")
+                .arg("-p")
+                .arg(&profile_path)
+                .arg("--list-generations")
+                .output()
+                .await?;
+
+            if !nix_env_list_generations_out.status.success() {
+                good_panic!("Listing `nix-env` generations failed");
+            }
+
+            let generations_list = String::from_utf8(nix_env_list_generations_out.stdout)?;
+
+            let last_generation_line = generations_list
+                .lines()
+                .last()
+                .expect("Expected to find a generation in list");
+
+            let last_generation_id = last_generation_line
+                .split_whitespace()
+                .next()
+                .expect("Expected to get ID from generation entry");
+
+            debug!("Removing generation entry {}", last_generation_line);
+            warn!("Removing generation by ID {}", last_generation_id);
+
+            let nix_env_delete_generation_exit_status = Command::new("nix-env")
+                .arg("-p")
+                .arg(&profile_path)
+                .arg("--delete-generations")
+                .arg(last_generation_id)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await?;
+
+            if !nix_env_delete_generation_exit_status.success() {
+                good_panic!("Failed to delete failed generation");
+            }
+
+            info!("Attempting re-activate last generation");
+
+            let re_activate_exit_status = Command::new(format!("{}/activate", profile_path))
+                .env("PROFILE", &profile_path)
+                .status()
+                .await?;
+
+            if !re_activate_exit_status.success() {
+                good_panic!("Failed to re-activate the last generation");
+            }
+
+            std::process::exit(1);
         }
+        _ => {}
     }
 
     Ok(())
@@ -175,7 +172,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     activate(
         opts.profile_path,
         opts.closure,
-        opts.activate_cmd,
         opts.bootstrap_cmd,
         opts.auto_rollback,
     )

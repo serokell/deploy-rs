@@ -17,11 +17,6 @@ pub async fn push_profile(
         deploy_data.profile_name, deploy_data.node_name
     );
 
-    debug!(
-        "Building profile `{} for node `{}`",
-        deploy_data.profile_name, deploy_data.node_name
-    );
-
     let build_exit_status = if supports_flakes {
         Command::new("nix")
             .arg("build")

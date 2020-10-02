@@ -9,10 +9,9 @@ fn build_activate_command(
     sudo: &Option<String>,
     profile_path: &str,
     closure: &str,
-    activate_cmd: &Option<String>,
     bootstrap_cmd: &Option<String>,
     auto_rollback: bool,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> String {
     let mut self_activate_command =
         format!("{} '{}' '{}'", activate_path_str, profile_path, closure);
 
@@ -27,18 +26,11 @@ fn build_activate_command(
         );
     }
 
-    if let Some(ref activate_cmd) = activate_cmd {
-        self_activate_command = format!(
-            "{} --activate-cmd '{}'",
-            self_activate_command, activate_cmd
-        );
-    }
-
     if auto_rollback {
         self_activate_command = format!("{} --auto-rollback", self_activate_command);
     }
 
-    Ok(self_activate_command)
+    self_activate_command
 }
 
 #[test]
@@ -47,22 +39,21 @@ fn test_activation_command_builder() {
     let sudo = Some("sudo -u test".to_string());
     let profile_path = "/blah/profiles/test";
     let closure = "/blah/etc";
-    let activate_cmd = Some("$THING/bin/aaaaaaa".to_string());
     let bootstrap_cmd = None;
     let auto_rollback = true;
 
-    match build_activate_command(
-        activate_path_str,
-        &sudo,
-        profile_path,
-        closure,
-        &activate_cmd,
-        &bootstrap_cmd,
-        auto_rollback,
-    ) {
-        Err(_) => panic!(""),
-        Ok(x) => assert_eq!(x, "sudo -u test /blah/bin/activate '/blah/profiles/test' '/blah/etc' --activate-cmd '$THING/bin/aaaaaaa' --auto-rollback".to_string()),
-    }
+    assert_eq!(
+        build_activate_command(
+            activate_path_str,
+            &sudo,
+            profile_path,
+            closure,
+            &bootstrap_cmd,
+            auto_rollback,
+        ),
+        "sudo -u test /blah/bin/activate '/blah/profiles/test' '/blah/etc' --auto-rollback"
+            .to_string(),
+    );
 }
 
 pub async fn deploy_profile(
@@ -81,10 +72,9 @@ pub async fn deploy_profile(
         &deploy_defs.sudo,
         &deploy_defs.profile_path,
         &deploy_data.profile.profile_settings.path,
-        &deploy_data.profile.profile_settings.activate,
         &deploy_data.profile.profile_settings.bootstrap,
         deploy_data.merged_settings.auto_rollback,
-    )?;
+    );
 
     let hostname = match deploy_data.cmd_overrides.hostname {
         Some(ref x) => x,
