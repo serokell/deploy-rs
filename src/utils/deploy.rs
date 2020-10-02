@@ -98,7 +98,11 @@ pub async fn deploy_profile(
         ssh_command = ssh_command.arg(ssh_opt);
     }
 
-    ssh_command.arg(self_activate_command).spawn()?.await?;
+    let ssh_exit_status = ssh_command.arg(self_activate_command).status().await?;
+
+    if !ssh_exit_status.success() {
+        good_panic!("Activation over SSH failed");
+    }
 
     Ok(())
 }

@@ -22,7 +22,7 @@ pub async fn push_profile(
         deploy_data.profile_name, deploy_data.node_name
     );
 
-    if supports_flakes {
+    let build_exit_status = if supports_flakes {
         Command::new("nix")
             .arg("build")
             .arg("--no-link")
@@ -32,8 +32,8 @@ pub async fn push_profile(
             ))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()?
-            .await?;
+            .status()
+            .await?
     } else {
         Command::new("nix-build")
             .arg(&repo)
@@ -44,8 +44,12 @@ pub async fn push_profile(
             ))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()?
-            .await?;
+            .status()
+            .await?
+    };
+
+    if !build_exit_status.success() {
+        good_panic!("`nix build` failed");
     }
 
     if let Ok(local_key) = std::env::var("LOCAL_KEY") {
@@ -54,7 +58,7 @@ pub async fn push_profile(
             deploy_data.profile_name, deploy_data.node_name
         );
 
-        Command::new("nix")
+        let sign_exit_status = Command::new("nix")
             .arg("sign-paths")
             .arg("-r")
             .arg("-k")
@@ -65,8 +69,12 @@ pub async fn push_profile(
             )?)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()?
+            .status()
             .await?;
+
+        if !sign_exit_status.success() {
+            good_panic!("`nix sign-paths` failed");
+        }
     }
 
     debug!(
@@ -99,7 +107,7 @@ pub async fn push_profile(
         None => &deploy_data.node.node_settings.hostname,
     };
 
-    copy_command
+    let copy_exit_status = copy_command
         .arg("--to")
         .arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname))
         .arg(&deploy_data.profile.profile_settings.path)
@@ -107,8 +115,12 @@ pub async fn push_profile(
             &deploy_defs.current_exe,
         )?)
         .env("NIX_SSHOPTS", ssh_opts_str)
-        .spawn()?
+        .status()
         .await?;
+
+    if !copy_exit_status.success() {
+        good_panic!("`nix copy` failed");
+    }
 
     Ok(())
 }
