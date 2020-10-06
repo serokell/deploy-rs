@@ -13,9 +13,9 @@ A Simple multi-profile Nix-flake deploy tool.
 ## Usage
 
 
-- `nix run github:notgne2/deploy-rs your-flake#node.profile`
-- `nix run github:notgne2/deploy-rs your-flake#node`
-- `nix run github:notgne2/deploy-rs your-flake`
+- `nix run github:serokell/deploy-rs your-flake#node.profile`
+- `nix run github:serokell/deploy-rs your-flake#node`
+- `nix run github:serokell/deploy-rs your-flake`
 
 ## API
 
