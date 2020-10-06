@@ -31,6 +31,29 @@
             "properties": {
                 "hostname": {
                     "type": "string"
+                },
+                "profilesOrder": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "uniqueItems": true
+                },
+                "profiles": {
+                    "type": "object",
+                    "patternProperties": {
+                        "[A-z][A-z0-9_-]*": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/generic_settings"
+                                },
+                                {
+                                    "$ref": "#/definitions/profile_settings"
+                                }
+                            ]
+                        }
+                    },
+                    "additionalProperties": false
                 }
             },
             "required": [
@@ -70,27 +93,6 @@
                                 },
                                 {
                                     "$ref": "#/definitions/node_settings"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "profiles": {
-                                            "type": "object",
-                                            "patternProperties": {
-                                                "[A-z][A-z0-9_-]*": {
-                                                    "allOf": [
-                                                        {
-                                                            "$ref": "#/definitions/generic_settings"
-                                                        },
-                                                        {
-                                                            "$ref": "#/definitions/profile_settings"
-                                                        }
-                                                    ]
-                                                }
-                                            },
-                                            "additionalProperties": false
-                                        }
-                                    }
                                 }
                             ]
                         }

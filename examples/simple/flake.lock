@@ -7,10 +7,12 @@
         "utils": "utils"
       },
       "locked": {
-        "lastModified": 1601952388,
-        "narHash": "sha256-g5t4JNUl4xmKfKmzo5yzligVNTBHOTgw+vkuebP4B/Q=",
-        "type": "git",
-        "url": "file:///home/notgne2/Dev/Serokell/deploy-rs"
+        "lastModified": 1601952901,
+        "narHash": "sha256-6U0JIlh6GLqkxdyUiVRbph9k1lVCtWLno2uM/Fd/ZzI=",
+        "owner": "serokell",
+        "repo": "deploy-rs",
+        "rev": "1de1ad5ff893bfcabdf2bfa20d8c93a8cdbb0156",
+        "type": "github"
       },
       "original": {
         "owner": "serokell",

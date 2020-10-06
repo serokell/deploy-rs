@@ -65,17 +65,22 @@ async fn push_all_profiles(
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Pushing all profiles for `{}`", node_name);
 
-    let mut profiles_list: Vec<&str> = node.profiles_order.iter().map(|x| x.as_ref()).collect();
+    let mut profiles_list: Vec<&str> = node
+        .node_settings
+        .profiles_order
+        .iter()
+        .map(|x| x.as_ref())
+        .collect();
 
     // Add any profiles which weren't in the provided order list
-    for profile_name in node.profiles.keys() {
+    for profile_name in node.node_settings.profiles.keys() {
         if !profiles_list.contains(&profile_name.as_str()) {
             profiles_list.push(&profile_name);
         }
     }
 
     for profile_name in profiles_list {
-        let profile = match node.profiles.get(profile_name) {
+        let profile = match node.node_settings.profiles.get(profile_name) {
             Some(x) => x,
             None => good_panic!("No profile was found named `{}`", profile_name),
         };
@@ -117,17 +122,22 @@ async fn deploy_all_profiles(
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Deploying all profiles for `{}`", node_name);
 
-    let mut profiles_list: Vec<&str> = node.profiles_order.iter().map(|x| x.as_ref()).collect();
+    let mut profiles_list: Vec<&str> = node
+        .node_settings
+        .profiles_order
+        .iter()
+        .map(|x| x.as_ref())
+        .collect();
 
     // Add any profiles which weren't in the provided order list
-    for profile_name in node.profiles.keys() {
+    for profile_name in node.node_settings.profiles.keys() {
         if !profiles_list.contains(&profile_name.as_str()) {
             profiles_list.push(&profile_name);
         }
     }
 
     for profile_name in profiles_list {
-        let profile = match node.profiles.get(profile_name) {
+        let profile = match node.node_settings.profiles.get(profile_name) {
             Some(x) => x,
             None => good_panic!("No profile was found named `{}`", profile_name),
         };
@@ -203,8 +213,8 @@ async fn get_deployment_data(
     }
 
     let build_output = build_command
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        // .stdout(Stdio::null())
+        // .stderr(Stdio::null())
         .output()
         .await?;
 
@@ -233,7 +243,7 @@ async fn run_deploy(
                 Some(x) => x,
                 None => good_panic!("No node was found named `{}`", node_name),
             };
-            let profile = match node.profiles.get(profile_name) {
+            let profile = match node.node_settings.profiles.get(profile_name) {
                 Some(x) => x,
                 None => good_panic!("No profile was found named `{}`", profile_name),
             };

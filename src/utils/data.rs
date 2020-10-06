@@ -29,6 +29,13 @@ pub struct GenericSettings {
 #[derive(Deserialize, Debug, Clone)]
 pub struct NodeSettings {
     pub hostname: String,
+    pub profiles: HashMap<String, Profile>,
+    #[serde(
+        skip_serializing_if = "Vec::is_empty",
+        default,
+        rename(deserialize = "profilesOrder")
+    )]
+    pub profiles_order: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -51,14 +58,6 @@ pub struct Node {
     pub generic_settings: GenericSettings,
     #[serde(flatten)]
     pub node_settings: NodeSettings,
-
-    pub profiles: HashMap<String, Profile>,
-    #[serde(
-        skip_serializing_if = "Vec::is_empty",
-        default,
-        rename(deserialize = "profilesOrder")
-    )]
-    pub profiles_order: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
