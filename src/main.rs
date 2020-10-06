@@ -51,6 +51,9 @@ struct Opts {
     /// Override hostname used for the node
     #[clap(long)]
     hostname: Option<String>,
+    /// Skip pushing step (useful for local testing)
+    #[clap(short, long)]
+    skip_push: bool,
 }
 
 #[inline]
@@ -235,6 +238,7 @@ async fn run_deploy(
     data: utils::data::Data,
     supports_flakes: bool,
     check_sigs: bool,
+    skip_push: bool,
     cmd_overrides: utils::CmdOverrides,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match (deploy_flake.node, deploy_flake.profile) {
@@ -259,14 +263,16 @@ async fn run_deploy(
 
             let deploy_defs = deploy_data.defs();
 
-            utils::push::push_profile(
-                supports_flakes,
-                check_sigs,
-                deploy_flake.repo,
-                &deploy_data,
-                &deploy_defs,
-            )
-            .await?;
+            if !skip_push {
+                utils::push::push_profile(
+                    supports_flakes,
+                    check_sigs,
+                    deploy_flake.repo,
+                    &deploy_data,
+                    &deploy_defs,
+                )
+                .await?;
+            }
 
             utils::deploy::deploy_profile(&deploy_data, &deploy_defs).await?;
         }
@@ -276,23 +282,7 @@ async fn run_deploy(
                 None => good_panic!("No node was found named `{}`", node_name),
             };
 
-            push_all_profiles(
-                node,
-                node_name,
-                supports_flakes,
-                deploy_flake.repo,
-                &data.generic_settings,
-                check_sigs,
-                &cmd_overrides,
-            )
-            .await?;
-
-            deploy_all_profiles(node, node_name, &data.generic_settings, &cmd_overrides).await?;
-        }
-        (None, None) => {
-            info!("Deploying all profiles on all nodes");
-
-            for (node_name, node) in &data.nodes {
+            if !skip_push {
                 push_all_profiles(
                     node,
                     node_name,
@@ -303,6 +293,26 @@ async fn run_deploy(
                     &cmd_overrides,
                 )
                 .await?;
+            }
+
+            deploy_all_profiles(node, node_name, &data.generic_settings, &cmd_overrides).await?;
+        }
+        (None, None) => {
+            info!("Deploying all profiles on all nodes");
+
+            if !skip_push {
+                for (node_name, node) in &data.nodes {
+                    push_all_profiles(
+                        node,
+                        node_name,
+                        supports_flakes,
+                        deploy_flake.repo,
+                        &data.generic_settings,
+                        check_sigs,
+                        &cmd_overrides,
+                    )
+                    .await?;
+                }
             }
 
             for (node_name, node) in &data.nodes {
@@ -363,6 +373,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         data,
         supports_flakes,
         opts.checksigs,
+        opts.skip_push,
         cmd_overrides,
     )
     .await?;
