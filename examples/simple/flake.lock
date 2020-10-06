@@ -7,8 +7,8 @@
         "utils": "utils"
       },
       "locked": {
-        "lastModified": 1601668691,
-        "narHash": "sha256-1mWf71DPRNgTIUKJ4Dy+CjoyZo4JkPdrwjYJy2UzqZE=",
+        "lastModified": 1601952388,
+        "narHash": "sha256-g5t4JNUl4xmKfKmzo5yzligVNTBHOTgw+vkuebP4B/Q=",
         "type": "git",
         "url": "file:///home/notgne2/Dev/Serokell/deploy-rs"
       },
