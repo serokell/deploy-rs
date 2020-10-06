@@ -10,6 +10,7 @@ use tokio::process::Command;
 use merge::Merge;
 
 extern crate pretty_env_logger;
+
 #[macro_use]
 extern crate log;
 
@@ -177,12 +178,14 @@ async fn get_deployment_data(
 
     let mut c = match supports_flakes {
         true => Command::new("nix"),
-        false => Command::new("nix-instanciate"),
+        false => Command::new("nix-instantiate"),
     };
 
     let mut build_command = match supports_flakes {
         true => {
-            c.arg("eval").arg("--json").arg(format!("{}#deploy", repo))
+            c.arg("eval")
+            .arg("--json")
+            .arg(format!("{}#deploy", repo))
         }
         false => {
             c
@@ -190,7 +193,7 @@ async fn get_deployment_data(
                 .arg("--read-write-mode")
                 .arg("--json")
                 .arg("--eval")
-                .arg("--E")
+                .arg("-E")
                 .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", repo))
         }
     };

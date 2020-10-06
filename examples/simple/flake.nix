@@ -5,7 +5,9 @@
 {
   description = "Deploy GNU hello to localhost";
 
-  outputs = { self, nixpkgs }:
+  inputs.deploy-rs.url = "github:serokell/deploy-rs";
+
+  outputs = { self, nixpkgs, deploy-rs }:
     let
       setActivate = base: activate: nixpkgs.legacyPackages.x86_64-linux.symlinkJoin {
         name = ("activatable-" + base.name);
@@ -29,16 +31,10 @@
         hostname = "localhost";
         profiles.hello = {
           user = "balsoft";
-          path = setActivate nixpkgs.legacyPackages.x86_64-linux.hello "./bin/hello";
+          path = deploy-rs.lib.x86_64-linux.setActivate nixpkgs.legacyPackages.x86_64-linux.hello "./bin/hello";
         };
       };
-      checks = builtins.mapAttrs
-        (_: pkgs: {
-          jsonschema = pkgs.runCommandNoCC "jsonschema-deploy-simple" { }
-            "${pkgs.python3.pkgs.jsonschema}/bin/jsonschema -i ${
-          pkgs.writeText "deploy.json" (builtins.toJSON self.deploy)
-        } ${../../interface/deploy.json} && touch $out";
-        })
-        nixpkgs.legacyPackages;
+
+      checks = { "x86_64-linux" = { jsonSchema = deploy-rs.lib.x86_64-linux.checkSchema self.deploy; }; };
     };
 }

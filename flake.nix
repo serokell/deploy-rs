@@ -14,12 +14,35 @@
       let
         pkgs = import nixpkgs { inherit system; };
         naersk-lib = pkgs.callPackage naersk { };
-      in {
+        setActivate = base: activate: pkgs.symlinkJoin {
+          name = ("activatable-" + base.name);
+          paths = [
+            base
+            (pkgs.writeTextFile {
+              name = base.name + "-activate-path";
+              text = ''
+                #!${pkgs.runtimeShell}
+                ${activate}
+              '';
+              executable = true;
+              destination = "/activate";
+            })
+          ];
+        };
+      in
+      {
         defaultPackage = naersk-lib.buildPackage ./.;
 
         defaultApp = {
           type = "app";
           program = "${self.defaultPackage."${system}"}/bin/deploy";
+        };
+
+        lib = {
+          inherit setActivate;
+
+          checkSchema = deploy: pkgs.runCommandNoCC "jsonschema-deploy-system" { }
+            "${pkgs.python3.pkgs.jsonschema}/bin/jsonschema -i ${pkgs.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface/deploy.json} && touch $out";
         };
       });
 }
