@@ -14,12 +14,12 @@ A Simple, multi-profile Nix-flake deploy tool.
 
 Basic usage: `deploy [options] <flake>`.
 
-The given flake can be just a source `my-flake`, specify the node to deploy `my-flake#my-node`, or specify a profile too `my-flake#my-node.my-profile`.
+The given flake can be just a source `my-flake`, or optionally specify the node to deploy `my-flake#my-node`, or specify a profile too `my-flake#my-node.my-profile`.
 
 You can try out this tool easily with `nix run`:
 - `nix run github:serokell/deploy-rs your-flake`
 
-If your require a signing key to push closures to your server, specify the path to it in the `LOCAL_KEY` environment variable.
+If you require a signing key to push closures to your server, specify the path to it in the `LOCAL_KEY` environment variable.
 
 Check out `deploy --help` for CLI flags! Remember to check there before making one-time changes to things like hostnames.
 
@@ -27,18 +27,18 @@ Check out `deploy --help` for CLI flags! Remember to check there before making o
 
 ### Profile
 
-This is the core of how `deploy-rs` was designed, any number of these can run on a node, as any user (see further down for specifying user information). If you want to mimick the behaviour of traditional tools like NixOps or Morph, try just defining one `profile` called `system`, as root, containing a nixosSystem.
+This is the core of how `deploy-rs` was designed, any number of these can run on a node, as any user (see further down for specifying user information). If you want to mimick the behaviour of traditional tools like NixOps or Morph, try just defining one `profile` called `system`, as root, containing a nixosSystem, and you can even similarly use [home-manager](https://github.com/nix-community/home-manager) on any non-privileged user.
 
 ```nix
 {
-  # ...generic options... (see below)
-
   # The command to bootstrap your profile, this is optional
   bootstrap = "mkdir xyz";
 
   # A derivation containing your required software, and a script to activate it in `${path}/activate`
   # For ease of use, `deploy-rs` provides a function to easy all this required activation script to any derivation
   path = deploy-rs.lib.x86_64-linux.setActivate pkgs.hello "./bin/hello";
+
+  # ...generic options... (see lower section)
 }
 ```
 
@@ -48,8 +48,6 @@ This defines a single node/server, and the profiles you intend it to run.
 
 ```nix
 {
-  # ...generic options... (see below)
-
   # The hostname of your server, don't worry, this can be overridden at runtime if needed
   hostname = "my.server.gov";
 
@@ -60,6 +58,8 @@ This defines a single node/server, and the profiles you intend it to run.
     system = {}; # Definition shown above
     something = {}; # Definition shown above
   };
+
+  # ...generic options... (see lower section)
 }
 ```
 
@@ -69,16 +69,16 @@ This is the top level attribute containing all of the options for this tool
 
 ```nix
 {
-  # ...generic options... (see below)
-
   nodes = {
     my-node = {}; # Definition shown above
     another-node = {}; # Definition shown above
   };
+
+  # ...generic options... (see lower section)
 }
 ```
 
-#### Generic options
+### Generic options
 
 This is a set of options that can be put in any of the above definitions, with the priority being `profile > node > deploy`
 
@@ -96,7 +96,7 @@ A stronger definition of the schema is in the [interface directory](./interface)
 
 ## Idea
 
-`deploy-rs` is a simple Rust program that will take a Nix flake and use it to deploy any of your defined profiles to your nodes. This is _strongly_ based off of [serokell/deploy](https://github.com/serokell/deploy), with the intention of eventually replacing it.
+`deploy-rs` is a simple Rust program that will take a Nix flake and use it to deploy any of your defined profiles to your nodes. This is _strongly_ based off of [serokell/deploy](https://github.com/serokell/deploy), designed to replace it and expand upon it.
 
 This type of design (as opposed to more traditional tools like NixOps or morph) allows for lesser-privileged deployments, and the ability to update different things independently of eachother.
 
