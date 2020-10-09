@@ -6,20 +6,93 @@ SPDX-License-Identifier: MPL-2.0
 
 # deploy-rs
 
-A Simple multi-profile Nix-flake deploy tool.
+A Simple, multi-profile Nix-flake deploy tool.
 
-**This is very early development software, you should expect to find issues**
+**This is very early development software, you should expect to find issues, and things will change**
 
 ## Usage
 
+Basic usage: `deploy [options] <flake>`.
 
-- `nix run github:serokell/deploy-rs your-flake#node.profile`
-- `nix run github:serokell/deploy-rs your-flake#node`
+The given flake can be just a source `my-flake`, specify the node to deploy `my-flake#my-node`, or specify a profile too `my-flake#my-node.my-profile`.
+
+You can try out this tool easily with `nix run`:
 - `nix run github:serokell/deploy-rs your-flake`
+
+If your require a signing key to push closures to your server, specify the path to it in the `LOCAL_KEY` environment variable.
+
+Check out `deploy --help` for CLI flags! Remember to check there before making one-time changes to things like hostnames.
 
 ## API
 
-Example Nix expressions/configurations are in the [examples folder](./examples).
+### Profile
+
+This is the core of how `deploy-rs` was designed, any number of these can run on a node, as any user (see further down for specifying user information). If you want to mimick the behaviour of traditional tools like NixOps or Morph, try just defining one `profile` called `system`, as root, containing a nixosSystem.
+
+```nix
+{
+  # ...generic options... (see below)
+
+  # The command to bootstrap your profile, this is optional
+  bootstrap = "mkdir xyz";
+
+  # A derivation containing your required software, and a script to activate it in `${path}/activate`
+  # For ease of use, `deploy-rs` provides a function to easy all this required activation script to any derivation
+  path = deploy-rs.lib.x86_64-linux.setActivate pkgs.hello "./bin/hello";
+}
+```
+
+### Node
+
+This defines a single node/server, and the profiles you intend it to run.
+
+```nix
+{
+  # ...generic options... (see below)
+
+  # The hostname of your server, don't worry, this can be overridden at runtime if needed
+  hostname = "my.server.gov";
+
+  # An optional list containing the order you want profiles to be deployed.
+  profilesOrder = [ "something" "system" ];
+
+  profiles = {
+    system = {}; # Definition shown above
+    something = {}; # Definition shown above
+  };
+}
+```
+
+### Deploy
+
+This is the top level attribute containing all of the options for this tool
+
+```nix
+{
+  # ...generic options... (see below)
+
+  nodes = {
+    my-node = {}; # Definition shown above
+    another-node = {}; # Definition shown above
+  };
+}
+```
+
+#### Generic options
+
+This is a set of options that can be put in any of the above definitions, with the priority being `profile > node > deploy`
+
+```nix
+{
+  sshUser = "admin"; # This is the user that deploy-rs will use when connecting
+  user = "root"; # This is the user that the profile will be deployed to (will use sudo if not the same as above)
+  sshOpts = [ "-p" "2121" ]; # These are arguments that will be passed to SSH
+  fastConnection = false; # Fast connection to the node. If this is true, copy the whole closure instead of letting the node substitute
+  autoRollback = true; # If the previous profile should be re-activated if activation fails
+}
+```
+
+A stronger definition of the schema is in the [interface directory](./interface), and full working examples Nix expressions/configurations are in the [examples folder](./examples).
 
 ## Idea
 
@@ -30,8 +103,11 @@ This type of design (as opposed to more traditional tools like NixOps or morph) 
 ## Things to work on
 
 - ~~Ordered profiles~~
-- Automatic rollbacks if one profile on node failed to deploy (partially implemented)
+- ~~Automatic rollbacks~~
 - UI (?)
+- automatic kexec lustration of servers (maybe)
+- Remote health checks
+- Rollback on reconnection failure (technically, rollback if not reconnected to)
 
 ## About Serokell
 

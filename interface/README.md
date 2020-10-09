@@ -7,6 +7,7 @@ deploy
     ├── <NODE>
     │   ├── <generic args>
     │   ├── hostname
+    │   ├── profilesOrder
     │   └── profiles
     │       ├── <PROFILE>
     │       │   ├── <generic args>
@@ -14,7 +15,6 @@ deploy
     │       │   └── path
     │       └── <PROFILE>...
     └── <NODE>...
-
 ```
 
 Where `<generic args>` are all optional and can be one or multiple of:
@@ -29,4 +29,4 @@ A formal definition for the structure can be found in [the JSON schema](./deploy
 
 For every profile of every node, arguments are merged with `<PROFILE>` taking precedence over `<NODE>` and `<NODE>` taking precedence over top-level.
 
-Values can be overridden for all the profiles deployed by setting environment variables with the same names as the profile, for example `sshUser=foobar nix run github:serokell/deploy .` will connect to all nodes as `foobar@<NODE>.hostname`.
+Certain read values can be overridden by supplying flags to the deploy binary, for example `deploy --auto-rollback true .` will enable automatic rollback for all nodes being deployed to, regardless of settings.

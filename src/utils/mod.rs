@@ -28,31 +28,6 @@ pub struct CmdOverrides {
     pub hostname: Option<String>,
 }
 
-pub enum OverridePurity {
-    ErrorProfile,
-    Error,
-    Warn,
-    Pure,
-}
-
-impl CmdOverrides {
-    pub fn purity(&self) -> OverridePurity {
-        if self.profile_user.is_some() {
-            return OverridePurity::ErrorProfile;
-        }
-
-        if self.hostname.is_some() || self.ssh_user.is_some() {
-            return OverridePurity::Error;
-        }
-
-        if self.ssh_opts.is_some() || self.fast_connection.is_some() {
-            return OverridePurity::Warn;
-        }
-
-        OverridePurity::Pure
-    }
-}
-
 #[derive(PartialEq, Debug)]
 pub struct DeployFlake<'a> {
     pub repo: &'a str,
