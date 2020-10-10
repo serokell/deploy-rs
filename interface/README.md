@@ -12,6 +12,7 @@ deploy
     │       ├── <PROFILE>
     │       │   ├── <generic args>
     │       │   ├── bootstrap
+    │       │   ├── profilePath
     │       │   └── path
     │       └── <PROFILE>...
     └── <NODE>...

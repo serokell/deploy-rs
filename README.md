@@ -38,6 +38,9 @@ This is the core of how `deploy-rs` was designed, any number of these can run on
   # For ease of use, `deploy-rs` provides a function to easy all this required activation script to any derivation
   path = deploy-rs.lib.x86_64-linux.setActivate pkgs.hello "./bin/hello";
 
+  # An optional path to where your profile should be installed to, this is useful if you want to use a common profile name across multiple users, but would have conflicts in your node's profile list.
+  profilePath = "/nix/var/nix/profiles/per-user/someuser/someprofile";
+
   # ...generic options... (see lower section)
 }
 ```
