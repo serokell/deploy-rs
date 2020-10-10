@@ -349,20 +349,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         hostname: opts.hostname,
     };
 
-    match (cmd_overrides.purity(), deploy_flake.node, deploy_flake.profile) {
-        (utils::OverridePurity::ErrorProfile, _, None) => good_panic!(
-            "You have specified an override not suitible for deploying to multiple profiles, please specify your target profile explicitly"
-        ),
-        (utils::OverridePurity::Error, None, _) => good_panic!(
-            "You have specified an override not suitible for deploying to multiple nodes, please specify your target node explicitly"
-        ),
-
-        (utils::OverridePurity::Warn, None, _) => warn!(
-            "Certain overrides you have provided might be dangerous when used on multiple nodes or profiles, be cautious"
-        ),
-        _ => (),
-    };
-
     let supports_flakes = test_flake_support().await?;
 
     let data =
