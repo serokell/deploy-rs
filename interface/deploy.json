@@ -68,6 +68,9 @@
                 },
                 "bootstrap": {
                     "type": "string"
+                },
+                "profilePath": {
+                    "type": "string"
                 }
             },
             "required": [

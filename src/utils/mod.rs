@@ -129,7 +129,7 @@ pub struct DeployData<'a> {
 pub struct DeployDefs<'a> {
     pub ssh_user: Cow<'a, str>,
     pub profile_user: Cow<'a, str>,
-    pub profile_path: String,
+    pub profile_path: Cow<'a, str>,
     pub current_exe: PathBuf,
     pub sudo: Option<String>,
 }
@@ -153,12 +153,16 @@ impl<'a> DeployData<'a> {
             },
         };
 
-        let profile_path = match &profile_user[..] {
-            "root" => format!("/nix/var/nix/profiles/{}", self.profile_name),
-            _ => format!(
-                "/nix/var/nix/profiles/per-user/{}/{}",
-                profile_user, self.profile_name
-            ),
+        let profile_path: Cow<str> = match self.profile.profile_settings.profile_path {
+            None => match &profile_user[..] {
+                "root" => format!("/nix/var/nix/profiles/{}", self.profile_name).into(),
+                _ => format!(
+                    "/nix/var/nix/profiles/per-user/{}/{}",
+                    profile_user, self.profile_name
+                )
+                .into(),
+            },
+            Some(ref x) => x.into(),
         };
 
         let sudo: Option<String> = match self.merged_settings.user {
