@@ -75,7 +75,7 @@ pub async fn activate(
         }
     }
 
-    let activate_status = Command::new(format!("{}/activate", profile_path))
+    let activate_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
         .env("PROFILE", &profile_path)
         .status()
         .await;
@@ -142,7 +142,7 @@ pub async fn activate(
 
             info!("Attempting re-activate last generation");
 
-            let re_activate_exit_status = Command::new(format!("{}/activate", profile_path))
+            let re_activate_exit_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
                 .env("PROFILE", &profile_path)
                 .status()
                 .await?;

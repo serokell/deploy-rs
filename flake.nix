@@ -35,7 +35,7 @@
         };
 
         lib = {
-          setActivate = base: activate: pkgs.symlinkJoin {
+          setActivate = base: activate: pkgs.buildEnv {
             name = ("activatable-" + base.name);
             paths = [
               base
@@ -46,7 +46,7 @@
                   ${activate}
                 '';
                 executable = true;
-                destination = "/activate";
+                destination = "/deploy-rs-activate";
               })
             ];
           };
