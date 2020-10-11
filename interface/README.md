@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+
+SPDX-License-Identifier: MPL-2.0
+-->
+
 A flake must have a `deploy` output with the following structure:
 
 ```
