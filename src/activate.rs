@@ -77,6 +77,7 @@ pub async fn activate(
 
     let activate_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
         .env("PROFILE", &profile_path)
+        .current_dir(&profile_path)
         .status()
         .await;
 
@@ -144,6 +145,7 @@ pub async fn activate(
 
             let re_activate_exit_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
                 .env("PROFILE", &profile_path)
+                .current_dir(&profile_path)
                 .status()
                 .await?;
 
