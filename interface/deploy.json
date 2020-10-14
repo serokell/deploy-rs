@@ -23,6 +23,15 @@
                 },
                 "autoRollback": {
                     "type": "boolean"
+                },
+                "magicRollback": {
+                    "type": "boolean"
+                },
+                "confirmTimeout": {
+                    "type": "int"
+                },
+                "tempPath": {
+                    "type": "integer"
                 }
             }
         },

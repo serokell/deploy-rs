@@ -19,11 +19,15 @@ pub struct GenericSettings {
     #[merge(strategy = merge::vec::append)]
     pub ssh_opts: Vec<String>,
     #[serde(rename(deserialize = "fastConnection"), default)]
-    #[merge(strategy = merge::bool::overwrite_false)]
-    pub fast_connection: bool,
+    pub fast_connection: Option<bool>,
     #[serde(rename(deserialize = "autoRollback"), default)]
-    #[merge(strategy = merge::bool::overwrite_false)]
-    pub auto_rollback: bool,
+    pub auto_rollback: Option<bool>,
+    #[serde(rename(deserialize = "confirmTimeout"))]
+    pub confirm_timeout: Option<u16>,
+    #[serde(rename(deserialize = "tempPath"))]
+    pub temp_path: Option<String>,
+    #[serde(rename(deserialize = "magicRollback"))]
+    pub magic_rollback: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -44,10 +48,6 @@ pub struct ProfileSettings {
     pub bootstrap: Option<String>,
     #[serde(rename(deserialize = "profilePath"))]
     pub profile_path: Option<String>,
-    #[serde(rename(deserialize = "maxTime"))]
-    pub max_time: Option<u16>,
-    #[serde(rename(deserialize = "tempPath"))]
-    pub temp_path: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

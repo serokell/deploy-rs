@@ -26,6 +26,9 @@ pub struct CmdOverrides {
     pub fast_connection: Option<bool>,
     pub auto_rollback: Option<bool>,
     pub hostname: Option<String>,
+    pub magic_rollback: Option<bool>,
+    pub temp_path: Option<String>,
+    pub confirm_timeout: Option<u16>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -184,10 +187,13 @@ pub fn make_deploy_data<'a, 's>(
         merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
     }
     if let Some(fast_connection) = cmd_overrides.fast_connection {
-        merged_settings.fast_connection = fast_connection;
+        merged_settings.fast_connection = Some(fast_connection);
     }
     if let Some(auto_rollback) = cmd_overrides.auto_rollback {
-        merged_settings.auto_rollback = auto_rollback;
+        merged_settings.auto_rollback = Some(auto_rollback);
+    }
+    if let Some(magic_rollback) = cmd_overrides.magic_rollback {
+        merged_settings.magic_rollback = Some(magic_rollback);
     }
 
     Ok(DeployData {

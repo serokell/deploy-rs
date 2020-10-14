@@ -34,8 +34,18 @@ mod utils;
 struct Opts {
     profile_path: String,
     closure: String,
+
+    /// Temp path for any temporary files that may be needed during activation
+    #[clap(long)]
     temp_path: String,
-    max_time: u16,
+
+    /// Maximum time to wait for confirmation after activation
+    #[clap(long)]
+    confirm_timeout: u16,
+
+    /// Wait for confirmation after deployment and rollback if not confirmed
+    #[clap(long)]
+    magic_rollback: bool,
 
     /// Command for bootstrapping
     #[clap(long)]
@@ -139,7 +149,7 @@ async fn deactivate_on_err<A, B: core::fmt::Debug>(profile_path: &str, r: Result
 pub async fn activation_confirmation(
     profile_path: String,
     temp_path: String,
-    max_time: u16,
+    confirm_timeout: u16,
     closure: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let lock_hash = &closure[11 /* /nix/store/ */ ..];
@@ -172,7 +182,8 @@ pub async fn activation_confirmation(
                             &profile_path,
                             deactivate_on_err(
                                 &profile_path,
-                                timeout(Duration::from_secs(max_time as u64), stream.next()).await,
+                                timeout(Duration::from_secs(confirm_timeout as u64), stream.next())
+                                    .await,
                             )
                             .await
                             .ok_or("Watcher ended prematurely"),
@@ -201,7 +212,8 @@ pub async fn activate(
     bootstrap_cmd: Option<String>,
     auto_rollback: bool,
     temp_path: String,
-    max_time: u16,
+    confirm_timeout: u16,
+    magic_rollback: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Activating profile");
 
@@ -249,13 +261,17 @@ pub async fn activate(
         _ => (),
     }
 
-    info!("Activation succeeded, now performing post-activation checks");
+    info!("Activation succeeded!");
 
-    deactivate_on_err(
-        &profile_path,
-        activation_confirmation(profile_path.clone(), temp_path, max_time, closure).await,
-    )
-    .await;
+    if magic_rollback {
+        info!("Performing activation confirmation steps");
+        deactivate_on_err(
+            &profile_path,
+            activation_confirmation(profile_path.clone(), temp_path, confirm_timeout, closure)
+                .await,
+        )
+        .await;
+    }
 
     Ok(())
 }
@@ -276,7 +292,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         opts.bootstrap_cmd,
         opts.auto_rollback,
         opts.temp_path,
-        opts.max_time,
+        opts.confirm_timeout,
+        opts.magic_rollback,
     )
     .await?;
 
