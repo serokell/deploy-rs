@@ -28,10 +28,10 @@
                     "type": "boolean"
                 },
                 "confirmTimeout": {
-                    "type": "int"
+                    "type": "integer"
                 },
                 "tempPath": {
-                    "type": "integer"
+                    "type": "string"
                 }
             }
         },
