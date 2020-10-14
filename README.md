@@ -110,7 +110,7 @@ This type of design (as opposed to more traditional tools like NixOps or morph) 
 - UI (?)
 - automatic kexec lustration of servers (maybe)
 - Remote health checks
-- Rollback on reconnection failure (technically, rollback if not reconnected to)
+- ~~Rollback on reconnection failure (technically, rollback if not reconnected to)~~
 
 ## About Serokell
 
