@@ -44,6 +44,10 @@ pub struct ProfileSettings {
     pub bootstrap: Option<String>,
     #[serde(rename(deserialize = "profilePath"))]
     pub profile_path: Option<String>,
+    #[serde(rename(deserialize = "maxTime"))]
+    pub max_time: Option<u16>,
+    #[serde(rename(deserialize = "tempPath"))]
+    pub temp_path: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

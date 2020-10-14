@@ -4,10 +4,19 @@
 
 use clap::Clap;
 
+use futures_util::FutureExt;
 use std::process::Stdio;
+use tokio::fs;
 use tokio::process::Command;
+use tokio::time::timeout;
+
+use std::time::Duration;
+
+use futures_util::StreamExt;
 
 use std::path::Path;
+
+use inotify::Inotify;
 
 extern crate pretty_env_logger;
 #[macro_use]
@@ -25,6 +34,8 @@ mod utils;
 struct Opts {
     profile_path: String,
     closure: String,
+    temp_path: String,
+    max_time: u16,
 
     /// Command for bootstrapping
     #[clap(long)]
@@ -35,11 +46,162 @@ struct Opts {
     auto_rollback: bool,
 }
 
+pub async fn deactivate(profile_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    error!("De-activating due to error");
+
+    let nix_env_rollback_exit_status = Command::new("nix-env")
+        .arg("-p")
+        .arg(&profile_path)
+        .arg("--rollback")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await?;
+
+    if !nix_env_rollback_exit_status.success() {
+        good_panic!("`nix-env --rollback` failed");
+    }
+
+    debug!("Listing generations");
+
+    let nix_env_list_generations_out = Command::new("nix-env")
+        .arg("-p")
+        .arg(&profile_path)
+        .arg("--list-generations")
+        .output()
+        .await?;
+
+    if !nix_env_list_generations_out.status.success() {
+        good_panic!("Listing `nix-env` generations failed");
+    }
+
+    let generations_list = String::from_utf8(nix_env_list_generations_out.stdout)?;
+
+    let last_generation_line = generations_list
+        .lines()
+        .last()
+        .expect("Expected to find a generation in list");
+
+    let last_generation_id = last_generation_line
+        .split_whitespace()
+        .next()
+        .expect("Expected to get ID from generation entry");
+
+    debug!("Removing generation entry {}", last_generation_line);
+    warn!("Removing generation by ID {}", last_generation_id);
+
+    let nix_env_delete_generation_exit_status = Command::new("nix-env")
+        .arg("-p")
+        .arg(&profile_path)
+        .arg("--delete-generations")
+        .arg(last_generation_id)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await?;
+
+    if !nix_env_delete_generation_exit_status.success() {
+        good_panic!("Failed to delete failed generation");
+    }
+
+    info!("Attempting re-activate last generation");
+
+    let re_activate_exit_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
+        .env("PROFILE", &profile_path)
+        .current_dir(&profile_path)
+        .status()
+        .await?;
+
+    if !re_activate_exit_status.success() {
+        good_panic!("Failed to re-activate the last generation");
+    }
+
+    Ok(())
+}
+
+async fn deactivate_on_err<A, B: core::fmt::Debug>(profile_path: &str, r: Result<A, B>) -> A {
+    match r {
+        Ok(x) => x,
+        Err(err) => {
+            error!("Deactivating due to error: {:?}", err);
+            match deactivate(profile_path).await {
+                Ok(_) => (),
+                Err(err) => {
+                    error!("Error de-activating, uh-oh: {:?}", err);
+                }
+            };
+
+            std::process::exit(1);
+        }
+    }
+}
+
+pub async fn activation_confirmation(
+    profile_path: String,
+    temp_path: String,
+    max_time: u16,
+    closure: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let lock_hash = &closure[11 /* /nix/store/ */ ..];
+    let lock_path = format!("{}/activating-{}", temp_path, lock_hash);
+
+    if let Some(parent) = Path::new(&lock_path).parent() {
+        fs::create_dir_all(parent).await?;
+    }
+
+    fs::File::create(&lock_path).await?;
+
+    let mut inotify = Inotify::init()?;
+    inotify.add_watch(lock_path, inotify::WatchMask::DELETE)?;
+
+    match fork::daemon(false, false).map_err(|x| x.to_string())? {
+        fork::Fork::Child => {
+            std::thread::spawn(move || {
+                let mut rt = tokio::runtime::Runtime::new().unwrap();
+
+                rt.block_on(async move {
+                    info!("Waiting for confirmation event...");
+
+                    let mut buffer = [0; 32];
+                    let mut stream =
+                        deactivate_on_err(&profile_path, inotify.event_stream(&mut buffer)).await;
+
+                    deactivate_on_err(
+                        &profile_path,
+                        deactivate_on_err(
+                            &profile_path,
+                            deactivate_on_err(
+                                &profile_path,
+                                timeout(Duration::from_secs(max_time as u64), stream.next()).await,
+                            )
+                            .await
+                            .ok_or("Watcher ended prematurely"),
+                        )
+                        .await,
+                    )
+                    .await;
+                });
+            })
+            .join()
+            .unwrap();
+
+            info!("Confirmation successful!");
+
+            std::process::exit(0);
+        }
+        fork::Fork::Parent(_) => {
+            std::process::exit(0);
+        }
+    }
+}
+
 pub async fn activate(
     profile_path: String,
     closure: String,
     bootstrap_cmd: Option<String>,
     auto_rollback: bool,
+    temp_path: String,
+    max_time: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Activating profile");
 
@@ -83,80 +245,17 @@ pub async fn activate(
 
     match activate_status {
         Ok(s) if s.success() => (),
-        _ if auto_rollback => {
-            error!("Failed to execute activation command");
-
-            let nix_env_rollback_exit_status = Command::new("nix-env")
-                .arg("-p")
-                .arg(&profile_path)
-                .arg("--rollback")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await?;
-
-            if !nix_env_rollback_exit_status.success() {
-                good_panic!("`nix-env --rollback` failed");
-            }
-
-            debug!("Listing generations");
-
-            let nix_env_list_generations_out = Command::new("nix-env")
-                .arg("-p")
-                .arg(&profile_path)
-                .arg("--list-generations")
-                .output()
-                .await?;
-
-            if !nix_env_list_generations_out.status.success() {
-                good_panic!("Listing `nix-env` generations failed");
-            }
-
-            let generations_list = String::from_utf8(nix_env_list_generations_out.stdout)?;
-
-            let last_generation_line = generations_list
-                .lines()
-                .last()
-                .expect("Expected to find a generation in list");
-
-            let last_generation_id = last_generation_line
-                .split_whitespace()
-                .next()
-                .expect("Expected to get ID from generation entry");
-
-            debug!("Removing generation entry {}", last_generation_line);
-            warn!("Removing generation by ID {}", last_generation_id);
-
-            let nix_env_delete_generation_exit_status = Command::new("nix-env")
-                .arg("-p")
-                .arg(&profile_path)
-                .arg("--delete-generations")
-                .arg(last_generation_id)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await?;
-
-            if !nix_env_delete_generation_exit_status.success() {
-                good_panic!("Failed to delete failed generation");
-            }
-
-            info!("Attempting re-activate last generation");
-
-            let re_activate_exit_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
-                .env("PROFILE", &profile_path)
-                .current_dir(&profile_path)
-                .status()
-                .await?;
-
-            if !re_activate_exit_status.success() {
-                good_panic!("Failed to re-activate the last generation");
-            }
-
-            std::process::exit(1);
-        }
-        _ => {}
+        _ if auto_rollback => return Ok(deactivate(&profile_path).await?),
+        _ => (),
     }
+
+    info!("Activation succeeded, now performing post-activation checks");
+
+    deactivate_on_err(
+        &profile_path,
+        activation_confirmation(profile_path.clone(), temp_path, max_time, closure).await,
+    )
+    .await;
 
     Ok(())
 }
@@ -176,6 +275,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         opts.closure,
         opts.bootstrap_cmd,
         opts.auto_rollback,
+        opts.temp_path,
+        opts.max_time,
     )
     .await?;
 
