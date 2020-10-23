@@ -23,6 +23,8 @@ If you require a signing key to push closures to your server, specify the path t
 
 Check out `deploy --help` for CLI flags! Remember to check there before making one-time changes to things like hostnames.
 
+There is also an `activate` binary though this should be ignored, it is only used internally and for testing/hacking purposes.
+
 ## API
 
 ### Profile
