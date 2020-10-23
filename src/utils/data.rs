@@ -18,9 +18,9 @@ pub struct GenericSettings {
     )]
     #[merge(strategy = merge::vec::append)]
     pub ssh_opts: Vec<String>,
-    #[serde(rename(deserialize = "fastConnection"), default)]
+    #[serde(rename(deserialize = "fastConnection"))]
     pub fast_connection: Option<bool>,
-    #[serde(rename(deserialize = "autoRollback"), default)]
+    #[serde(rename(deserialize = "autoRollback"))]
     pub auto_rollback: Option<bool>,
     #[serde(rename(deserialize = "confirmTimeout"))]
     pub confirm_timeout: Option<u16>,
