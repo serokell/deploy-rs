@@ -221,11 +221,11 @@ async fn get_deployment_data(
         build_command = build_command.arg(extra_arg);
     }
 
-    let build_output = build_command
-        // .stdout(Stdio::null())
-        // .stderr(Stdio::null())
-        .output()
-        .await?;
+    let build_child = build_command
+        .stdout(Stdio::piped())
+        .spawn()?;
+
+    let build_output = build_child.wait_with_output().await?;
 
     if !build_output.status.success() {
         good_panic!(
@@ -352,6 +352,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let supports_flakes = test_flake_support().await?;
+
+    if !supports_flakes {
+        warn!("A Nix version without flakes support was detected, support for this is work in progress");
+    }
 
     let data =
         get_deployment_data(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
