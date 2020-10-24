@@ -112,7 +112,9 @@ pub async fn deploy_profile(
     };
 
     let mut c = Command::new("ssh");
-    let mut ssh_command = c.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
+    let mut ssh_command = c
+        .arg("-t")
+        .arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
         ssh_command = ssh_command.arg(ssh_opt);
