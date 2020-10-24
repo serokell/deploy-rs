@@ -33,6 +33,13 @@ struct Opts {
     /// Extra arguments to be passed to nix build
     extra_build_args: Vec<String>,
 
+    /// Keep the build outputs of each built profile
+    #[clap(short, long)]
+    keep_result: bool,
+    /// Location to keep outputs from built profiles in
+    #[clap(short, long)]
+    result_path: Option<String>,
+
     /// Override the SSH user with the given value
     #[clap(long)]
     ssh_user: Option<String>,
@@ -71,6 +78,8 @@ async fn push_all_profiles(
     top_settings: &utils::data::GenericSettings,
     check_sigs: bool,
     cmd_overrides: &utils::CmdOverrides,
+    keep_result: bool,
+    result_path: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Pushing all profiles for `{}`", node_name);
 
@@ -115,6 +124,8 @@ async fn push_all_profiles(
             repo,
             &deploy_data,
             &deploy_defs,
+            keep_result,
+            result_path,
         )
         .await?;
     }
@@ -221,9 +232,7 @@ async fn get_deployment_data(
         build_command = build_command.arg(extra_arg);
     }
 
-    let build_child = build_command
-        .stdout(Stdio::piped())
-        .spawn()?;
+    let build_child = build_command.stdout(Stdio::piped()).spawn()?;
 
     let build_output = build_child.wait_with_output().await?;
 
@@ -245,6 +254,8 @@ async fn run_deploy(
     supports_flakes: bool,
     check_sigs: bool,
     cmd_overrides: utils::CmdOverrides,
+    keep_result: bool,
+    result_path: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match (deploy_flake.node, deploy_flake.profile) {
         (Some(node_name), Some(profile_name)) => {
@@ -274,6 +285,8 @@ async fn run_deploy(
                 deploy_flake.repo,
                 &deploy_data,
                 &deploy_defs,
+                keep_result,
+                result_path,
             )
             .await?;
 
@@ -293,6 +306,8 @@ async fn run_deploy(
                 &data.generic_settings,
                 check_sigs,
                 &cmd_overrides,
+                keep_result,
+                result_path,
             )
             .await?;
 
@@ -310,6 +325,8 @@ async fn run_deploy(
                     &data.generic_settings,
                     check_sigs,
                     &cmd_overrides,
+                    keep_result,
+                    result_path,
                 )
                 .await?;
             }
@@ -360,12 +377,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data =
         get_deployment_data(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
 
+    let result_path = opts.result_path.as_deref();
+
     run_deploy(
         deploy_flake,
         data,
         supports_flakes,
         opts.checksigs,
         cmd_overrides,
+        opts.keep_result,
+        result_path,
     )
     .await?;
 

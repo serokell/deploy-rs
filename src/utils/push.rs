@@ -11,25 +11,27 @@ pub async fn push_profile(
     repo: &str,
     deploy_data: &super::DeployData<'_>,
     deploy_defs: &super::DeployDefs<'_>,
+    keep_result: bool,
+    result_path: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "Building profile `{}` for node `{}`",
         deploy_data.profile_name, deploy_data.node_name
     );
 
-    let build_exit_status = if supports_flakes {
+    let mut build_c = if supports_flakes {
         Command::new("nix")
-            .arg("build")
-            .arg("--no-link")
-            .arg(format!(
-                "{}#deploy.nodes.{}.profiles.{}.path",
-                repo, deploy_data.node_name, deploy_data.profile_name
-            ))
-            .stdout(Stdio::null())
-            .status()
-            .await?
     } else {
         Command::new("nix-build")
+    };
+
+    let mut build_command = if supports_flakes {
+        build_c.arg("build").arg("--no-link").arg(format!(
+            "{}#deploy.nodes.{}.profiles.{}.path",
+            repo, deploy_data.node_name, deploy_data.profile_name
+        ))
+    } else {
+        build_c
             .arg(&repo)
             .arg("--no-out-link")
             .arg("-A")
@@ -37,10 +39,25 @@ pub async fn push_profile(
                 "deploy.nodes.{}.profiles.{}.path",
                 deploy_data.node_name, deploy_data.profile_name
             ))
-            .stdout(Stdio::null())
-            .status()
-            .await?
     };
+
+    build_command = match (keep_result, supports_flakes) {
+        (true, _) => {
+            let result_path = match result_path {
+                Some(x) => x,
+                None => "./.deploy-gc",
+            };
+
+            build_command.arg("--out-link").arg(format!(
+                "{}/{}/{}",
+                result_path, deploy_data.node_name, deploy_data.profile_name
+            ))
+        }
+        (false, false) => build_command.arg("--no-out-link"),
+        (false, true) => build_command.arg("--no-link"),
+    };
+
+    let build_exit_status = build_command.stdout(Stdio::null()).status().await?;
 
     if !build_exit_status.success() {
         good_panic!("`nix build` failed");
