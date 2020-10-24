@@ -13,7 +13,7 @@ pub async fn push_profile(
     deploy_defs: &super::DeployDefs<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
-        "Pushing profile `{}` for node `{}`",
+        "Building profile `{}` for node `{}`",
         deploy_data.profile_name, deploy_data.node_name
     );
 
@@ -26,19 +26,18 @@ pub async fn push_profile(
                 repo, deploy_data.node_name, deploy_data.profile_name
             ))
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
             .status()
             .await?
     } else {
         Command::new("nix-build")
             .arg(&repo)
+            .arg("--no-out-link")
             .arg("-A")
             .arg(format!(
                 "deploy.nodes.{}.profiles.{}.path",
                 deploy_data.node_name, deploy_data.profile_name
             ))
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
             .status()
             .await?
     };
@@ -73,7 +72,7 @@ pub async fn push_profile(
     }
 
     debug!(
-        "Copying profile `{} for node `{}`",
+        "Copying profile `{}` to node `{}`",
         deploy_data.profile_name, deploy_data.node_name
     );
 
