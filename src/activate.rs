@@ -114,7 +114,7 @@ pub async fn deactivate(profile_path: &str) -> Result<(), Box<dyn std::error::Er
         good_panic!("Failed to delete failed generation");
     }
 
-    info!("Attempting re-activate last generation");
+    info!("Attempting to re-activate the last generation");
 
     let re_activate_exit_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
         .env("PROFILE", &profile_path)
@@ -255,11 +255,13 @@ pub async fn activate(
         .status()
         .await;
 
-    match activate_status {
-        Ok(s) if s.success() => (),
-        _ if auto_rollback => return Ok(deactivate(&profile_path).await?),
-        _ => (),
-    }
+    let activate_status_all = match activate_status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(_) => Err(std::io::Error::new(std::io::ErrorKind::Other, "Activation did not succeed")),
+        Err(x) => Err(x),
+    };
+
+    deactivate_on_err(&profile_path, activate_status_all).await;
 
     info!("Activation succeeded!");
 
