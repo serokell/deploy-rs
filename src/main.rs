@@ -40,6 +40,10 @@ struct Opts {
     #[clap(short, long)]
     result_path: Option<String>,
 
+    /// Skip the automatic pre-build checks
+    #[clap(short, long)]
+    skip_checks: bool,
+
     /// Override the SSH user with the given value
     #[clap(long)]
     ssh_user: Option<String>,
@@ -197,8 +201,42 @@ async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
         .success())
 }
 
+async fn check_deployment(supports_flakes: bool, repo: &str, extra_build_args: &[String]) -> () {
+    let mut c = match supports_flakes {
+        true => Command::new("nix"),
+        false => Command::new("nix-build"),
+    };
+
+    let mut check_command = match supports_flakes {
+        true => {
+            c.arg("flake")
+                .arg("check")
+                .arg(repo)
+        }
+        false => {
+            c.arg("-E")
+                .arg("--no-out-link")
+                .arg(format!("let r = import {}/.; in (if builtins.isFunction r then (r {{}}) else r).checks.${{builtins.currentSystem}}", repo))
+        }
+    };
+
+    for extra_arg in extra_build_args {
+        check_command = check_command.arg(extra_arg);
+    }
+
+    let check_status = match check_command.status().await {
+        Ok(x) => x,
+        Err(err) => good_panic!("Error running checks for the given flake repo: {:?}", err),
+    };
+
+    if !check_status.success() {
+        good_panic!("Checks failed for the given flake repo");
+    }
+
+    ()
+}
+
 /// Evaluates the Nix in the given `repo` and return the processed Data from it
-#[inline]
 async fn get_deployment_data(
     supports_flakes: bool,
     repo: &str,
@@ -372,6 +410,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if !supports_flakes {
         warn!("A Nix version without flakes support was detected, support for this is work in progress");
+    }
+
+    if !opts.skip_checks {
+        check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await;
     }
 
     let data =
