@@ -34,7 +34,7 @@
           program = "${self.defaultPackage."${system}"}/bin/deploy";
         };
 
-        lib = {
+        lib = rec {
           setActivate = base: activate: pkgs.buildEnv {
             name = ("activatable-" + base.name);
             paths = [
@@ -51,8 +51,26 @@
             ];
           };
 
-          checkSchema = deploy: pkgs.runCommandNoCC "jsonschema-deploy-system" { }
-            "${pkgs.python3.pkgs.jsonschema}/bin/jsonschema -i ${pkgs.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface/deploy.json} && touch $out";
+          # DEPRECATED
+          checkSchema = checks.schema;
+
+          deployChecks = deploy: builtins.mapAttrs (_: check: check deploy) checks;
+
+          checks = {
+            schema = deploy: pkgs.runCommandNoCC "jsonschema-deploy-system" { } ''
+              ${pkgs.python3.pkgs.jsonschema}/bin/jsonschema -i ${pkgs.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface/deploy.json} && touch $out
+            '';
+
+            activate = deploy:
+              let
+                allPaths = pkgs.lib.flatten (pkgs.lib.mapAttrsToList (nodeName: node: pkgs.lib.mapAttrsToList (profileName: profile: profile.path) node.profiles) deploy.nodes);
+              in
+              pkgs.runCommandNoCC "deploy-rs-check-activate" { } ''
+                for i in ${builtins.concatStringsSep " " allPaths}; do test -f "$i/deploy-rs-activate" || (echo "A profile path is missing an activation script" && exit 1); done
+
+                touch $out
+              '';
+          };
         };
       });
 }
