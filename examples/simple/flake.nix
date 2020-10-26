@@ -16,6 +16,6 @@
       };
     };
 
-    checks = { "x86_64-linux" = { jsonSchema = deploy-rs.lib.x86_64-linux.checkSchema self.deploy; }; };
+    checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
   };
 }
