@@ -73,7 +73,6 @@ struct Opts {
     temp_path: Option<String>,
 }
 
-#[inline]
 async fn push_all_profiles(
     node: &utils::data::Node,
     node_name: &str,
@@ -190,6 +189,8 @@ async fn deploy_all_profiles(
 /// Returns if the available Nix installation supports flakes
 #[inline]
 async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
+    debug!("Checking for flake support");
+
     Ok(Command::new("nix")
         .arg("eval")
         .arg("--expr")
@@ -202,6 +203,8 @@ async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
 }
 
 async fn check_deployment(supports_flakes: bool, repo: &str, extra_build_args: &[String]) -> () {
+    info!("Running checks for flake in {}", repo);
+
     let mut c = match supports_flakes {
         true => Command::new("nix"),
         false => Command::new("nix-build"),

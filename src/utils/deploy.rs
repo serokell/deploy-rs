@@ -106,6 +106,8 @@ pub async fn deploy_profile(
         magic_rollback,
     );
 
+    debug!("Constructed activation command: {}", self_activate_command);
+
     let hostname = match deploy_data.cmd_overrides.hostname {
         Some(ref x) => x,
         None => &deploy_data.node.node_settings.hostname,
@@ -145,6 +147,11 @@ pub async fn deploy_profile(
         if let Some(sudo_cmd) = &deploy_defs.sudo {
             confirm_command = format!("{} {}", sudo_cmd, confirm_command);
         }
+
+        debug!(
+            "Attempting to run command to confirm deployment: {}",
+            confirm_command
+        );
 
         let ssh_exit_status = ssh_confirm_command.arg(confirm_command).status().await?;
 
