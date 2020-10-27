@@ -1,0 +1,117 @@
+{
+    "$schema": "http://json-schema.org/draft/2019-09/schema#",
+    "title": "Deploy",
+    "description": "Matches a correct deploy attribute of a flake",
+    "definitions": {
+        "generic_settings": {
+            "type": "object",
+            "properties": {
+                "sshUser": {
+                    "type": "string"
+                },
+                "user": {
+                    "type": "string"
+                },
+                "sshOpts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "fastConnection": {
+                    "type": "boolean"
+                },
+                "autoRollback": {
+                    "type": "boolean"
+                },
+                "magicRollback": {
+                    "type": "boolean"
+                },
+                "confirmTimeout": {
+                    "type": "integer"
+                },
+                "tempPath": {
+                    "type": "string"
+                }
+            }
+        },
+        "node_settings": {
+            "type": "object",
+            "properties": {
+                "hostname": {
+                    "type": "string"
+                },
+                "profilesOrder": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "uniqueItems": true
+                },
+                "profiles": {
+                    "type": "object",
+                    "patternProperties": {
+                        "[A-z][A-z0-9_-]*": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/generic_settings"
+                                },
+                                {
+                                    "$ref": "#/definitions/profile_settings"
+                                }
+                            ]
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "hostname"
+            ]
+        },
+        "profile_settings": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "bootstrap": {
+                    "type": "string"
+                },
+                "profilePath": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "path"
+            ]
+        }
+    },
+    "type": "object",
+    "allOf": [
+        {
+            "$ref": "#/definitions/generic_settings"
+        },
+        {
+            "type": "object",
+            "properties": {
+                "nodes": {
+                    "type": "object",
+                    "patternProperties": {
+                        "[A-z][A-z0-9_-]*": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/generic_settings"
+                                },
+                                {
+                                    "$ref": "#/definitions/node_settings"
+                                }
+                            ]
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            }
+        }
+    ]
+}
