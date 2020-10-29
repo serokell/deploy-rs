@@ -140,7 +140,7 @@ pub async fn deploy_profile(
             ssh_confirm_command = ssh_confirm_command.arg(ssh_opt);
         }
 
-        let lock_hash = &deploy_data.profile.profile_settings.path[11 /* /nix/store/ */ ..];
+        let lock_hash = &deploy_data.profile.profile_settings.path["/nix/store/".len()..];
         let lock_path = format!("{}/activating-{}", temp_path, lock_hash);
 
         let mut confirm_command = format!("rm {}", lock_path);

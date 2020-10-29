@@ -152,7 +152,7 @@ pub async fn activation_confirmation(
     confirm_timeout: u16,
     closure: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let lock_hash = &closure[11 /* /nix/store/ */ ..];
+    let lock_hash = &closure["/nix/store/".len()..];
     let lock_path = format!("{}/activating-{}", temp_path, lock_hash);
 
     if let Some(parent) = Path::new(&lock_path).parent() {
