@@ -51,8 +51,7 @@
             ];
           };
 
-          # DEPRECATED
-          checkSchema = checks.schema;
+          checkSchema = builtins.trace "WARNING: deploy-rs#checkSchema is deprecated" checks.schema;
 
           deployChecks = deploy: builtins.mapAttrs (_: check: check deploy) checks;
 
