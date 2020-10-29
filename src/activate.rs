@@ -30,7 +30,7 @@ mod utils;
 
 /// Activation portion of the simple Rust Nix deploy tool
 #[derive(Clap, Debug)]
-#[clap(version = "1.0", author = "notgne2 <gen2@gen2.space>")]
+#[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
 struct Opts {
     profile_path: String,
     closure: String,
@@ -257,7 +257,10 @@ pub async fn activate(
 
     let activate_status_all = match activate_status {
         Ok(s) if s.success() => Ok(()),
-        Ok(_) => Err(std::io::Error::new(std::io::ErrorKind::Other, "Activation did not succeed")),
+        Ok(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Activation did not succeed",
+        )),
         Err(x) => Err(x),
     };
 
