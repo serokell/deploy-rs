@@ -3,5 +3,5 @@
 # SPDX-License-Identifier: MPL-2.0
 
 /target
-result
+result*
 /examples/system/bare-system.qcow2
