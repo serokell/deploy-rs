@@ -9,6 +9,8 @@ use tokio::process::Command;
 
 use merge::Merge;
 
+use thiserror::Error;
+
 extern crate pretty_env_logger;
 
 #[macro_use]
@@ -73,6 +75,16 @@ struct Opts {
     temp_path: Option<String>,
 }
 
+#[derive(Error, Debug)]
+pub enum PushAllProfilesError {
+    #[error("Failed to push profile `{0}`: {1}")]
+    PushProfileError(String, utils::push::PushProfileError),
+    #[error("No profile named `{0}` was found")]
+    ProfileNotFound(String),
+    #[error("Error processing deployment definitions: {0}")]
+    DeployDataDefsError(#[from] utils::DeployDataDefsError),
+}
+
 async fn push_all_profiles(
     node: &utils::data::Node,
     node_name: &str,
@@ -83,7 +95,7 @@ async fn push_all_profiles(
     cmd_overrides: &utils::CmdOverrides,
     keep_result: bool,
     result_path: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), PushAllProfilesError> {
     info!("Pushing all profiles for `{}`", node_name);
 
     let mut profiles_list: Vec<&str> = node
@@ -103,7 +115,11 @@ async fn push_all_profiles(
     for profile_name in profiles_list {
         let profile = match node.node_settings.profiles.get(profile_name) {
             Some(x) => x,
-            None => good_panic!("No profile was found named `{}`", profile_name),
+            None => {
+                return Err(PushAllProfilesError::ProfileNotFound(
+                    profile_name.to_owned(),
+                ))
+            }
         };
 
         let mut merged_settings = top_settings.clone();
@@ -117,9 +133,9 @@ async fn push_all_profiles(
             profile,
             profile_name,
             cmd_overrides,
-        )?;
+        );
 
-        let deploy_defs = deploy_data.defs();
+        let deploy_defs = deploy_data.defs()?;
 
         utils::push::push_profile(
             supports_flakes,
@@ -130,19 +146,29 @@ async fn push_all_profiles(
             keep_result,
             result_path,
         )
-        .await?;
+        .await
+        .map_err(|e| PushAllProfilesError::PushProfileError(profile_name.to_owned(), e))?;
     }
 
     Ok(())
 }
 
-#[inline]
+#[derive(Error, Debug)]
+pub enum DeployAllProfilesError {
+    #[error("Failed to deploy profile `{0}`: {1}")]
+    DeployProfileError(String, utils::deploy::DeployProfileError),
+    #[error("No profile named `{0}` was found")]
+    ProfileNotFound(String),
+    #[error("Error processing deployment definitions: {0}")]
+    DeployDataDefsError(#[from] utils::DeployDataDefsError),
+}
+
 async fn deploy_all_profiles(
     node: &utils::data::Node,
     node_name: &str,
     top_settings: &utils::data::GenericSettings,
     cmd_overrides: &utils::CmdOverrides,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), DeployAllProfilesError> {
     info!("Deploying all profiles for `{}`", node_name);
 
     let mut profiles_list: Vec<&str> = node
@@ -162,7 +188,11 @@ async fn deploy_all_profiles(
     for profile_name in profiles_list {
         let profile = match node.node_settings.profiles.get(profile_name) {
             Some(x) => x,
-            None => good_panic!("No profile was found named `{}`", profile_name),
+            None => {
+                return Err(DeployAllProfilesError::ProfileNotFound(
+                    profile_name.to_owned(),
+                ))
+            }
         };
 
         let mut merged_settings = top_settings.clone();
@@ -176,19 +206,20 @@ async fn deploy_all_profiles(
             profile,
             profile_name,
             cmd_overrides,
-        )?;
+        );
 
-        let deploy_defs = deploy_data.defs();
+        let deploy_defs = deploy_data.defs()?;
 
-        utils::deploy::deploy_profile(&deploy_data, &deploy_defs).await?;
+        utils::deploy::deploy_profile(&deploy_data, &deploy_defs)
+            .await
+            .map_err(|e| DeployAllProfilesError::DeployProfileError(profile_name.to_owned(), e))?;
     }
 
     Ok(())
 }
 
 /// Returns if the available Nix installation supports flakes
-#[inline]
-async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
+async fn test_flake_support() -> Result<bool, std::io::Error> {
     debug!("Checking for flake support");
 
     Ok(Command::new("nix")
@@ -202,7 +233,19 @@ async fn test_flake_support() -> Result<bool, Box<dyn std::error::Error>> {
         .success())
 }
 
-async fn check_deployment(supports_flakes: bool, repo: &str, extra_build_args: &[String]) -> () {
+#[derive(Error, Debug)]
+enum CheckDeploymentError {
+    #[error("Failed to execute nix eval command: {0}")]
+    NixCheckError(#[from] std::io::Error),
+    #[error("Evaluation resulted in a bad exit code: {0:?}")]
+    NixCheckExitError(Option<i32>),
+}
+
+async fn check_deployment(
+    supports_flakes: bool,
+    repo: &str,
+    extra_build_args: &[String],
+) -> Result<(), CheckDeploymentError> {
     info!("Running checks for flake in {}", repo);
 
     let mut c = match supports_flakes {
@@ -227,16 +270,28 @@ async fn check_deployment(supports_flakes: bool, repo: &str, extra_build_args: &
         check_command = check_command.arg(extra_arg);
     }
 
-    let check_status = match check_command.status().await {
-        Ok(x) => x,
-        Err(err) => good_panic!("Error running checks for the given flake repo: {:?}", err),
+    let check_status = check_command.status().await?;
+
+    match check_status.code() {
+        Some(0) => (),
+        a => return Err(CheckDeploymentError::NixCheckExitError(a)),
     };
 
-    if !check_status.success() {
-        good_panic!("Checks failed for the given flake repo");
-    }
+    Ok(())
+}
 
-    ()
+#[derive(Error, Debug)]
+enum GetDeploymentDataError {
+    #[error("Failed to execute nix eval command: {0}")]
+    NixEvalError(std::io::Error),
+    #[error("Failed to read output from evaluation: {0}")]
+    NixEvalOutError(std::io::Error),
+    #[error("Evaluation resulted in a bad exit code: {0:?}")]
+    NixEvalExitError(Option<i32>),
+    #[error("Error converting evaluation output to utf8: {0}")]
+    DecodeUtf8Error(#[from] std::string::FromUtf8Error),
+    #[error("Error decoding the JSON from evaluation: {0}")]
+    DecodeJsonError(#[from] serde_json::error::Error),
 }
 
 /// Evaluates the Nix in the given `repo` and return the processed Data from it
@@ -244,7 +299,7 @@ async fn get_deployment_data(
     supports_flakes: bool,
     repo: &str,
     extra_build_args: &[String],
-) -> Result<utils::data::Data, Box<dyn std::error::Error>> {
+) -> Result<utils::data::Data, GetDeploymentDataError> {
     info!("Evaluating flake in {}", repo);
 
     let mut c = match supports_flakes {
@@ -273,20 +328,44 @@ async fn get_deployment_data(
         build_command = build_command.arg(extra_arg);
     }
 
-    let build_child = build_command.stdout(Stdio::piped()).spawn()?;
+    let build_child = build_command
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(GetDeploymentDataError::NixEvalError)?;
 
-    let build_output = build_child.wait_with_output().await?;
+    let build_output = build_child
+        .wait_with_output()
+        .await
+        .map_err(GetDeploymentDataError::NixEvalOutError)?;
 
-    if !build_output.status.success() {
-        good_panic!(
-            "Error building deploy props for the provided flake: {}",
-            repo
-        );
-    }
+    match build_output.status.code() {
+        Some(0) => (),
+        a => return Err(GetDeploymentDataError::NixEvalExitError(a)),
+    };
 
     let data_json = String::from_utf8(build_output.stdout)?;
 
     Ok(serde_json::from_str(&data_json)?)
+}
+
+#[derive(Error, Debug)]
+enum RunDeployError {
+    #[error("Failed to deploy profile: {0}")]
+    DeployProfileError(#[from] utils::deploy::DeployProfileError),
+    #[error("Failed to push profile: {0}")]
+    PushProfileError(#[from] utils::push::PushProfileError),
+    #[error("Failed to deploy all profiles: {0}")]
+    DeployAllProfilesError(#[from] DeployAllProfilesError),
+    #[error("Failed to push all profiles: {0}")]
+    PushAllProfilesError(#[from] PushAllProfilesError),
+    #[error("No profile named `{0}` was found")]
+    ProfileNotFound(String),
+    #[error("No node named `{0}` was found")]
+    NodeNotFound(String),
+    #[error("Profile was provided without a node name")]
+    ProfileWithoutNode,
+    #[error("Error processing deployment definitions: {0}")]
+    DeployDataDefsError(#[from] utils::DeployDataDefsError),
 }
 
 async fn run_deploy(
@@ -297,16 +376,16 @@ async fn run_deploy(
     cmd_overrides: utils::CmdOverrides,
     keep_result: bool,
     result_path: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), RunDeployError> {
     match (deploy_flake.node, deploy_flake.profile) {
         (Some(node_name), Some(profile_name)) => {
             let node = match data.nodes.get(node_name) {
                 Some(x) => x,
-                None => good_panic!("No node was found named `{}`", node_name),
+                None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
             };
             let profile = match node.node_settings.profiles.get(profile_name) {
                 Some(x) => x,
-                None => good_panic!("No profile was found named `{}`", profile_name),
+                None => return Err(RunDeployError::ProfileNotFound(profile_name.to_owned())),
             };
 
             let deploy_data = utils::make_deploy_data(
@@ -316,9 +395,9 @@ async fn run_deploy(
                 profile,
                 profile_name,
                 &cmd_overrides,
-            )?;
+            );
 
-            let deploy_defs = deploy_data.defs();
+            let deploy_defs = deploy_data.defs()?;
 
             utils::push::push_profile(
                 supports_flakes,
@@ -336,7 +415,7 @@ async fn run_deploy(
         (Some(node_name), None) => {
             let node = match data.nodes.get(node_name) {
                 Some(x) => x,
-                None => good_panic!("No node was found named `{}`", node_name),
+                None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
             };
 
             push_all_profiles(
@@ -377,16 +456,33 @@ async fn run_deploy(
                     .await?;
             }
         }
-        (None, Some(_)) => {
-            good_panic!("Profile provided without a node, this is not (currently) supported")
-        }
+        (None, Some(_)) => return Err(RunDeployError::ProfileWithoutNode),
     };
 
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Error, Debug)]
+enum RunError {
+    #[error("Failed to deploy all profiles: {0}")]
+    DeployAllProfilesError(#[from] DeployAllProfilesError),
+    #[error("Failed to push all profiles: {0}")]
+    PushAllProfilesError(#[from] PushAllProfilesError),
+    #[error("Failed to deploy profile: {0}")]
+    DeployProfileError(#[from] utils::deploy::DeployProfileError),
+    #[error("Failed to push profile: {0}")]
+    PushProfileError(#[from] utils::push::PushProfileError),
+    #[error("Failed to test for flake support: {0}")]
+    FlakeTestError(std::io::Error),
+    #[error("Failed to check deployment: {0}")]
+    CheckDeploymentError(#[from] CheckDeploymentError),
+    #[error("Failed to evaluate deployment data: {0}")]
+    GetDeploymentDataError(#[from] GetDeploymentDataError),
+    #[error("Error running deploy: {0}")]
+    RunDeployError(#[from] RunDeployError),
+}
+
+async fn run() -> Result<(), RunError> {
     if std::env::var("DEPLOY_LOG").is_err() {
         std::env::set_var("DEPLOY_LOG", "info");
     }
@@ -409,14 +505,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         confirm_timeout: opts.confirm_timeout,
     };
 
-    let supports_flakes = test_flake_support().await?;
+    let supports_flakes = test_flake_support()
+        .await
+        .map_err(RunError::FlakeTestError)?;
 
     if !supports_flakes {
         warn!("A Nix version without flakes support was detected, support for this is work in progress");
     }
 
     if !opts.skip_checks {
-        check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await;
+        check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
     }
 
     let data =
@@ -434,6 +532,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         result_path,
     )
     .await?;
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    match run().await {
+        Ok(()) => (),
+        Err(err) => good_panic!("An error: {}", err),
+    }
 
     Ok(())
 }

@@ -5,6 +5,8 @@
 use std::borrow::Cow;
 use tokio::process::Command;
 
+use thiserror::Error;
+
 fn build_activate_command(
     activate_path_str: String,
     sudo: &Option<String>,
@@ -72,10 +74,26 @@ fn test_activation_command_builder() {
     );
 }
 
+#[derive(Error, Debug)]
+pub enum DeployProfileError {
+    #[error("Failed to calculate activate bin path from deploy bin path: {0}")]
+    DeployPathToActivatePathError(#[from] super::DeployPathToActivatePathError),
+    #[error("Failed to run activation command over SSH: {0}")]
+    SSHActivateError(std::io::Error),
+    #[error("Activation over SSH resulted in a bad exit code: {0:?}")]
+    SSHActivateExitError(Option<i32>),
+    #[error("Failed to run confirmation command over SSH (the server should roll back): {0}")]
+    SSHConfirmError(std::io::Error),
+    #[error(
+        "Confirming activation over SSH resulted in a bad exit code (the server should roll back): {0:?}"
+    )]
+    SSHConfirmExitError(Option<i32>),
+}
+
 pub async fn deploy_profile(
     deploy_data: &super::DeployData<'_>,
     deploy_defs: &super::DeployDefs<'_>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), DeployProfileError> {
     info!(
         "Activating profile `{}` for node `{}`",
         deploy_data.profile_name, deploy_data.node_name
@@ -122,11 +140,16 @@ pub async fn deploy_profile(
         ssh_command = ssh_command.arg(ssh_opt);
     }
 
-    let ssh_exit_status = ssh_command.arg(self_activate_command).status().await?;
+    let ssh_exit_status = ssh_command
+        .arg(self_activate_command)
+        .status()
+        .await
+        .map_err(DeployProfileError::SSHActivateError)?;
 
-    if !ssh_exit_status.success() {
-        good_panic!("Activation over SSH failed");
-    }
+    match ssh_exit_status.code() {
+        Some(0) => (),
+        a => return Err(DeployProfileError::SSHActivateExitError(a)),
+    };
 
     info!("Success activating!");
 
@@ -153,14 +176,16 @@ pub async fn deploy_profile(
             confirm_command
         );
 
-        let ssh_exit_status = ssh_confirm_command.arg(confirm_command).status().await?;
+        let ssh_exit_status = ssh_confirm_command
+            .arg(confirm_command)
+            .status()
+            .await
+            .map_err(DeployProfileError::SSHConfirmError)?;
 
-        if !ssh_exit_status.success() {
-            good_panic!(
-                "Failed to confirm deployment, the node will roll back in <{} seconds",
-                confirm_timeout
-            );
-        }
+        match ssh_exit_status.code() {
+            Some(0) => (),
+            a => return Err(DeployProfileError::SSHConfirmExitError(a)),
+        };
 
         info!("Deployment confirmed.");
     }

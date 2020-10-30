@@ -18,6 +18,8 @@ use std::path::Path;
 
 use inotify::Inotify;
 
+use thiserror::Error;
+
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
@@ -56,7 +58,29 @@ struct Opts {
     auto_rollback: bool,
 }
 
-pub async fn deactivate(profile_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Error, Debug)]
+pub enum DeactivateError {
+    #[error("Failed to execute the rollback command: {0}")]
+    RollbackError(std::io::Error),
+    #[error("The rollback resulted in a bad exit code: {0:?}")]
+    RollbackExitError(Option<i32>),
+    #[error("Failed to run command for listing generations: {0}")]
+    ListGenError(std::io::Error),
+    #[error("Command for listing generations resulted in a bad exit code: {0:?}")]
+    ListGenExitError(Option<i32>),
+    #[error("Error converting generation list output to utf8: {0}")]
+    DecodeListGenUtf8Error(#[from] std::string::FromUtf8Error),
+    #[error("Failed to run command for deleting generation: {0}")]
+    DeleteGenError(std::io::Error),
+    #[error("Command for deleting generations resulted in a bad exit code: {0:?}")]
+    DeleteGenExitError(Option<i32>),
+    #[error("Failed to run command for re-activating the last generation: {0}")]
+    ReactivateError(std::io::Error),
+    #[error("Command for re-activating the last generation resulted in a bad exit code: {0:?}")]
+    ReactivateExitError(Option<i32>),
+}
+
+pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
     error!("De-activating due to error");
 
     let nix_env_rollback_exit_status = Command::new("nix-env")
@@ -66,11 +90,13 @@ pub async fn deactivate(profile_path: &str) -> Result<(), Box<dyn std::error::Er
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .await?;
+        .await
+        .map_err(DeactivateError::RollbackError)?;
 
-    if !nix_env_rollback_exit_status.success() {
-        good_panic!("`nix-env --rollback` failed");
-    }
+    match nix_env_rollback_exit_status.code() {
+        Some(0) => (),
+        a => return Err(DeactivateError::RollbackExitError(a)),
+    };
 
     debug!("Listing generations");
 
@@ -79,11 +105,13 @@ pub async fn deactivate(profile_path: &str) -> Result<(), Box<dyn std::error::Er
         .arg(&profile_path)
         .arg("--list-generations")
         .output()
-        .await?;
+        .await
+        .map_err(DeactivateError::ListGenError)?;
 
-    if !nix_env_list_generations_out.status.success() {
-        good_panic!("Listing `nix-env` generations failed");
-    }
+    match nix_env_list_generations_out.status.code() {
+        Some(0) => (),
+        a => return Err(DeactivateError::ListGenExitError(a)),
+    };
 
     let generations_list = String::from_utf8(nix_env_list_generations_out.stdout)?;
 
@@ -108,11 +136,13 @@ pub async fn deactivate(profile_path: &str) -> Result<(), Box<dyn std::error::Er
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .await?;
+        .await
+        .map_err(DeactivateError::DeleteGenError)?;
 
-    if !nix_env_delete_generation_exit_status.success() {
-        good_panic!("Failed to delete failed generation");
-    }
+    match nix_env_delete_generation_exit_status.code() {
+        Some(0) => (),
+        a => return Err(DeactivateError::DeleteGenExitError(a)),
+    };
 
     info!("Attempting to re-activate the last generation");
 
@@ -120,30 +150,59 @@ pub async fn deactivate(profile_path: &str) -> Result<(), Box<dyn std::error::Er
         .env("PROFILE", &profile_path)
         .current_dir(&profile_path)
         .status()
-        .await?;
+        .await
+        .map_err(DeactivateError::ReactivateError)?;
 
-    if !re_activate_exit_status.success() {
-        good_panic!("Failed to re-activate the last generation");
-    }
+    match re_activate_exit_status.code() {
+        Some(0) => (),
+        a => return Err(DeactivateError::ReactivateExitError(a)),
+    };
 
     Ok(())
 }
 
-async fn deactivate_on_err<A, B: core::fmt::Debug>(profile_path: &str, r: Result<A, B>) -> A {
-    match r {
-        Ok(x) => x,
-        Err(err) => {
-            error!("Deactivating due to error: {:?}", err);
-            match deactivate(profile_path).await {
-                Ok(_) => (),
-                Err(err) => {
-                    error!("Error de-activating, uh-oh: {:?}", err);
-                }
-            };
+#[derive(Error, Debug)]
+pub enum ActivationConfirmationError {
+    #[error("Failed to create activation confirmation directory: {0}")]
+    CreateConfirmDirError(std::io::Error),
+    #[error("Failed to create activation confirmation file: {0}")]
+    CreateConfirmFileError(std::io::Error),
+    #[error("Failed to create inotify instance: {0}")]
+    CreateInotifyError(std::io::Error),
+    #[error("Failed to create inotify watcher: {0}")]
+    CreateInotifyWatcherError(std::io::Error),
+    #[error("Error forking process: {0}")]
+    ForkError(i32),
+}
 
-            std::process::exit(1);
-        }
-    }
+#[derive(Error, Debug)]
+pub enum DangerZoneError {
+    #[error("Timeout elapsed for confirmation: {0}")]
+    TimesUp(#[from] tokio::time::Elapsed),
+    #[error("inotify stream ended without activation confirmation")]
+    NoConfirmation,
+    #[error("There was some kind of error waiting for confirmation (todo figure it out)")]
+    SomeKindOfError(std::io::Error),
+}
+
+async fn danger_zone(
+    profile_path: &str,
+    mut inotify: Inotify,
+    confirm_timeout: u16,
+) -> Result<(), DangerZoneError> {
+    info!("Waiting for confirmation event...");
+
+    let mut buffer = [0; 32];
+    let mut stream = inotify
+        .event_stream(&mut buffer)
+        .map_err(DangerZoneError::SomeKindOfError)?;
+
+    timeout(Duration::from_secs(confirm_timeout as u64), stream.next())
+        .await?
+        .ok_or(DangerZoneError::NoConfirmation)?
+        .map_err(DangerZoneError::SomeKindOfError)?;
+
+    Ok(())
 }
 
 pub async fn activation_confirmation(
@@ -151,59 +210,67 @@ pub async fn activation_confirmation(
     temp_path: String,
     confirm_timeout: u16,
     closure: String,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), ActivationConfirmationError> {
     let lock_hash = &closure["/nix/store/".len()..];
     let lock_path = format!("{}/activating-{}", temp_path, lock_hash);
 
     if let Some(parent) = Path::new(&lock_path).parent() {
-        fs::create_dir_all(parent).await?;
+        fs::create_dir_all(parent)
+            .await
+            .map_err(ActivationConfirmationError::CreateConfirmDirError)?;
     }
 
-    fs::File::create(&lock_path).await?;
+    fs::File::create(&lock_path)
+        .await
+        .map_err(ActivationConfirmationError::CreateConfirmDirError)?;
 
-    let mut inotify = Inotify::init()?;
-    inotify.add_watch(lock_path, inotify::WatchMask::DELETE)?;
+    let mut inotify =
+        Inotify::init().map_err(ActivationConfirmationError::CreateConfirmDirError)?;
+    inotify
+        .add_watch(lock_path, inotify::WatchMask::DELETE)
+        .map_err(ActivationConfirmationError::CreateConfirmDirError)?;
 
-    match fork::daemon(false, false).map_err(|x| x.to_string())? {
-        fork::Fork::Child => {
-            std::thread::spawn(move || {
+    if let fork::Fork::Child =
+        fork::daemon(false, false).map_err(ActivationConfirmationError::ForkError)?
+    {
+        std::thread::spawn(move || {
                 let mut rt = tokio::runtime::Runtime::new().unwrap();
 
                 rt.block_on(async move {
-                    info!("Waiting for confirmation event...");
+                    if let Err(err) = danger_zone(&profile_path, inotify, confirm_timeout).await {
+                        if let Err(err) = deactivate(&profile_path).await {
+                            good_panic!("Error de-activating due to another error in confirmation thread, oh no...: {}", err);
+                        }
 
-                    let mut buffer = [0; 32];
-                    let mut stream =
-                        deactivate_on_err(&profile_path, inotify.event_stream(&mut buffer)).await;
-
-                    deactivate_on_err(
-                        &profile_path,
-                        deactivate_on_err(
-                            &profile_path,
-                            deactivate_on_err(
-                                &profile_path,
-                                timeout(Duration::from_secs(confirm_timeout as u64), stream.next())
-                                    .await,
-                            )
-                            .await
-                            .ok_or("Watcher ended prematurely"),
-                        )
-                        .await,
-                    )
-                    .await;
+                        good_panic!("Error in confirmation thread: {}", err);
+                    }
                 });
             })
             .join()
             .unwrap();
 
-            info!("Confirmation successful!");
-
-            std::process::exit(0);
-        }
-        fork::Fork::Parent(_) => {
-            std::process::exit(0);
-        }
+        info!("Confirmation successful!");
     }
+
+    std::process::exit(0);
+}
+
+#[derive(Error, Debug)]
+pub enum ActivateError {
+    #[error("Failed to execute the command for setting profile: {0}")]
+    SetProfileError(std::io::Error),
+    #[error("The command for setting profile resulted in a bad exit code: {0:?}")]
+    SetProfileExitError(Option<i32>),
+    #[error("Error removing profile after bootstrap failed: {0}")]
+    RemoveGenerationErr(std::io::Error),
+    #[error("Failed to execute the activation script: {0}")]
+    RunActivateError(std::io::Error),
+    #[error("The activation script resulted in a bad exit code: {0:?}")]
+    RunActivateExitError(Option<i32>),
+    #[error("There was an error de-activating after an error was encountered: {0}")]
+    DeactivateError(#[from] DeactivateError),
+    #[error("Failed to get activation confirmation: {0}")]
+    ActivationConfirmationError(#[from] ActivationConfirmationError),
 }
 
 pub async fn activate(
@@ -214,7 +281,7 @@ pub async fn activate(
     temp_path: String,
     confirm_timeout: u16,
     magic_rollback: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), ActivateError> {
     info!("Activating profile");
 
     let nix_env_set_exit_status = Command::new("nix-env")
@@ -224,7 +291,8 @@ pub async fn activate(
         .arg(&closure)
         .stdout(Stdio::null())
         .status()
-        .await?;
+        .await
+        .map_err(ActivateError::SetProfileError)?;
 
     if !nix_env_set_exit_status.success() {
         good_panic!("Failed to update nix-env generation");
@@ -243,39 +311,48 @@ pub async fn activate(
         match bootstrap_status {
             Ok(s) if s.success() => (),
             _ => {
-                tokio::fs::remove_file(&profile_path).await?;
+                tokio::fs::remove_file(&profile_path)
+                    .await
+                    .map_err(ActivateError::RemoveGenerationErr)?;
                 good_panic!("Failed to execute bootstrap command");
             }
         }
     }
 
-    let activate_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
+    let activate_status = match Command::new(format!("{}/deploy-rs-activate", profile_path))
         .env("PROFILE", &profile_path)
         .current_dir(&profile_path)
         .status()
-        .await;
-
-    let activate_status_all = match activate_status {
-        Ok(s) if s.success() => Ok(()),
-        Ok(_) => Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Activation did not succeed",
-        )),
-        Err(x) => Err(x),
+        .await
+        .map_err(ActivateError::RunActivateError)
+    {
+        Ok(x) => x,
+        Err(e) => {
+            deactivate(&profile_path).await?;
+            return Err(e);
+        }
     };
 
-    deactivate_on_err(&profile_path, activate_status_all).await;
+    match activate_status.code() {
+        Some(0) => (),
+        a => {
+            deactivate(&profile_path).await?;
+            return Err(ActivateError::RunActivateExitError(a));
+        }
+    };
 
     info!("Activation succeeded!");
 
     if magic_rollback {
-        info!("Performing activation confirmation steps");
-        deactivate_on_err(
-            &profile_path,
-            activation_confirmation(profile_path.clone(), temp_path, confirm_timeout, closure)
-                .await,
-        )
-        .await;
+        match activation_confirmation(profile_path.clone(), temp_path, confirm_timeout, closure)
+            .await
+        {
+            Ok(()) => {}
+            Err(err) => {
+                deactivate(&profile_path).await?;
+                return Err(ActivateError::ActivationConfirmationError(err));
+            }
+        };
     }
 
     Ok(())
@@ -291,7 +368,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let opts: Opts = Opts::parse();
 
-    activate(
+    match activate(
         opts.profile_path,
         opts.closure,
         opts.bootstrap_cmd,
@@ -300,7 +377,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         opts.confirm_timeout,
         opts.magic_rollback,
     )
-    .await?;
+    .await
+    {
+        Ok(()) => (),
+        Err(err) => good_panic!("An error: {}", err),
+    }
 
     Ok(())
 }

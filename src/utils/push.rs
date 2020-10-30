@@ -5,6 +5,26 @@
 use std::process::Stdio;
 use tokio::process::Command;
 
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum PushProfileError {
+    #[error("Failed to calculate activate bin path from deploy bin path: {0}")]
+    DeployPathToActivatePathError(#[from] super::DeployPathToActivatePathError),
+    #[error("Failed to run Nix build command: {0}")]
+    BuildError(std::io::Error),
+    #[error("Nix build command resulted in a bad exit code: {0:?}")]
+    BuildExitError(Option<i32>),
+    #[error("Failed to run Nix sign command: {0}")]
+    SignError(std::io::Error),
+    #[error("Nix sign command resulted in a bad exit code: {0:?}")]
+    SignExitError(Option<i32>),
+    #[error("Failed to run Nix copy command: {0}")]
+    CopyError(std::io::Error),
+    #[error("Nix copy command resulted in a bad exit code: {0:?}")]
+    CopyExitError(Option<i32>),
+}
+
 pub async fn push_profile(
     supports_flakes: bool,
     check_sigs: bool,
@@ -13,7 +33,7 @@ pub async fn push_profile(
     deploy_defs: &super::DeployDefs<'_>,
     keep_result: bool,
     result_path: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), PushProfileError> {
     info!(
         "Building profile `{}` for node `{}`",
         deploy_data.profile_name, deploy_data.node_name
@@ -57,11 +77,16 @@ pub async fn push_profile(
         (false, true) => build_command.arg("--no-link"),
     };
 
-    let build_exit_status = build_command.stdout(Stdio::null()).status().await?;
+    let build_exit_status = build_command
+        .stdout(Stdio::null())
+        .status()
+        .await
+        .map_err(PushProfileError::BuildError)?;
 
-    if !build_exit_status.success() {
-        good_panic!("`nix build` failed");
-    }
+    match build_exit_status.code() {
+        Some(0) => (),
+        a => return Err(PushProfileError::BuildExitError(a)),
+    };
 
     if let Ok(local_key) = std::env::var("LOCAL_KEY") {
         info!(
@@ -81,11 +106,13 @@ pub async fn push_profile(
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
-            .await?;
+            .await
+            .map_err(PushProfileError::SignError)?;
 
-        if !sign_exit_status.success() {
-            good_panic!("`nix sign-paths` failed");
-        }
+        match sign_exit_status.code() {
+            Some(0) => (),
+            a => return Err(PushProfileError::SignExitError(a)),
+        };
     }
 
     debug!(
@@ -127,11 +154,13 @@ pub async fn push_profile(
         )?)
         .env("NIX_SSHOPTS", ssh_opts_str)
         .status()
-        .await?;
+        .await
+        .map_err(PushProfileError::CopyError)?;
 
-    if !copy_exit_status.success() {
-        good_panic!("`nix copy` failed");
-    }
+    match copy_exit_status.code() {
+        Some(0) => (),
+        a => return Err(PushProfileError::CopyExitError(a)),
+    };
 
     Ok(())
 }

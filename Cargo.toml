@@ -23,6 +23,8 @@ pretty_env_logger = "0.4"
 inotify = "0.8"
 futures-util = "0.3.6"
 fork = "0.1"
+thiserror = "1.0"
+
 
 [[bin]]
 name = "deploy"

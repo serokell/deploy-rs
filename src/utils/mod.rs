@@ -7,6 +7,8 @@ use std::path::PathBuf;
 
 use merge::Merge;
 
+use thiserror::Error;
+
 #[macro_export]
 macro_rules! good_panic {
     ($($tts:tt)*) => {{
@@ -112,8 +114,18 @@ pub struct DeployDefs<'a> {
     pub sudo: Option<String>,
 }
 
+#[derive(Error, Debug)]
+pub enum DeployDataDefsError {
+    #[error("Neither `user` nor `sshUser` are set for profile {0} of node {1}")]
+    NoProfileUser(String, String),
+    #[error("Error reading current executable path: {0}")]
+    ExecutablePathNotFound(std::io::Error),
+    #[error("Executable was not in the Nix store")]
+    NotNixStored,
+}
+
 impl<'a> DeployData<'a> {
-    pub fn defs(&'a self) -> DeployDefs<'a> {
+    pub fn defs(&'a self) -> Result<DeployDefs<'a>, DeployDataDefsError> {
         let ssh_user: Cow<str> = match self.merged_settings.ssh_user {
             Some(ref u) => u.into(),
             None => whoami::username().into(),
@@ -123,11 +135,12 @@ impl<'a> DeployData<'a> {
             Some(ref x) => x.into(),
             None => match self.merged_settings.ssh_user {
                 Some(ref x) => x.into(),
-                None => good_panic!(
-                    "Neither user nor sshUser set for profile `{}` of node `{}`",
-                    self.profile_name,
-                    self.node_name
-                ),
+                None => {
+                    return Err(DeployDataDefsError::NoProfileUser(
+                        self.profile_name.to_owned(),
+                        self.node_name.to_owned(),
+                    ))
+                }
             },
         };
 
@@ -149,19 +162,19 @@ impl<'a> DeployData<'a> {
         };
 
         let current_exe =
-            std::env::current_exe().expect("Expected to find current executable path");
+            std::env::current_exe().map_err(DeployDataDefsError::ExecutablePathNotFound)?;
 
         if !current_exe.starts_with("/nix/store/") {
-            good_panic!("The deploy binary must be in the Nix store");
+            return Err(DeployDataDefsError::NotNixStored);
         }
 
-        DeployDefs {
+        Ok(DeployDefs {
             ssh_user,
             profile_user,
             profile_path,
             current_exe,
             sudo,
-        }
+        })
     }
 }
 
@@ -172,7 +185,7 @@ pub fn make_deploy_data<'a, 's>(
     profile: &'a data::Profile,
     profile_name: &'a str,
     cmd_overrides: &'a CmdOverrides,
-) -> Result<DeployData<'a>, Box<dyn std::error::Error>> {
+) -> DeployData<'a> {
     let mut merged_settings = top_settings.clone();
     merged_settings.merge(node.generic_settings.clone());
     merged_settings.merge(profile.generic_settings.clone());
@@ -196,7 +209,7 @@ pub fn make_deploy_data<'a, 's>(
         merged_settings.magic_rollback = Some(magic_rollback);
     }
 
-    Ok(DeployData {
+    DeployData {
         profile,
         profile_name,
         node,
@@ -205,19 +218,27 @@ pub fn make_deploy_data<'a, 's>(
         cmd_overrides,
 
         merged_settings,
-    })
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum DeployPathToActivatePathError {
+    #[error("Deploy path did not have a parent directory")]
+    PathTooShort,
+    #[error("Deploy path was not valid utf8")]
+    InvalidUtf8,
 }
 
 pub fn deploy_path_to_activate_path_str(
     deploy_path: &std::path::Path,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String, DeployPathToActivatePathError> {
     Ok(format!(
         "{}/activate",
         deploy_path
             .parent()
-            .ok_or("Deploy path too short")?
+            .ok_or(DeployPathToActivatePathError::PathTooShort)?
             .to_str()
-            .ok_or("Deploy path is not valid utf8")?
+            .ok_or(DeployPathToActivatePathError::InvalidUtf8)?
             .to_owned()
     ))
 }
