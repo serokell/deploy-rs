@@ -261,14 +261,23 @@ pub enum ActivateError {
     SetProfileError(std::io::Error),
     #[error("The command for setting profile resulted in a bad exit code: {0:?}")]
     SetProfileExitError(Option<i32>),
+
+    #[error("Failed to run bootstrap command: {0}")]
+    BootstrapError(std::io::Error),
+    #[error("The bootstrap command resulted in a bad exit code: {0:?}")]
+    BootstrapExitError(Option<i32>),
+
     #[error("Error removing profile after bootstrap failed: {0}")]
     RemoveGenerationErr(std::io::Error),
+
     #[error("Failed to execute the activation script: {0}")]
     RunActivateError(std::io::Error),
     #[error("The activation script resulted in a bad exit code: {0:?}")]
     RunActivateExitError(Option<i32>),
+
     #[error("There was an error de-activating after an error was encountered: {0}")]
     DeactivateError(#[from] DeactivateError),
+
     #[error("Failed to get activation confirmation: {0}")]
     ActivationConfirmationError(#[from] ActivationConfirmationError),
 }
@@ -294,9 +303,13 @@ pub async fn activate(
         .await
         .map_err(ActivateError::SetProfileError)?;
 
-    if !nix_env_set_exit_status.success() {
-        good_panic!("Failed to update nix-env generation");
-    }
+    match nix_env_set_exit_status.code() {
+        Some(0) => (),
+        a => {
+            deactivate(&profile_path).await?;
+            return Err(ActivateError::SetProfileExitError(a));
+        }
+    };
 
     if let (Some(bootstrap_cmd), false) = (bootstrap_cmd, !Path::new(&profile_path).exists()) {
         let bootstrap_status = Command::new("bash")
@@ -309,12 +322,22 @@ pub async fn activate(
             .await;
 
         match bootstrap_status {
-            Ok(s) if s.success() => (),
-            _ => {
+            Ok(s) => match s.code() {
+                Some(0) => {}
+                a => {
+                    tokio::fs::remove_file(&profile_path)
+                        .await
+                        .map_err(ActivateError::RemoveGenerationErr)?;
+
+                    return Err(ActivateError::BootstrapExitError(a));
+                }
+            },
+            Err(err) => {
                 tokio::fs::remove_file(&profile_path)
                     .await
                     .map_err(ActivateError::RemoveGenerationErr)?;
-                good_panic!("Failed to execute bootstrap command");
+
+                return Err(ActivateError::BootstrapError(err));
             }
         }
     }
