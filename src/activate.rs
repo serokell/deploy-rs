@@ -403,7 +403,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     {
         Ok(()) => (),
-        Err(err) => good_panic!("An error: {}", err),
+        Err(err) => good_panic!("{}", err),
     }
 
     Ok(())

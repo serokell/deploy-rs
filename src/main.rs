@@ -235,9 +235,9 @@ async fn test_flake_support() -> Result<bool, std::io::Error> {
 
 #[derive(Error, Debug)]
 enum CheckDeploymentError {
-    #[error("Failed to execute nix eval command: {0}")]
+    #[error("Failed to execute Nix checking command: {0}")]
     NixCheckError(#[from] std::io::Error),
-    #[error("Evaluation resulted in a bad exit code: {0:?}")]
+    #[error("Nix checking command resulted in a bad exit code: {0:?}")]
     NixCheckExitError(Option<i32>),
 }
 
@@ -540,7 +540,7 @@ async fn run() -> Result<(), RunError> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match run().await {
         Ok(()) => (),
-        Err(err) => good_panic!("An error: {}", err),
+        Err(err) => good_panic!("{}", err),
     }
 
     Ok(())
