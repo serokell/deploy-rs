@@ -63,10 +63,7 @@ pub async fn push_profile(
 
     build_command = match (keep_result, supports_flakes) {
         (true, _) => {
-            let result_path = match result_path {
-                Some(x) => x,
-                None => "./.deploy-gc",
-            };
+            let result_path = result_path.unwrap_or("./.deploy-gc");
 
             build_command.arg("--out-link").arg(format!(
                 "{}/{}/{}",
