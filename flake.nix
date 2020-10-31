@@ -62,10 +62,16 @@
 
             activate = deploy:
               let
-                allPaths = pkgs.lib.flatten (pkgs.lib.mapAttrsToList (nodeName: node: pkgs.lib.mapAttrsToList (profileName: profile: profile.path) node.profiles) deploy.nodes);
+                profiles = builtins.concatLists (pkgs.lib.mapAttrsToList (nodeName: node: pkgs.lib.mapAttrsToList (profileName: profile: [ (toString profile.path) nodeName profileName ]) node.profiles) deploy.nodes);
               in
               pkgs.runCommandNoCC "deploy-rs-check-activate" { } ''
-                for i in ${builtins.concatStringsSep " " allPaths}; do test -f "$i/deploy-rs-activate" || (echo "A profile path is missing an activation script" && exit 1); done
+                for x in ${builtins.concatStringsSep " " (map (p: builtins.concatStringsSep ":" p) profiles)}; do
+                  profile_path=$(echo $x | cut -f1 -d:)
+                  node_name=$(echo $x | cut -f2 -d:)
+                  profile_name=$(echo $x | cut -f3 -d:)
+
+                  test -f "$profile_path/deploy-rs-activate" || (echo "#$node_name.$profile_name is missing an activation script" && exit 1);
+                done
 
                 touch $out
               '';
