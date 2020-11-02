@@ -478,7 +478,7 @@ enum RunError {
     CheckDeploymentError(#[from] CheckDeploymentError),
     #[error("Failed to evaluate deployment data: {0}")]
     GetDeploymentDataError(#[from] GetDeploymentDataError),
-    #[error("Error running deploy: {0}")]
+    #[error("{0}")]
     RunDeployError(#[from] RunDeployError),
 }
 

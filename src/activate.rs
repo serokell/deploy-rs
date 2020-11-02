@@ -81,7 +81,7 @@ pub enum DeactivateError {
 }
 
 pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
-    error!("De-activating due to error");
+    warn!("De-activating due to error");
 
     let nix_env_rollback_exit_status = Command::new("nix-env")
         .arg("-p")
@@ -367,6 +367,7 @@ pub async fn activate(
     info!("Activation succeeded!");
 
     if magic_rollback {
+        info!("Magic rollback is enabled, setting up confirmation hook...");
         match activation_confirmation(profile_path.clone(), temp_path, confirm_timeout, closure)
             .await
         {
