@@ -33,9 +33,6 @@ This is the core of how `deploy-rs` was designed, any number of these can run on
 
 ```nix
 {
-  # The command to bootstrap your profile, this is optional
-  bootstrap = "mkdir xyz";
-
   # A derivation containing your required software, and a script to activate it in `${path}/activate`
   # For ease of use, `deploy-rs` provides a function to easy all this required activation script to any derivation
   # Both the working directory and `$PROFILE` will point to `profilePath`

@@ -12,7 +12,6 @@ fn build_activate_command(
     sudo: &Option<String>,
     profile_path: &str,
     closure: &str,
-    bootstrap_cmd: &Option<String>,
     auto_rollback: bool,
     temp_path: &Cow<str>,
     confirm_timeout: u16,
@@ -31,13 +30,6 @@ fn build_activate_command(
         self_activate_command = format!("{} --auto-rollback", self_activate_command);
     }
 
-    if let Some(ref bootstrap_cmd) = bootstrap_cmd {
-        self_activate_command = format!(
-            "{} --bootstrap-cmd '{}'",
-            self_activate_command, bootstrap_cmd
-        );
-    }
-
     if let Some(sudo_cmd) = &sudo {
         self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
     }
@@ -51,7 +43,6 @@ fn test_activation_command_builder() {
     let sudo = Some("sudo -u test".to_string());
     let profile_path = "/blah/profiles/test";
     let closure = "/blah/etc";
-    let bootstrap_cmd = None;
     let auto_rollback = true;
     let temp_path = &"/tmp/deploy-rs".into();
     let confirm_timeout = 30;
@@ -63,7 +54,6 @@ fn test_activation_command_builder() {
             &sudo,
             profile_path,
             closure,
-            &bootstrap_cmd,
             auto_rollback,
             temp_path,
             confirm_timeout,
@@ -117,7 +107,6 @@ pub async fn deploy_profile(
         &deploy_defs.sudo,
         &deploy_defs.profile_path,
         &deploy_data.profile.profile_settings.path,
-        &deploy_data.profile.profile_settings.bootstrap,
         auto_rollback,
         &temp_path,
         confirm_timeout,

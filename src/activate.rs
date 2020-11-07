@@ -49,10 +49,6 @@ struct Opts {
     #[clap(long)]
     magic_rollback: bool,
 
-    /// Command for bootstrapping
-    #[clap(long)]
-    bootstrap_cmd: Option<String>,
-
     /// Auto rollback if failure
     #[clap(long)]
     auto_rollback: bool,
@@ -258,14 +254,6 @@ pub enum ActivateError {
     #[error("The command for setting profile resulted in a bad exit code: {0:?}")]
     SetProfileExitError(Option<i32>),
 
-    #[error("Failed to run bootstrap command: {0}")]
-    BootstrapError(std::io::Error),
-    #[error("The bootstrap command resulted in a bad exit code: {0:?}")]
-    BootstrapExitError(Option<i32>),
-
-    #[error("Error removing profile after bootstrap failed: {0}")]
-    RemoveGenerationErr(std::io::Error),
-
     #[error("Failed to execute the activation script: {0}")]
     RunActivateError(std::io::Error),
     #[error("The activation script resulted in a bad exit code: {0:?}")]
@@ -281,7 +269,6 @@ pub enum ActivateError {
 pub async fn activate(
     profile_path: String,
     closure: String,
-    bootstrap_cmd: Option<String>,
     auto_rollback: bool,
     temp_path: String,
     confirm_timeout: u16,
@@ -305,35 +292,6 @@ pub async fn activate(
             return Err(ActivateError::SetProfileExitError(a));
         }
     };
-
-    if let (Some(bootstrap_cmd), false) = (bootstrap_cmd, !Path::new(&profile_path).exists()) {
-        let bootstrap_status = Command::new("bash")
-            .arg("-c")
-            .arg(&bootstrap_cmd)
-            .env("PROFILE", &profile_path)
-            .status()
-            .await;
-
-        match bootstrap_status {
-            Ok(s) => match s.code() {
-                Some(0) => {}
-                a => {
-                    tokio::fs::remove_file(&profile_path)
-                        .await
-                        .map_err(ActivateError::RemoveGenerationErr)?;
-
-                    return Err(ActivateError::BootstrapExitError(a));
-                }
-            },
-            Err(err) => {
-                tokio::fs::remove_file(&profile_path)
-                    .await
-                    .map_err(ActivateError::RemoveGenerationErr)?;
-
-                return Err(ActivateError::BootstrapError(err));
-            }
-        }
-    }
 
     let activate_status = match Command::new(format!("{}/deploy-rs-activate", profile_path))
         .env("PROFILE", &profile_path)
@@ -388,7 +346,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match activate(
         opts.profile_path,
         opts.closure,
-        opts.bootstrap_cmd,
         opts.auto_rollback,
         opts.temp_path,
         opts.confirm_timeout,

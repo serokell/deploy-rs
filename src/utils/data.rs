@@ -45,7 +45,6 @@ pub struct NodeSettings {
 #[derive(Deserialize, Debug, Clone)]
 pub struct ProfileSettings {
     pub path: String,
-    pub bootstrap: Option<String>,
     #[serde(rename(deserialize = "profilePath"))]
     pub profile_path: Option<String>,
 }
