@@ -57,7 +57,7 @@
 
           checks = {
             schema = deploy: pkgs.runCommandNoCC "jsonschema-deploy-system" { } ''
-              ${pkgs.python3.pkgs.jsonschema}/bin/jsonschema -i ${pkgs.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface/deploy.json} && touch $out
+              ${pkgs.python3.pkgs.jsonschema}/bin/jsonschema -i ${pkgs.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface.json} && touch $out
             '';
 
             activate = deploy:

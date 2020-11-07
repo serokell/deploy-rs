@@ -38,9 +38,11 @@ This is the core of how `deploy-rs` was designed, any number of these can run on
 
   # A derivation containing your required software, and a script to activate it in `${path}/activate`
   # For ease of use, `deploy-rs` provides a function to easy all this required activation script to any derivation
+  # Both the working directory and `$PROFILE` will point to `profilePath`
   path = deploy-rs.lib.x86_64-linux.setActivate pkgs.hello "./bin/hello";
 
   # An optional path to where your profile should be installed to, this is useful if you want to use a common profile name across multiple users, but would have conflicts in your node's profile list.
+  # This will default to `"/nix/var/nix/profiles/$PROFILE_NAME` if `user` is root (see: generic options), and `/nix/var/nix/profiles/per-user/$USER/$PROFILE_NAME` if it is not.
   profilePath = "/nix/var/nix/profiles/per-user/someuser/someprofile";
 
   # ...generic options... (see lower section)
@@ -57,11 +59,13 @@ This defines a single node/server, and the profiles you intend it to run.
   hostname = "my.server.gov";
 
   # An optional list containing the order you want profiles to be deployed.
+  # This will take effect whenever you run `deploy` without specifying a profile, causing it to deploy every profile automatically.
   profilesOrder = [ "something" "system" ];
 
   profiles = {
-    system = {}; # Definition shown above
-    something = {}; # Definition shown above
+    # Definition format shown above
+    system = {};
+    something = {};
   };
 
   # ...generic options... (see lower section)
@@ -75,8 +79,9 @@ This is the top level attribute containing all of the options for this tool
 ```nix
 {
   nodes = {
-    my-node = {}; # Definition shown above
-    another-node = {}; # Definition shown above
+    # Definition format shown above
+    my-node = {}; 
+    another-node = {};
   };
 
   # ...generic options... (see lower section)
@@ -89,15 +94,69 @@ This is a set of options that can be put in any of the above definitions, with t
 
 ```nix
 {
-  sshUser = "admin"; # This is the user that deploy-rs will use when connecting
-  user = "root"; # This is the user that the profile will be deployed to (will use sudo if not the same as above)
-  sshOpts = [ "-p" "2121" ]; # These are arguments that will be passed to SSH
-  fastConnection = false; # Fast connection to the node. If this is true, copy the whole closure instead of letting the node substitute
-  autoRollback = true; # If the previous profile should be re-activated if activation fails
+  # This is the user that deploy-rs will use when connecting.
+  # This will default to your own username if not specified anywhere
+  sshUser = "admin";
+
+  # This is the user that the profile will be deployed to (will use sudo if not the same as above).
+  # If `sshUser` is specified, this will be the default (though it will _not_ default to your own username)
+  user = "root";
+
+  # This is an optional list of arguments that will be passed to SSH.
+  sshOpts = [ "-p" "2121" ];
+
+  # Fast connection to the node. If this is true, copy the whole closure instead of letting the node substitute.
+  # This defaults to `false`
+  fastConnection = false;
+
+  # If the previous profile should be re-activated if activation fails.
+  # this defaults to `true`
+  autoRollback = true;
+
+  # If the node should wait for `deploy` to connect for a second time after activation, to confirm the server has not been ruined.
+  # This defaults to `false`, though it is strongly recommend you activate it if you value safety
+  magicRollback = true;
+
+  # The path which deploy-rs will use for temporary files, this is currently only used by `magicRollback` to create an inotify watcher in
+  # If not specified, this will default to `/tmp/deploy-rs`
+  # (if `magicRollback` is in use, this _must_ be writable by `user`)
+  tempPath = "/home/someuser/.deploy-rs";
 }
 ```
 
-A stronger definition of the schema is in the [interface directory](./interface), and full working examples Nix expressions/configurations are in the [examples folder](./examples).
+### Putting it together
+
+`deploy-rs` is designed to be used with Nix flakes (this currently requires an unstable version of Nix to work with). There is a Flake-less mode of operation which will automatically be used if your available Nix version does not support flakes, however you will likely want to use a flake anyway, just with `flake-compat` (see [this wiki page](https://nixos.wiki/wiki/Flakes) for usage).
+
+`deploy-rs` also outputs a `lib` attribute, with tools used to make your definitions simpler and safer, including `deploy-rs.lib.${system}.setActivate` (see prior section "Profile"), and `deploy-rs.lib.${system}.deployChecks` which will let `nix flake check` ensure your deployment is defined correctly.
+
+A basic example of a flake that works with `deploy-rs` and deploys a simple NixOS configuration could look like this
+
+```nix
+{
+  description = "Deployment for my server cluster";
+
+  # For accessing `deploy-rs`'s utility Nix functions
+  inputs.deploy-rs.url = "github:serokell/deploy-rs";
+
+  outputs = { self, nixpkgs, deploy-rs }: {
+    nixosConfigurations.some-random-system = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [ ./some-random-system/configuration.nix ];
+    };
+
+    deploy.nodes.some-random-system.profiles.system = {
+        user = "root";
+        path = deploy-rs.lib.x86_64-linux.setActivate self.nixosConfigurations.some-random-system.config.system.build.toplevel "./bin/switch-to-configuration switch";
+    };
+  };
+
+  # This is highly advised, and will prevent many possible mistakes
+  checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
+}
+```
+
+There are full working deploy-rs Nix expressions in the [examples folder](./examples), and there is a JSON schema [here](./interface.json) which is used internally by the `deployChecks` mentioned above to validate your expressions.
 
 ## Idea
 
