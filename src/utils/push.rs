@@ -75,6 +75,7 @@ pub async fn push_profile(
     };
 
     let build_exit_status = build_command
+        // Logging should be in stderr, this just stops the store path from printing for no reason
         .stdout(Stdio::null())
         .status()
         .await
@@ -100,8 +101,6 @@ pub async fn push_profile(
             .arg(&super::deploy_path_to_activate_path_str(
                 &deploy_defs.current_exe,
             )?)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
             .status()
             .await
             .map_err(PushProfileError::SignError)?;

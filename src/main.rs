@@ -226,6 +226,7 @@ async fn test_flake_support() -> Result<bool, std::io::Error> {
         .arg("eval")
         .arg("--expr")
         .arg("builtins.getFlake")
+        // This will error on some machines "intentionally", and we don't really need that printing
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()

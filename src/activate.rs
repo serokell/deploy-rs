@@ -87,8 +87,6 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
         .arg("-p")
         .arg(&profile_path)
         .arg("--rollback")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
         .status()
         .await
         .map_err(DeactivateError::RollbackError)?;
@@ -133,8 +131,6 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
         .arg(&profile_path)
         .arg("--delete-generations")
         .arg(last_generation_id)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
         .status()
         .await
         .map_err(DeactivateError::DeleteGenError)?;
@@ -298,7 +294,6 @@ pub async fn activate(
         .arg(&profile_path)
         .arg("--set")
         .arg(&closure)
-        .stdout(Stdio::null())
         .status()
         .await
         .map_err(ActivateError::SetProfileError)?;
@@ -316,8 +311,6 @@ pub async fn activate(
             .arg("-c")
             .arg(&bootstrap_cmd)
             .env("PROFILE", &profile_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
             .status()
             .await;
 
