@@ -60,6 +60,7 @@ This defines a single node/server, and the profiles you intend it to run.
 
   # An optional list containing the order you want profiles to be deployed.
   # This will take effect whenever you run `deploy` without specifying a profile, causing it to deploy every profile automatically.
+  # Any profiles not in this list will still be deployed (in an arbitrary order) after those which are listed
   profilesOrder = [ "something" "system" ];
 
   profiles = {
