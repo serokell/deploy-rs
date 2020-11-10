@@ -33,8 +33,8 @@ This is the core of how `deploy-rs` was designed, any number of these can run on
 
 ```nix
 {
-  # A derivation containing your required software, and a script to activate it in `${path}/activate`
-  # For ease of use, `deploy-rs` provides a function to easy all this required activation script to any derivation
+  # A derivation containing your required software, and a script to activate it in `${path}/deploy-rs-activate`
+  # For ease of use, `deploy-rs` provides a function to easily add the required activation script to any derivation
   # Both the working directory and `$PROFILE` will point to `profilePath`
   path = deploy-rs.lib.x86_64-linux.setActivate pkgs.hello "./bin/hello";
 
