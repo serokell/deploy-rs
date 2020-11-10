@@ -52,7 +52,7 @@ This defines a single node/server, and the profiles you intend it to run.
 
 ```nix
 {
-  # The hostname of your server, don't worry, this can be overridden at runtime if needed
+  # The hostname of your server. Can be overridden at invocation time with a flag.
   hostname = "my.server.gov";
 
   # An optional list containing the order you want profiles to be deployed.
