@@ -33,6 +33,8 @@ There is also an `activate` binary though this should be ignored, it is only use
 
 `deploy-rs` also outputs a `lib` attribute, with tools used to make your definitions simpler and safer, including `deploy-rs.lib.${system}.setActivate` (see later section "Profile"), and `deploy-rs.lib.${system}.deployChecks` which will let `nix flake check` ensure your deployment is defined correctly.
 
+There are full working deploy-rs Nix expressions in the [examples folder](./examples), and there is a JSON schema [here](./interface.json) which is used internally by the `deployChecks` mentioned above to validate your expressions.
+
 A basic example of a flake that works with `deploy-rs` and deploys a simple NixOS configuration could look like this
 
 ```nix
@@ -58,8 +60,6 @@ A basic example of a flake that works with `deploy-rs` and deploys a simple NixO
   checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
 }
 ```
-
-There are full working deploy-rs Nix expressions in the [examples folder](./examples), and there is a JSON schema [here](./interface.json) which is used internally by the `deployChecks` mentioned above to validate your expressions.
 
 ### Profile
 
