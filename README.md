@@ -27,6 +27,40 @@ There is also an `activate` binary though this should be ignored, it is only use
 
 ## API
 
+### Overall usage
+
+`deploy-rs` is designed to be used with Nix flakes (this currently requires an unstable version of Nix to work with). There is a Flake-less mode of operation which will automatically be used if your available Nix version does not support flakes, however you will likely want to use a flake anyway, just with `flake-compat` (see [this wiki page](https://nixos.wiki/wiki/Flakes) for usage).
+
+`deploy-rs` also outputs a `lib` attribute, with tools used to make your definitions simpler and safer, including `deploy-rs.lib.${system}.setActivate` (see later section "Profile"), and `deploy-rs.lib.${system}.deployChecks` which will let `nix flake check` ensure your deployment is defined correctly.
+
+A basic example of a flake that works with `deploy-rs` and deploys a simple NixOS configuration could look like this
+
+```nix
+{
+  description = "Deployment for my server cluster";
+
+  # For accessing `deploy-rs`'s utility Nix functions
+  inputs.deploy-rs.url = "github:serokell/deploy-rs";
+
+  outputs = { self, nixpkgs, deploy-rs }: {
+    nixosConfigurations.some-random-system = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [ ./some-random-system/configuration.nix ];
+    };
+
+    deploy.nodes.some-random-system.profiles.system = {
+        user = "root";
+        path = deploy-rs.lib.x86_64-linux.setActivate self.nixosConfigurations.some-random-system.config.system.build.toplevel "./bin/switch-to-configuration switch";
+    };
+  };
+
+  # This is highly advised, and will prevent many possible mistakes
+  checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
+}
+```
+
+There are full working deploy-rs Nix expressions in the [examples folder](./examples), and there is a JSON schema [here](./interface.json) which is used internally by the `deployChecks` mentioned above to validate your expressions.
+
 ### Profile
 
 This is the core of how `deploy-rs` was designed, any number of these can run on a node, as any user (see further down for specifying user information). If you want to mimick the behaviour of traditional tools like NixOps or Morph, try just defining one `profile` called `system`, as root, containing a nixosSystem, and you can even similarly use [home-manager](https://github.com/nix-community/home-manager) on any non-privileged user.
@@ -121,40 +155,6 @@ This is a set of options that can be put in any of the above definitions, with t
   tempPath = "/home/someuser/.deploy-rs";
 }
 ```
-
-### Putting it together
-
-`deploy-rs` is designed to be used with Nix flakes (this currently requires an unstable version of Nix to work with). There is a Flake-less mode of operation which will automatically be used if your available Nix version does not support flakes, however you will likely want to use a flake anyway, just with `flake-compat` (see [this wiki page](https://nixos.wiki/wiki/Flakes) for usage).
-
-`deploy-rs` also outputs a `lib` attribute, with tools used to make your definitions simpler and safer, including `deploy-rs.lib.${system}.setActivate` (see prior section "Profile"), and `deploy-rs.lib.${system}.deployChecks` which will let `nix flake check` ensure your deployment is defined correctly.
-
-A basic example of a flake that works with `deploy-rs` and deploys a simple NixOS configuration could look like this
-
-```nix
-{
-  description = "Deployment for my server cluster";
-
-  # For accessing `deploy-rs`'s utility Nix functions
-  inputs.deploy-rs.url = "github:serokell/deploy-rs";
-
-  outputs = { self, nixpkgs, deploy-rs }: {
-    nixosConfigurations.some-random-system = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [ ./some-random-system/configuration.nix ];
-    };
-
-    deploy.nodes.some-random-system.profiles.system = {
-        user = "root";
-        path = deploy-rs.lib.x86_64-linux.setActivate self.nixosConfigurations.some-random-system.config.system.build.toplevel "./bin/switch-to-configuration switch";
-    };
-  };
-
-  # This is highly advised, and will prevent many possible mistakes
-  checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
-}
-```
-
-There are full working deploy-rs Nix expressions in the [examples folder](./examples), and there is a JSON schema [here](./interface.json) which is used internally by the `deployChecks` mentioned above to validate your expressions.
 
 ## Idea
 
