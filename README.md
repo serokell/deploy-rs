@@ -162,16 +162,6 @@ This is a set of options that can be put in any of the above definitions, with t
 
 This type of design (as opposed to more traditional tools like NixOps or morph) allows for lesser-privileged deployments, and the ability to update different things independently of eachother.
 
-## Things to work on
-
-- ~~Ordered profiles~~
-- ~~Automatic rollbacks~~
-- ~~UI~~
-- automatic kexec lustration of servers (maybe)
-- Remote health checks
-- ~~Rollback on reconnection failure (technically, rollback if not reconnected to)~~
-- Optionally build on remote server
-
 ## About Serokell
 
 deploy-rs is maintained and funded with ❤️ by [Serokell](https://serokell.io/).
