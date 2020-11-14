@@ -1,0 +1,4 @@
+steps:
+  - label: Check Nix flake
+    commands:
+      - nix-shell --run 'nix --experimental-features "nix-command flakes" flake check'
