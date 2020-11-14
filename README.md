@@ -19,11 +19,25 @@ The given flake can be just a source `my-flake`, or optionally specify the node 
 You can try out this tool easily with `nix run`:
 - `nix run github:serokell/deploy-rs your-flake`
 
+Any "extra" arguments will be passed into the Nix calls, so for instance to deploy an impure profile, you may use `deploy . -- --impure` (note the explicit flake path is necessary for doing this).
+
 If you require a signing key to push closures to your server, specify the path to it in the `LOCAL_KEY` environment variable.
 
 Check out `deploy --help` for CLI flags! Remember to check there before making one-time changes to things like hostnames.
 
 There is also an `activate` binary though this should be ignored, it is only used internally and for testing/hacking purposes.
+
+## Ideas
+
+`deploy-rs` is a simple Rust program that will take a Nix flake and use it to deploy any of your defined profiles to your nodes. This is _strongly_ based off of [serokell/deploy](https://github.com/serokell/deploy), designed to replace it and expand upon it.
+
+### Multi-profile
+
+This type of design (as opposed to more traditional tools like NixOps or morph) allows for lesser-privileged deployments, and the ability to update different things independently of eachother. You can deploy any type of profile to any user, not just a NixOS profile to `root`.
+
+### Magic Rollback
+
+There is a built-in feature to prevent you making changes that might render your machine unconnectable or unusuable, which works by connecting to the machine after profile activation to confirm the machine is still available, and instructing the target node to automatically roll back if it is not confirmed. If you do not disable `magicRollback` in your configuration (see later sections) or with the CLI flag, you will be unable to make changes to the system which will affect you connecting to it (changing SSH port, changing your IP, etc).
 
 ## API
 
@@ -142,11 +156,11 @@ This is a set of options that can be put in any of the above definitions, with t
   fastConnection = false;
 
   # If the previous profile should be re-activated if activation fails.
-  # this defaults to `true`
+  # This defaults to `true`
   autoRollback = true;
 
-  # If the node should wait for `deploy` to connect for a second time after activation, to confirm the server has not been ruined.
-  # This defaults to `false`, though it is strongly recommend you activate it if you value safety
+  # See the earlier section about Magic Rollback for more information.
+  # This defaults to `true`
   magicRollback = true;
 
   # The path which deploy-rs will use for temporary files, this is currently only used by `magicRollback` to create an inotify watcher in
@@ -155,12 +169,6 @@ This is a set of options that can be put in any of the above definitions, with t
   tempPath = "/home/someuser/.deploy-rs";
 }
 ```
-
-## Idea
-
-`deploy-rs` is a simple Rust program that will take a Nix flake and use it to deploy any of your defined profiles to your nodes. This is _strongly_ based off of [serokell/deploy](https://github.com/serokell/deploy), designed to replace it and expand upon it.
-
-This type of design (as opposed to more traditional tools like NixOps or morph) allows for lesser-privileged deployments, and the ability to update different things independently of eachother.
 
 ## About Serokell
 
