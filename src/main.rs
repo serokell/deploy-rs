@@ -95,6 +95,7 @@ async fn push_all_profiles(
     cmd_overrides: &utils::CmdOverrides,
     keep_result: bool,
     result_path: Option<&str>,
+    extra_build_args: &[String],
 ) -> Result<(), PushAllProfilesError> {
     info!("Pushing all profiles for `{}`", node_name);
 
@@ -145,6 +146,7 @@ async fn push_all_profiles(
             &deploy_defs,
             keep_result,
             result_path,
+            extra_build_args,
         )
         .await
         .map_err(|e| PushAllProfilesError::PushProfileError(profile_name.to_owned(), e))?;
@@ -377,6 +379,7 @@ async fn run_deploy(
     cmd_overrides: utils::CmdOverrides,
     keep_result: bool,
     result_path: Option<&str>,
+    extra_build_args: &[String],
 ) -> Result<(), RunDeployError> {
     match (deploy_flake.node, deploy_flake.profile) {
         (Some(node_name), Some(profile_name)) => {
@@ -408,6 +411,7 @@ async fn run_deploy(
                 &deploy_defs,
                 keep_result,
                 result_path,
+                extra_build_args,
             )
             .await?;
 
@@ -429,6 +433,7 @@ async fn run_deploy(
                 &cmd_overrides,
                 keep_result,
                 result_path,
+                extra_build_args,
             )
             .await?;
 
@@ -448,6 +453,7 @@ async fn run_deploy(
                     &cmd_overrides,
                     keep_result,
                     result_path,
+                    extra_build_args,
                 )
                 .await?;
             }
@@ -531,6 +537,7 @@ async fn run() -> Result<(), RunError> {
         cmd_overrides,
         opts.keep_result,
         result_path,
+        &opts.extra_build_args,
     )
     .await?;
 

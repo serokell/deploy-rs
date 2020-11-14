@@ -33,6 +33,7 @@ pub async fn push_profile(
     deploy_defs: &super::DeployDefs<'_>,
     keep_result: bool,
     result_path: Option<&str>,
+    extra_build_args: &[String],
 ) -> Result<(), PushProfileError> {
     info!(
         "Building profile `{}` for node `{}`",
@@ -73,6 +74,10 @@ pub async fn push_profile(
         (false, false) => build_command.arg("--no-out-link"),
         (false, true) => build_command.arg("--no-link"),
     };
+
+    for extra_arg in extra_build_args {
+        build_command = build_command.arg(extra_arg);
+    }
 
     let build_exit_status = build_command
         // Logging should be in stderr, this just stops the store path from printing for no reason
