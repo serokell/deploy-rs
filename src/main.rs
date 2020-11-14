@@ -32,9 +32,6 @@ struct Opts {
     /// Check signatures when using `nix copy`
     #[clap(short, long)]
     checksigs: bool,
-    /// Extra arguments to be passed to nix build
-    extra_build_args: Vec<String>,
-
     /// Keep the build outputs of each built profile
     #[clap(short, long)]
     keep_result: bool,
@@ -45,6 +42,10 @@ struct Opts {
     /// Skip the automatic pre-build checks
     #[clap(short, long)]
     skip_checks: bool,
+
+    /// Evaluate flake in impure mode
+    #[clap(short, long)]
+    impure: bool,
 
     /// Override the SSH user with the given value
     #[clap(long)]
@@ -245,7 +246,7 @@ enum CheckDeploymentError {
 async fn check_deployment(
     supports_flakes: bool,
     repo: &str,
-    extra_build_args: &[String],
+    impure: bool,
 ) -> Result<(), CheckDeploymentError> {
     info!("Running checks for flake in {}", repo);
 
@@ -254,22 +255,27 @@ async fn check_deployment(
         false => Command::new("nix-build"),
     };
 
-    let mut check_command = match supports_flakes {
+    let check_command = match supports_flakes {
         true => {
-            c.arg("flake")
-                .arg("check")
-                .arg(repo)
+
+            c
+                .arg("flake")
+                .arg("check");
+
+            if impure {
+                c.arg("--impure");
+            }
+
+            c.arg(repo)
         }
+
         false => {
-            c.arg("-E")
+            c
+                .arg("-E")
                 .arg("--no-out-link")
                 .arg(format!("let r = import {}/.; in (if builtins.isFunction r then (r {{}}) else r).checks.${{builtins.currentSystem}}", repo))
         }
     };
-
-    for extra_arg in extra_build_args {
-        check_command = check_command.arg(extra_arg);
-    }
 
     let check_status = check_command.status().await?;
 
@@ -299,7 +305,7 @@ enum GetDeploymentDataError {
 async fn get_deployment_data(
     supports_flakes: bool,
     repo: &str,
-    extra_build_args: &[String],
+    impure: bool,
 ) -> Result<utils::data::Data, GetDeploymentDataError> {
     info!("Evaluating flake in {}", repo);
 
@@ -308,12 +314,18 @@ async fn get_deployment_data(
         false => Command::new("nix-instantiate"),
     };
 
-    let mut build_command = match supports_flakes {
+    let build_command = match supports_flakes {
         true => {
-            c.arg("eval")
-            .arg("--json")
-            .arg(format!("{}#deploy", repo))
+            c.arg("eval");
+
+            if impure {
+                c.arg("--impure");
+            }
+
+            c.arg("--json")
+                .arg(format!("{}#deploy", repo))
         }
+
         false => {
             c
                 .arg("--strict")
@@ -324,10 +336,6 @@ async fn get_deployment_data(
                 .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", repo))
         }
     };
-
-    for extra_arg in extra_build_args {
-        build_command = build_command.arg(extra_arg);
-    }
 
     let build_child = build_command
         .stdout(Stdio::piped())
@@ -515,11 +523,10 @@ async fn run() -> Result<(), RunError> {
     }
 
     if !opts.skip_checks {
-        check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
+        check_deployment(supports_flakes, deploy_flake.repo, opts.impure).await?;
     }
 
-    let data =
-        get_deployment_data(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
+    let data = get_deployment_data(supports_flakes, deploy_flake.repo, opts.impure).await?;
 
     let result_path = opts.result_path.as_deref();
 
