@@ -98,7 +98,7 @@ pub async fn deploy_profile(
 
     let confirm_timeout = deploy_data.merged_settings.confirm_timeout.unwrap_or(30);
 
-    let magic_rollback = deploy_data.merged_settings.magic_rollback.unwrap_or(false);
+    let magic_rollback = deploy_data.merged_settings.magic_rollback.unwrap_or(true);
 
     let auto_rollback = deploy_data.merged_settings.auto_rollback.unwrap_or(true);
 
