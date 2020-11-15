@@ -63,11 +63,7 @@
             ];
           };
 
-          checkSchema = builtins.trace "WARNING: deploy-rs#checkSchema is deprecated" checks.schema;
-
-          deployChecks = deploy: builtins.mapAttrs (_: check: check deploy) checks;
-
-          checks = {
+          deployChecks = deploy: builtins.mapAttrs (_: check: check deploy) {
             schema = deploy: pkgs.runCommandNoCC "jsonschema-deploy-system" { } ''
               ${pkgs.python3.pkgs.jsonschema}/bin/jsonschema -i ${pkgs.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface.json} && touch $out
             '';
