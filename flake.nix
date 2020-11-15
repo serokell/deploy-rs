@@ -40,25 +40,32 @@
           };
 
         lib = rec {
-          setActivate = base: activate: pkgs.buildEnv {
-            name = ("activatable-" + base.name);
-            paths = [
-              base
-              (pkgs.writeTextFile {
-                name = base.name + "-activate-path";
-                text = ''
-                  #!${pkgs.runtimeShell}
-                  ${activate}
-                '';
-                executable = true;
-                destination = "/deploy-rs-activate";
-              })
-            ];
+
+          setActivate = builtins.trace
+            "deploy-rs#lib.setActivate is deprecated, use activate.noop, activate.nixos or activate.custom instead"
+            activate.custom;
+
+          activate = rec {
+            custom = base: activate: pkgs.buildEnv {
+              name = ("activatable-" + base.name);
+              paths = [
+                base
+                (pkgs.writeTextFile {
+                  name = base.name + "-activate-path";
+                  text = ''
+                    #!${pkgs.runtimeShell}
+                    ${activate}
+                  '';
+                  executable = true;
+                  destination = "/deploy-rs-activate";
+                })
+              ];
+            };
+
+            nixos = base: custom base "$PROFILE/bin/switch-to-configuration switch";
+
+            noop = base: custom base ":";
           };
-
-          nixosActivate = base: setActivate base "$PROFILE/bin/switch-to-configuration switch";
-
-          noopActivate = base: setActivate base ":";
 
           deployChecks = deploy: builtins.mapAttrs (_: check: check deploy) {
             schema = deploy: pkgs.runCommandNoCC "jsonschema-deploy-system" { } ''
