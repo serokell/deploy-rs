@@ -56,6 +56,10 @@
             ];
           };
 
+          nixosActivate = base: setActivate base "$PROFILE/bin/switch-to-configuration switch";
+
+          noopActivate = base: setActivate base ":";
+
           deployChecks = deploy: builtins.mapAttrs (_: check: check deploy) {
             schema = deploy: pkgs.runCommandNoCC "jsonschema-deploy-system" { } ''
               ${pkgs.python3.pkgs.jsonschema}/bin/jsonschema -i ${pkgs.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface.json} && touch $out
