@@ -34,17 +34,9 @@
           program = "${self.defaultPackage."${system}"}/bin/deploy";
         };
 
-        devShell =
-          let
-            inherit (self.packages.${system}) deploy-rs;
-          in
-          pkgs.mkShell {
-            inherit (deploy-rs)
-              nativeBuildInputs
-              builtDependencies;
-
-            buildInputs = deploy-rs.buildInputs
-              ++ [ pkgs.nixUnstable ];
+        devShell = pkgs.mkShell {
+            inputsFrom = [ self.packages.${system}.deploy-rs ];
+            buildInputs = [ pkgs.nixUnstable ];
           };
 
         lib = rec {
