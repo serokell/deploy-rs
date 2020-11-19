@@ -288,7 +288,9 @@ pub async fn activate(
     match nix_env_set_exit_status.code() {
         Some(0) => (),
         a => {
-            deactivate(&profile_path).await?;
+            if auto_rollback {
+                deactivate(&profile_path).await?;
+            }
             return Err(ActivateError::SetProfileExitError(a));
         }
     };
@@ -302,7 +304,9 @@ pub async fn activate(
     {
         Ok(x) => x,
         Err(e) => {
-            deactivate(&profile_path).await?;
+            if auto_rollback {
+                deactivate(&profile_path).await?;
+            }
             return Err(e);
         }
     };
@@ -310,7 +314,9 @@ pub async fn activate(
     match activate_status.code() {
         Some(0) => (),
         a => {
-            deactivate(&profile_path).await?;
+            if auto_rollback {
+                deactivate(&profile_path).await?;
+            }
             return Err(ActivateError::RunActivateExitError(a));
         }
     };
@@ -324,7 +330,9 @@ pub async fn activate(
         {
             Ok(()) => {}
             Err(err) => {
-                deactivate(&profile_path).await?;
+                if auto_rollback {
+                    deactivate(&profile_path).await?;
+                }
                 return Err(ActivateError::ActivationConfirmationError(err));
             }
         };
