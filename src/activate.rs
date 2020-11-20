@@ -330,9 +330,7 @@ pub async fn activate(
         {
             Ok(()) => {}
             Err(err) => {
-                if auto_rollback {
-                    deactivate(&profile_path).await?;
-                }
+                deactivate(&profile_path).await?;
                 return Err(ActivateError::ActivationConfirmationError(err));
             }
         };
