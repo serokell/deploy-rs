@@ -265,7 +265,7 @@ async fn check_deployment(
         false => {
             c.arg("-E")
                 .arg("--no-out-link")
-                .arg(format!("let r = import {}/.; in (if builtins.isFunction r then (r {{}}) else r).checks.${{builtins.currentSystem}}", repo))
+                .arg(format!("let r = import {}/.; x = (if builtins.isFunction r then (r {{}}) else r); in if x ? checks then x.checks.${{builtins.currentSystem}} else {{}}", repo))
         }
     };
 
