@@ -320,6 +320,8 @@ enum RunDeployError {
     ProfileWithoutNode,
     #[error("Error processing deployment definitions: {0}")]
     DeployDataDefsError(#[from] utils::DeployDataDefsError),
+    #[error("Failed to make printable TOML of deployment: {0}")]
+    TomlFormat(#[from] toml::ser::Error),
     #[error("{0}")]
     PromptDeploymentError(#[from] PromptDeploymentError),
 }
@@ -439,6 +441,8 @@ async fn run_deploy(
 
     if interactive {
         prompt_deployment(&parts[..])?;
+    } else {
+        print_deployment(&parts[..])?;
     }
 
     for (deploy_data, deploy_defs) in &parts {
