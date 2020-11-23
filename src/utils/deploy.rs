@@ -82,7 +82,7 @@ pub enum DeployProfileError {
 
 pub async fn deploy_profile(
     deploy_data: &super::DeployData<'_>,
-    deploy_defs: &super::DeployDefs<'_>,
+    deploy_defs: &super::DeployDefs,
 ) -> Result<(), DeployProfileError> {
     info!(
         "Activating profile `{}` for node `{}`",

@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use std::borrow::Cow;
 use std::path::PathBuf;
 
 use merge::Merge;
@@ -96,7 +95,7 @@ fn test_parse_flake() {
     );
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DeployData<'a> {
     pub node_name: &'a str,
     pub node: &'a data::Node,
@@ -109,10 +108,10 @@ pub struct DeployData<'a> {
 }
 
 #[derive(Debug)]
-pub struct DeployDefs<'a> {
-    pub ssh_user: Cow<'a, str>,
-    pub profile_user: Cow<'a, str>,
-    pub profile_path: Cow<'a, str>,
+pub struct DeployDefs {
+    pub ssh_user: String,
+    pub profile_user: String,
+    pub profile_path: String,
     pub current_exe: PathBuf,
     pub sudo: Option<String>,
 }
@@ -128,16 +127,16 @@ pub enum DeployDataDefsError {
 }
 
 impl<'a> DeployData<'a> {
-    pub fn defs(&'a self) -> Result<DeployDefs<'a>, DeployDataDefsError> {
-        let ssh_user: Cow<str> = match self.merged_settings.ssh_user {
-            Some(ref u) => u.into(),
-            None => whoami::username().into(),
+    pub fn defs(&'a self) -> Result<DeployDefs, DeployDataDefsError> {
+        let ssh_user = match self.merged_settings.ssh_user {
+            Some(ref u) => u.clone(),
+            None => whoami::username(),
         };
 
-        let profile_user: Cow<str> = match self.merged_settings.user {
-            Some(ref x) => x.into(),
+        let profile_user = match self.merged_settings.user {
+            Some(ref x) => x.clone(),
             None => match self.merged_settings.ssh_user {
-                Some(ref x) => x.into(),
+                Some(ref x) => x.clone(),
                 None => {
                     return Err(DeployDataDefsError::NoProfileUser(
                         self.profile_name.to_owned(),
@@ -147,16 +146,15 @@ impl<'a> DeployData<'a> {
             },
         };
 
-        let profile_path: Cow<str> = match self.profile.profile_settings.profile_path {
+        let profile_path = match self.profile.profile_settings.profile_path {
             None => match &profile_user[..] {
-                "root" => format!("/nix/var/nix/profiles/{}", self.profile_name).into(),
+                "root" => format!("/nix/var/nix/profiles/{}", self.profile_name),
                 _ => format!(
                     "/nix/var/nix/profiles/per-user/{}/{}",
                     profile_user, self.profile_name
-                )
-                .into(),
+                ),
             },
-            Some(ref x) => x.into(),
+            Some(ref x) => x.clone(),
         };
 
         let sudo: Option<String> = match self.merged_settings.user {

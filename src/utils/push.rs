@@ -30,7 +30,7 @@ pub async fn push_profile(
     check_sigs: bool,
     repo: &str,
     deploy_data: &super::DeployData<'_>,
-    deploy_defs: &super::DeployDefs<'_>,
+    deploy_defs: &super::DeployDefs,
     keep_result: bool,
     result_path: Option<&str>,
     extra_build_args: &[String],

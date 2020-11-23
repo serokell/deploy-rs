@@ -33,6 +33,9 @@ struct Opts {
     /// Check signatures when using `nix copy`
     #[clap(short, long)]
     checksigs: bool,
+    /// Use the interactive prompt before deployment
+    #[clap(short, long)]
+    interactive: bool,
     /// Extra arguments to be passed to nix build
     extra_build_args: Vec<String>,
 
@@ -216,21 +219,9 @@ struct PromptPart<'a> {
     ssh_opts: &'a [String],
 }
 
-#[derive(Error, Debug)]
-enum PromptChangesError {
-    #[error("Failed to make printable TOML of deployment: {0}")]
-    TomlFormat(#[from] toml::ser::Error),
-    #[error("Failed to flush stdout prior to query: {0}")]
-    StdoutFlush(std::io::Error),
-    #[error("Failed to read line from stdin: {0}")]
-    StdinRead(std::io::Error),
-    #[error("User cancelled deployment")]
-    Cancelled,
-}
-
-fn prompt_changes(
-    parts: Vec<(&utils::DeployData, &utils::DeployDefs)>,
-) -> Result<(), PromptChangesError> {
+fn print_deployment(
+    parts: &[(utils::DeployData, utils::DeployDefs)],
+) -> Result<(), toml::ser::Error> {
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
 
     for (data, defs) in parts {
@@ -253,30 +244,53 @@ fn prompt_changes(
 
     warn!("The following profiles are going to be deployed:\n{}", toml);
 
+    Ok(())
+}
+#[derive(Error, Debug)]
+enum PromptDeploymentError {
+    #[error("Failed to make printable TOML of deployment: {0}")]
+    TomlFormat(#[from] toml::ser::Error),
+    #[error("Failed to flush stdout prior to query: {0}")]
+    StdoutFlush(std::io::Error),
+    #[error("Failed to read line from stdin: {0}")]
+    StdinRead(std::io::Error),
+    #[error("User cancelled deployment")]
+    Cancelled,
+}
+
+fn prompt_deployment(
+    parts: &[(utils::DeployData, utils::DeployDefs)],
+) -> Result<(), PromptDeploymentError> {
+    print_deployment(parts)?;
+
     info!("Are you sure you want to deploy these profiles?");
     print!("> ");
 
-    stdout().flush().map_err(PromptChangesError::StdoutFlush)?;
+    stdout()
+        .flush()
+        .map_err(PromptDeploymentError::StdoutFlush)?;
 
     let mut s = String::new();
     stdin()
         .read_line(&mut s)
-        .map_err(PromptChangesError::StdinRead)?;
+        .map_err(PromptDeploymentError::StdinRead)?;
 
     if !yn::yes(&s) {
         if yn::is_somewhat_yes(&s) {
             info!("Sounds like you might want to continue, to be more clear please just say \"yes\". Do you want to deploy these profiles?");
             print!("> ");
 
-            stdout().flush().map_err(PromptChangesError::StdoutFlush)?;
+            stdout()
+                .flush()
+                .map_err(PromptDeploymentError::StdoutFlush)?;
 
             let mut s = String::new();
             stdin()
                 .read_line(&mut s)
-                .map_err(PromptChangesError::StdinRead)?;
+                .map_err(PromptDeploymentError::StdinRead)?;
 
             if !yn::yes(&s) {
-                return Err(PromptChangesError::Cancelled);
+                return Err(PromptDeploymentError::Cancelled);
             }
         } else {
             if !yn::no(&s) {
@@ -285,7 +299,7 @@ fn prompt_changes(
                 );
             }
 
-            return Err(PromptChangesError::Cancelled);
+            return Err(PromptDeploymentError::Cancelled);
         }
     }
 
@@ -307,7 +321,7 @@ enum RunDeployError {
     #[error("Error processing deployment definitions: {0}")]
     DeployDataDefsError(#[from] utils::DeployDataDefsError),
     #[error("{0}")]
-    PromptChangesError(#[from] PromptChangesError),
+    PromptDeploymentError(#[from] PromptDeploymentError),
 }
 
 async fn run_deploy(
@@ -315,6 +329,7 @@ async fn run_deploy(
     data: utils::data::Data,
     supports_flakes: bool,
     check_sigs: bool,
+    interactive: bool,
     cmd_overrides: utils::CmdOverrides,
     keep_result: bool,
     result_path: Option<&str>,
@@ -405,6 +420,8 @@ async fn run_deploy(
             (None, Some(_)) => return Err(RunDeployError::ProfileWithoutNode),
         };
 
+    let mut parts: Vec<(utils::DeployData, utils::DeployDefs)> = Vec::new();
+
     for ((node_name, node), (profile_name, profile)) in &to_deploy {
         let deploy_data = utils::make_deploy_data(
             &data.generic_settings,
@@ -417,6 +434,14 @@ async fn run_deploy(
 
         let deploy_defs = deploy_data.defs()?;
 
+        parts.push((deploy_data, deploy_defs));
+    }
+
+    if interactive {
+        prompt_deployment(&parts[..])?;
+    }
+
+    for (deploy_data, deploy_defs) in &parts {
         utils::push::push_profile(
             supports_flakes,
             check_sigs,
@@ -430,18 +455,7 @@ async fn run_deploy(
         .await?;
     }
 
-    for ((node_name, node), (profile_name, profile)) in &to_deploy {
-        let deploy_data = utils::make_deploy_data(
-            &data.generic_settings,
-            node,
-            node_name,
-            profile,
-            profile_name,
-            &cmd_overrides,
-        );
-
-        let deploy_defs = deploy_data.defs()?;
-
+    for (deploy_data, deploy_defs) in &parts {
         utils::deploy::deploy_profile(&deploy_data, &deploy_defs).await?;
     }
 
@@ -509,6 +523,7 @@ async fn run() -> Result<(), RunError> {
         data,
         supports_flakes,
         opts.checksigs,
+        opts.interactive,
         cmd_overrides,
         opts.keep_result,
         result_path,
