@@ -24,6 +24,8 @@ inotify = "0.8"
 futures-util = "0.3.6"
 fork = "0.1"
 thiserror = "1.0"
+toml = "0.5"
+yn = "0.1"
 
 
 [[bin]]

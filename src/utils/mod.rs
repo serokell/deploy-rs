@@ -21,6 +21,7 @@ pub mod data;
 pub mod deploy;
 pub mod push;
 
+#[derive(Debug)]
 pub struct CmdOverrides {
     pub ssh_user: Option<String>,
     pub profile_user: Option<String>,
@@ -95,6 +96,7 @@ fn test_parse_flake() {
     );
 }
 
+#[derive(Debug)]
 pub struct DeployData<'a> {
     pub node_name: &'a str,
     pub node: &'a data::Node,
@@ -106,6 +108,7 @@ pub struct DeployData<'a> {
     pub merged_settings: data::GenericSettings,
 }
 
+#[derive(Debug)]
 pub struct DeployDefs<'a> {
     pub ssh_user: Cow<'a, str>,
     pub profile_user: Cow<'a, str>,

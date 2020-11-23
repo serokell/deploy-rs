@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use std::collections::HashMap;
+use std::io::{stdin, stdout, Write};
+
 use clap::Clap;
 
 use std::process::Stdio;
@@ -351,6 +354,91 @@ async fn get_deployment_data(
     Ok(serde_json::from_str(&data_json)?)
 }
 
+#[derive(Serialize)]
+struct PromptPart<'a> {
+    user: &'a str,
+    ssh_user: &'a str,
+    path: &'a str,
+    hostname: &'a str,
+    ssh_opts: &'a [String],
+}
+
+#[derive(Error, Debug)]
+enum PromptChangesError {
+    #[error("Failed to make printable TOML of deployment: {0}")]
+    TomlFormat(#[from] toml::ser::Error),
+    #[error("Failed to flush stdout prior to query: {0}")]
+    StdoutFlush(std::io::Error),
+    #[error("Failed to read line from stdin: {0}")]
+    StdinRead(std::io::Error),
+    #[error("User cancelled deployment")]
+    Cancelled,
+}
+
+fn prompt_changes(
+    parts: Vec<(&utils::DeployData, &utils::DeployDefs)>,
+) -> Result<(), PromptChangesError> {
+    let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
+
+    for (data, defs) in parts {
+        part_map
+            .entry(data.node_name.to_string())
+            .or_insert(HashMap::new())
+            .insert(
+                data.profile_name.to_string(),
+                PromptPart {
+                    user: &defs.profile_user,
+                    ssh_user: &defs.ssh_user,
+                    path: &data.profile.profile_settings.path,
+                    hostname: &data.node.node_settings.hostname,
+                    ssh_opts: &data.merged_settings.ssh_opts,
+                },
+            );
+    }
+
+    let toml = toml::to_string(&part_map)?;
+
+    warn!("The following profiles are going to be deployed:\n{}", toml);
+
+    info!("Are you sure you want to deploy these profiles?");
+    print!("> ");
+
+    stdout().flush().map_err(PromptChangesError::StdoutFlush)?;
+
+    let mut s = String::new();
+    stdin()
+        .read_line(&mut s)
+        .map_err(PromptChangesError::StdinRead)?;
+
+    if !yn::yes(&s) {
+        if yn::is_somewhat_yes(&s) {
+            info!("Sounds like you might want to continue, to be more clear please just say \"yes\". Do you want to deploy these profiles?");
+            print!("> ");
+
+            stdout().flush().map_err(PromptChangesError::StdoutFlush)?;
+
+            let mut s = String::new();
+            stdin()
+                .read_line(&mut s)
+                .map_err(PromptChangesError::StdinRead)?;
+
+            if !yn::yes(&s) {
+                return Err(PromptChangesError::Cancelled);
+            }
+        } else {
+            if !yn::no(&s) {
+                info!(
+                    "That was unclear, but sounded like a no to me. Please say \"yes\" or \"no\" to be more clear."
+                );
+            }
+
+            return Err(PromptChangesError::Cancelled);
+        }
+    }
+
+    Ok(())
+}
+
 #[derive(Error, Debug)]
 enum RunDeployError {
     #[error("Failed to deploy profile: {0}")]
@@ -369,6 +457,8 @@ enum RunDeployError {
     ProfileWithoutNode,
     #[error("Error processing deployment definitions: {0}")]
     DeployDataDefsError(#[from] utils::DeployDataDefsError),
+    #[error("{0}")]
+    PromptChangesError(#[from] PromptChangesError),
 }
 
 async fn run_deploy(

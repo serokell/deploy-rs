@@ -98,7 +98,9 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "toml",
  "whoami",
+ "yn",
 ]
 
 [[package]]
@@ -722,6 +724,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75cf45bb0bef80604d001caaec0d09da99611b3c0fd39d3080468875cdb65645"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "unicode-segmentation"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -809,3 +820,9 @@ dependencies = [
  "winapi 0.2.8",
  "winapi-build",
 ]
+
+[[package]]
+name = "yn"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d789b24a50ca067124e6e6ad3061c48151da174043cb09285ba934425e8739ec"
