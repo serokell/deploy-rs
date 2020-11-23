@@ -10,8 +10,6 @@ use clap::Clap;
 use std::process::Stdio;
 use tokio::process::Command;
 
-use merge::Merge;
-
 use thiserror::Error;
 
 extern crate pretty_env_logger;
@@ -76,151 +74,6 @@ struct Opts {
     /// Where to store temporary files (only used by magic-rollback)
     #[clap(long)]
     temp_path: Option<String>,
-}
-
-#[derive(Error, Debug)]
-pub enum PushAllProfilesError {
-    #[error("Failed to push profile `{0}`: {1}")]
-    PushProfileError(String, utils::push::PushProfileError),
-    #[error("No profile named `{0}` was found")]
-    ProfileNotFound(String),
-    #[error("Error processing deployment definitions: {0}")]
-    DeployDataDefsError(#[from] utils::DeployDataDefsError),
-}
-
-async fn push_all_profiles(
-    node: &utils::data::Node,
-    node_name: &str,
-    supports_flakes: bool,
-    repo: &str,
-    top_settings: &utils::data::GenericSettings,
-    check_sigs: bool,
-    cmd_overrides: &utils::CmdOverrides,
-    keep_result: bool,
-    result_path: Option<&str>,
-    extra_build_args: &[String],
-) -> Result<(), PushAllProfilesError> {
-    info!("Pushing all profiles for `{}`", node_name);
-
-    let mut profiles_list: Vec<&str> = node
-        .node_settings
-        .profiles_order
-        .iter()
-        .map(|x| x.as_ref())
-        .collect();
-
-    // Add any profiles which weren't in the provided order list
-    for profile_name in node.node_settings.profiles.keys() {
-        if !profiles_list.contains(&profile_name.as_str()) {
-            profiles_list.push(&profile_name);
-        }
-    }
-
-    for profile_name in profiles_list {
-        let profile = match node.node_settings.profiles.get(profile_name) {
-            Some(x) => x,
-            None => {
-                return Err(PushAllProfilesError::ProfileNotFound(
-                    profile_name.to_owned(),
-                ))
-            }
-        };
-
-        let mut merged_settings = top_settings.clone();
-        merged_settings.merge(node.generic_settings.clone());
-        merged_settings.merge(profile.generic_settings.clone());
-
-        let deploy_data = utils::make_deploy_data(
-            top_settings,
-            node,
-            node_name,
-            profile,
-            profile_name,
-            cmd_overrides,
-        );
-
-        let deploy_defs = deploy_data.defs()?;
-
-        utils::push::push_profile(
-            supports_flakes,
-            check_sigs,
-            repo,
-            &deploy_data,
-            &deploy_defs,
-            keep_result,
-            result_path,
-            extra_build_args,
-        )
-        .await
-        .map_err(|e| PushAllProfilesError::PushProfileError(profile_name.to_owned(), e))?;
-    }
-
-    Ok(())
-}
-
-#[derive(Error, Debug)]
-pub enum DeployAllProfilesError {
-    #[error("Failed to deploy profile `{0}`: {1}")]
-    DeployProfileError(String, utils::deploy::DeployProfileError),
-    #[error("No profile named `{0}` was found")]
-    ProfileNotFound(String),
-    #[error("Error processing deployment definitions: {0}")]
-    DeployDataDefsError(#[from] utils::DeployDataDefsError),
-}
-
-async fn deploy_all_profiles(
-    node: &utils::data::Node,
-    node_name: &str,
-    top_settings: &utils::data::GenericSettings,
-    cmd_overrides: &utils::CmdOverrides,
-) -> Result<(), DeployAllProfilesError> {
-    info!("Deploying all profiles for `{}`", node_name);
-
-    let mut profiles_list: Vec<&str> = node
-        .node_settings
-        .profiles_order
-        .iter()
-        .map(|x| x.as_ref())
-        .collect();
-
-    // Add any profiles which weren't in the provided order list
-    for profile_name in node.node_settings.profiles.keys() {
-        if !profiles_list.contains(&profile_name.as_str()) {
-            profiles_list.push(&profile_name);
-        }
-    }
-
-    for profile_name in profiles_list {
-        let profile = match node.node_settings.profiles.get(profile_name) {
-            Some(x) => x,
-            None => {
-                return Err(DeployAllProfilesError::ProfileNotFound(
-                    profile_name.to_owned(),
-                ))
-            }
-        };
-
-        let mut merged_settings = top_settings.clone();
-        merged_settings.merge(node.generic_settings.clone());
-        merged_settings.merge(profile.generic_settings.clone());
-
-        let deploy_data = utils::make_deploy_data(
-            top_settings,
-            node,
-            node_name,
-            profile,
-            profile_name,
-            cmd_overrides,
-        );
-
-        let deploy_defs = deploy_data.defs()?;
-
-        utils::deploy::deploy_profile(&deploy_data, &deploy_defs)
-            .await
-            .map_err(|e| DeployAllProfilesError::DeployProfileError(profile_name.to_owned(), e))?;
-    }
-
-    Ok(())
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -446,10 +299,6 @@ enum RunDeployError {
     #[error("Failed to push profile: {0}")]
     PushProfileError(#[from] utils::push::PushProfileError),
     #[error("Failed to deploy all profiles: {0}")]
-    DeployAllProfilesError(#[from] DeployAllProfilesError),
-    #[error("Failed to push all profiles: {0}")]
-    PushAllProfilesError(#[from] PushAllProfilesError),
-    #[error("No profile named `{0}` was found")]
     ProfileNotFound(String),
     #[error("No node named `{0}` was found")]
     NodeNotFound(String),
@@ -471,100 +320,136 @@ async fn run_deploy(
     result_path: Option<&str>,
     extra_build_args: &[String],
 ) -> Result<(), RunDeployError> {
-    match (deploy_flake.node, deploy_flake.profile) {
-        (Some(node_name), Some(profile_name)) => {
-            let node = match data.nodes.get(node_name) {
-                Some(x) => x,
-                None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
-            };
-            let profile = match node.node_settings.profiles.get(profile_name) {
-                Some(x) => x,
-                None => return Err(RunDeployError::ProfileNotFound(profile_name.to_owned())),
-            };
+    let to_deploy: Vec<((&str, &utils::data::Node), (&str, &utils::data::Profile))> =
+        match (deploy_flake.node, deploy_flake.profile) {
+            (Some(node_name), Some(profile_name)) => {
+                let node = match data.nodes.get(node_name) {
+                    Some(x) => x,
+                    None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
+                };
+                let profile = match node.node_settings.profiles.get(profile_name) {
+                    Some(x) => x,
+                    None => return Err(RunDeployError::ProfileNotFound(profile_name.to_owned())),
+                };
 
-            let deploy_data = utils::make_deploy_data(
-                &data.generic_settings,
-                node,
-                node_name,
-                profile,
-                profile_name,
-                &cmd_overrides,
-            );
-
-            let deploy_defs = deploy_data.defs()?;
-
-            utils::push::push_profile(
-                supports_flakes,
-                check_sigs,
-                deploy_flake.repo,
-                &deploy_data,
-                &deploy_defs,
-                keep_result,
-                result_path,
-                extra_build_args,
-            )
-            .await?;
-
-            utils::deploy::deploy_profile(&deploy_data, &deploy_defs).await?;
-        }
-        (Some(node_name), None) => {
-            let node = match data.nodes.get(node_name) {
-                Some(x) => x,
-                None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
-            };
-
-            push_all_profiles(
-                node,
-                node_name,
-                supports_flakes,
-                deploy_flake.repo,
-                &data.generic_settings,
-                check_sigs,
-                &cmd_overrides,
-                keep_result,
-                result_path,
-                extra_build_args,
-            )
-            .await?;
-
-            deploy_all_profiles(node, node_name, &data.generic_settings, &cmd_overrides).await?;
-        }
-        (None, None) => {
-            info!("Deploying all profiles on all nodes");
-
-            for (node_name, node) in &data.nodes {
-                push_all_profiles(
-                    node,
-                    node_name,
-                    supports_flakes,
-                    deploy_flake.repo,
-                    &data.generic_settings,
-                    check_sigs,
-                    &cmd_overrides,
-                    keep_result,
-                    result_path,
-                    extra_build_args,
-                )
-                .await?;
+                vec![((node_name, node), (profile_name, profile))]
             }
+            (Some(node_name), None) => {
+                let node = match data.nodes.get(node_name) {
+                    Some(x) => x,
+                    None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
+                };
 
-            for (node_name, node) in &data.nodes {
-                deploy_all_profiles(node, node_name, &data.generic_settings, &cmd_overrides)
-                    .await?;
+                let mut profiles_list: Vec<(&str, &utils::data::Profile)> = Vec::new();
+
+                for profile_name in [
+                    node.node_settings.profiles_order.iter().collect(),
+                    node.node_settings.profiles.keys().collect::<Vec<&String>>(),
+                ]
+                .concat()
+                {
+                    let profile = match node.node_settings.profiles.get(profile_name) {
+                        Some(x) => x,
+                        None => {
+                            return Err(RunDeployError::ProfileNotFound(profile_name.to_owned()))
+                        }
+                    };
+
+                    if !profiles_list.iter().any(|(n, _)| n == profile_name) {
+                        profiles_list.push((&profile_name, profile));
+                    }
+                }
+
+                profiles_list
+                    .into_iter()
+                    .map(|x| ((node_name, node), x))
+                    .collect()
             }
-        }
-        (None, Some(_)) => return Err(RunDeployError::ProfileWithoutNode),
-    };
+            (None, None) => {
+                let mut l = Vec::new();
+
+                for (node_name, node) in &data.nodes {
+                    let mut profiles_list: Vec<(&str, &utils::data::Profile)> = Vec::new();
+
+                    for profile_name in [
+                        node.node_settings.profiles_order.iter().collect(),
+                        node.node_settings.profiles.keys().collect::<Vec<&String>>(),
+                    ]
+                    .concat()
+                    {
+                        let profile = match node.node_settings.profiles.get(profile_name) {
+                            Some(x) => x,
+                            None => {
+                                return Err(RunDeployError::ProfileNotFound(
+                                    profile_name.to_owned(),
+                                ))
+                            }
+                        };
+
+                        if !profiles_list.iter().any(|(n, _)| n == profile_name) {
+                            profiles_list.push((&profile_name, profile));
+                        }
+                    }
+
+                    let ll: Vec<((&str, &utils::data::Node), (&str, &utils::data::Profile))> =
+                        profiles_list
+                            .into_iter()
+                            .map(|x| ((node_name.as_str(), node), x))
+                            .collect();
+
+                    l.extend(ll);
+                }
+
+                l
+            }
+            (None, Some(_)) => return Err(RunDeployError::ProfileWithoutNode),
+        };
+
+    for ((node_name, node), (profile_name, profile)) in &to_deploy {
+        let deploy_data = utils::make_deploy_data(
+            &data.generic_settings,
+            node,
+            node_name,
+            profile,
+            profile_name,
+            &cmd_overrides,
+        );
+
+        let deploy_defs = deploy_data.defs()?;
+
+        utils::push::push_profile(
+            supports_flakes,
+            check_sigs,
+            deploy_flake.repo,
+            &deploy_data,
+            &deploy_defs,
+            keep_result,
+            result_path,
+            extra_build_args,
+        )
+        .await?;
+    }
+
+    for ((node_name, node), (profile_name, profile)) in &to_deploy {
+        let deploy_data = utils::make_deploy_data(
+            &data.generic_settings,
+            node,
+            node_name,
+            profile,
+            profile_name,
+            &cmd_overrides,
+        );
+
+        let deploy_defs = deploy_data.defs()?;
+
+        utils::deploy::deploy_profile(&deploy_data, &deploy_defs).await?;
+    }
 
     Ok(())
 }
 
 #[derive(Error, Debug)]
 enum RunError {
-    #[error("Failed to deploy all profiles: {0}")]
-    DeployAllProfilesError(#[from] DeployAllProfilesError),
-    #[error("Failed to push all profiles: {0}")]
-    PushAllProfilesError(#[from] PushAllProfilesError),
     #[error("Failed to deploy profile: {0}")]
     DeployProfileError(#[from] utils::deploy::DeployProfileError),
     #[error("Failed to push profile: {0}")]
