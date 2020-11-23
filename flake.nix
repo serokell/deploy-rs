@@ -62,7 +62,7 @@
               ];
             };
 
-            nixos = base: custom base "$PROFILE/bin/switch-to-configuration switch";
+            nixos = base: custom base.config.system.build.toplevel "$PROFILE/bin/switch-to-configuration switch";
 
             noop = base: custom base ":";
           };

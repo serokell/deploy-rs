@@ -30,12 +30,12 @@
         system = {
           sshUser = "admin";
           path =
-            deploy-rs.lib.x86_64-linux.setActivate self.nixosConfigurations.example-nixos-system.config.system.build.toplevel "./bin/switch-to-configuration switch";
+            deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.example-nixos-system;
           user = "root";
         };
         hello = {
           sshUser = "hello";
-          path = deploy-rs.lib.x86_64-linux.setActivate self.defaultPackage.x86_64-linux "./bin/activate";
+          path = deploy-rs.lib.x86_64-linux.activate.custom self.defaultPackage.x86_64-linux "./bin/activate";
           user = "hello";
         };
       };
