@@ -44,7 +44,7 @@ fn test_activation_command_builder() {
     let profile_path = "/blah/profiles/test";
     let closure = "/blah/etc";
     let auto_rollback = true;
-    let temp_path = &"/tmp/deploy-rs".into();
+    let temp_path = &"/tmp".into();
     let confirm_timeout = 30;
     let magic_rollback = true;
 
@@ -59,7 +59,7 @@ fn test_activation_command_builder() {
             confirm_timeout,
             magic_rollback
         ),
-        "sudo -u test /blah/bin/activate '/blah/profiles/test' '/blah/etc' --temp-path /tmp/deploy-rs --confirm-timeout 30 --magic-rollback --auto-rollback"
+        "sudo -u test /blah/bin/activate '/blah/profiles/test' '/blah/etc' --temp-path /tmp --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
     );
 }
@@ -93,7 +93,7 @@ pub async fn deploy_profile(
 
     let temp_path: Cow<str> = match &deploy_data.merged_settings.temp_path {
         Some(x) => x.into(),
-        None => "/tmp/deploy-rs".into(),
+        None => "/tmp".into(),
     };
 
     let confirm_timeout = deploy_data.merged_settings.confirm_timeout.unwrap_or(30);
@@ -153,7 +153,7 @@ pub async fn deploy_profile(
         }
 
         let lock_hash = &deploy_data.profile.profile_settings.path["/nix/store/".len()..];
-        let lock_path = format!("{}/activating-{}", temp_path, lock_hash);
+        let lock_path = format!("{}/deploy-rs-canary-{}", temp_path, lock_hash);
 
         let mut confirm_command = format!("rm {}", lock_path);
         if let Some(sudo_cmd) = &deploy_defs.sudo {

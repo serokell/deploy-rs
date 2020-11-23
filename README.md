@@ -163,8 +163,8 @@ This is a set of options that can be put in any of the above definitions, with t
   # This defaults to `true`
   magicRollback = true;
 
-  # The path which deploy-rs will use for temporary files, this is currently only used by `magicRollback` to create an inotify watcher in
-  # If not specified, this will default to `/tmp/deploy-rs`
+  # The path which deploy-rs will use for temporary files, this is currently only used by `magicRollback` to create an inotify watcher in for confirmations
+  # If not specified, this will default to `/tmp`
   # (if `magicRollback` is in use, this _must_ be writable by `user`)
   tempPath = "/home/someuser/.deploy-rs";
 }

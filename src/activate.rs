@@ -204,7 +204,7 @@ pub async fn activation_confirmation(
     closure: String,
 ) -> Result<(), ActivationConfirmationError> {
     let lock_hash = &closure["/nix/store/".len()..];
-    let lock_path = format!("{}/activating-{}", temp_path, lock_hash);
+    let lock_path = format!("{}/deploy-rs-canary-{}", temp_path, lock_hash);
 
     if let Some(parent) = Path::new(&lock_path).parent() {
         fs::create_dir_all(parent)
