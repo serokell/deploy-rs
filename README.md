@@ -45,7 +45,7 @@ There is a built-in feature to prevent you making changes that might render your
 
 `deploy-rs` is designed to be used with Nix flakes (this currently requires an unstable version of Nix to work with). There is a Flake-less mode of operation which will automatically be used if your available Nix version does not support flakes, however you will likely want to use a flake anyway, just with `flake-compat` (see [this wiki page](https://nixos.wiki/wiki/Flakes) for usage).
 
-`deploy-rs` also outputs a `lib` attribute, with tools used to make your definitions simpler and safer, including `deploy-rs.lib.${system}.setActivate` (see later section "Profile"), and `deploy-rs.lib.${system}.deployChecks` which will let `nix flake check` ensure your deployment is defined correctly.
+`deploy-rs` also outputs a `lib` attribute, with tools used to make your definitions simpler and safer, including `deploy-rs.lib.${system}.activate` (see later section "Profile"), and `deploy-rs.lib.${system}.deployChecks` which will let `nix flake check` ensure your deployment is defined correctly.
 
 There are full working deploy-rs Nix expressions in the [examples folder](./examples), and there is a JSON schema [here](./interface.json) which is used internally by the `deployChecks` mentioned above to validate your expressions.
 
@@ -66,7 +66,7 @@ A basic example of a flake that works with `deploy-rs` and deploys a simple NixO
 
     deploy.nodes.some-random-system.profiles.system = {
         user = "root";
-        path = deploy-rs.lib.x86_64-linux.setActivate self.nixosConfigurations.some-random-system.config.system.build.toplevel "./bin/switch-to-configuration switch";
+        path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.some-random-system;
     };
   };
 
@@ -84,7 +84,7 @@ This is the core of how `deploy-rs` was designed, any number of these can run on
   # A derivation containing your required software, and a script to activate it in `${path}/deploy-rs-activate`
   # For ease of use, `deploy-rs` provides a function to easily add the required activation script to any derivation
   # Both the working directory and `$PROFILE` will point to `profilePath`
-  path = deploy-rs.lib.x86_64-linux.setActivate pkgs.hello "./bin/hello";
+  path = deploy-rs.lib.x86_64-linux.activate.custom pkgs.hello "./bin/hello";
 
   # An optional path to where your profile should be installed to, this is useful if you want to use a common profile name across multiple users, but would have conflicts in your node's profile list.
   # This will default to `"/nix/var/nix/profiles/$PROFILE_NAME` if `user` is root (see: generic options), and `/nix/var/nix/profiles/per-user/$USER/$PROFILE_NAME` if it is not.
