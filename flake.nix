@@ -26,7 +26,12 @@
       in
       {
         defaultPackage = self.packages."${system}".deploy-rs;
-        packages.deploy-rs = naersk-lib.buildPackage ./.;
+        packages.deploy-rs = naersk-lib.buildPackage {
+          root = ./.;
+          propagatedNativeBuildInputs = [ pkgs.xcbuild ];
+          nativeBuildInputs = [ pkgs.xcbuild ];
+          cargoBuildOptions = opts: opts ++ [ "--verbose" ];
+        };
 
         defaultApp = self.apps."${system}".deploy-rs;
         apps.deploy-rs = {
