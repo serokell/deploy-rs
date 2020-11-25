@@ -23,10 +23,20 @@
       let
         pkgs = import nixpkgs { inherit system; };
         naersk-lib = pkgs.callPackage naersk { };
+        isDarwin = pkgs.lib.strings.hasSuffix "-darwin" system;
+        darwinOptions = pkgs.lib.optionalAttrs isDarwin {
+          nativeBuildInputs = [
+            pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
+          ];
+          singleStep = true; # https://github.com/nmattia/naersk/issues/127
+          cargoBuildOptions = opts: opts ++ [ "--bin" "deploy" ]; # The "activate" binary is linux-only.
+        };
       in
       {
         defaultPackage = self.packages."${system}".deploy-rs;
-        packages.deploy-rs = naersk-lib.buildPackage ./.;
+        packages.deploy-rs = naersk-lib.buildPackage (darwinOptions // {
+          root = ./.;
+        });
 
         defaultApp = self.apps."${system}".deploy-rs;
         apps.deploy-rs = {
@@ -35,9 +45,9 @@
         };
 
         devShell = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.deploy-rs ];
-            buildInputs = [ pkgs.nixUnstable ];
-          };
+          inputsFrom = [ self.packages.${system}.deploy-rs ];
+          buildInputs = [ pkgs.nixUnstable ];
+        };
 
         lib = rec {
 
