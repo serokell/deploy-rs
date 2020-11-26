@@ -4,6 +4,7 @@
 
 use std::process::Stdio;
 use tokio::process::Command;
+use std::path::Path;
 
 use thiserror::Error;
 
@@ -15,6 +16,12 @@ pub enum PushProfileError {
     BuildError(std::io::Error),
     #[error("Nix build command resulted in a bad exit code: {0:?}")]
     BuildExitError(Option<i32>),
+    #[error("Activation script deploy-rs-activate does not exist in profile.\n\
+             Did you forget to use deploy-rs#lib.<...>.activate.<...> on your profile path?")]
+    DeployRsActivateDoesntExist,
+    #[error("Activation script activate-rs does not exist in profile.\n\
+             Is there a mismatch in deploy-rs used in the flake you're deploying and deploy-rs command you're running?")]
+    ActivateRsDoesntExist,
     #[error("Failed to run Nix sign command: {0}")]
     SignError(std::io::Error),
     #[error("Nix sign command resulted in a bad exit code: {0:?}")]
@@ -86,6 +93,16 @@ pub async fn push_profile(
         Some(0) => (),
         a => return Err(PushProfileError::BuildExitError(a)),
     };
+
+    if ! Path::new(format!("{}/deploy-rs-activate", deploy_data.profile.profile_settings.path).as_str()).exists() {
+        return Err(PushProfileError::DeployRsActivateDoesntExist);
+    }
+
+    if ! Path::new(format!("{}/activate-rs", deploy_data.profile.profile_settings.path).as_str()).exists() {
+        return Err(PushProfileError::ActivateRsDoesntExist);
+    }
+
+
 
     if let Ok(local_key) = std::env::var("LOCAL_KEY") {
         info!(
