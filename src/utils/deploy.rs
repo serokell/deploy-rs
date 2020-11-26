@@ -89,7 +89,7 @@ pub async fn deploy_profile(
         deploy_data.profile_name, deploy_data.node_name
     );
 
-    let activate_path_str = super::deploy_path_to_activate_path_str(&deploy_defs.current_exe)?;
+    let activate_path_str = super::deploy_path_to_activate_path_str(deploy_defs)?;
 
     let temp_path: Cow<str> = match &deploy_data.merged_settings.temp_path {
         Some(x) => x.into(),
