@@ -99,9 +99,7 @@ pub async fn push_profile(
             .arg("-k")
             .arg(local_key)
             .arg(&deploy_data.profile.profile_settings.path)
-            .arg(&super::deploy_path_to_activate_path_str(
-                &deploy_defs.current_exe,
-            )?)
+            .arg(&super::deploy_path_to_activate_path_str(&deploy_defs)?)
             .status()
             .await
             .map_err(PushProfileError::SignError)?;
@@ -146,9 +144,7 @@ pub async fn push_profile(
         .arg("--to")
         .arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname))
         .arg(&deploy_data.profile.profile_settings.path)
-        .arg(&super::deploy_path_to_activate_path_str(
-            &deploy_defs.current_exe,
-        )?)
+        .arg(&super::deploy_path_to_activate_path_str(&deploy_defs)?)
         .env("NIX_SSHOPTS", ssh_opts_str)
         .status()
         .await

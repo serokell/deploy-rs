@@ -197,7 +197,6 @@ pub struct DeployDefs {
     pub ssh_user: String,
     pub profile_user: String,
     pub profile_path: String,
-    pub current_exe: PathBuf,
     pub sudo: Option<String>,
 }
 
@@ -258,7 +257,6 @@ impl<'a> DeployData<'a> {
             ssh_user,
             profile_user,
             profile_path,
-            current_exe,
             sudo,
         })
     }
@@ -316,25 +314,21 @@ pub enum DeployPathToActivatePathError {
 }
 
 pub fn deploy_path_to_activate_path_str(
-    deploy_path: &std::path::Path,
+    deploy_defs: &DeployDefs,
 ) -> Result<String, DeployPathToActivatePathError> {
-    Ok(format!(
-        "{}/activate",
-        deploy_path
-            .parent()
-            .ok_or(DeployPathToActivatePathError::PathTooShort)?
-            .to_str()
-            .ok_or(DeployPathToActivatePathError::InvalidUtf8)?
-            .to_owned()
-    ))
+    Ok(format!("{}/activate-rs", deploy_defs.profile_path))
 }
 
 #[test]
 fn test_activate_path_generation() {
-    match deploy_path_to_activate_path_str(&std::path::PathBuf::from(
-        "/blah/blah/deploy-rs/bin/deploy",
-    )) {
+    let defs = DeployDefs {
+        ssh_user: "foo".to_string(),
+        profile_user: "bar".to_string(),
+        profile_path: "/nix/store/profile-closure".to_string(),
+        sudo: None,
+    };
+    match deploy_path_to_activate_path_str(&defs) {
         Err(_) => panic!(""),
-        Ok(x) => assert_eq!(x, "/blah/blah/deploy-rs/bin/activate".to_string()),
+        Ok(x) => assert_eq!(x, "/nix/store/profile-closure/activate-rs".to_string()),
     }
 }
