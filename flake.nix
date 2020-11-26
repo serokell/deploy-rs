@@ -69,6 +69,15 @@
                   executable = true;
                   destination = "/deploy-rs-activate";
                 })
+                (pkgs.writeTextFile {
+                  name = base.name + "-activate-rs";
+                  text = ''
+                    #!${pkgs.runtimeShell}
+                    exec ${self.defaultPackage."${system}"}/bin/activate "$@"
+                  '';
+                  executable = true;
+                  destination = "/activate-rs";
+                })
               ];
             };
 
