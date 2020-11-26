@@ -99,7 +99,6 @@ pub async fn push_profile(
             .arg("-k")
             .arg(local_key)
             .arg(&deploy_data.profile.profile_settings.path)
-            .arg(&super::deploy_path_to_activate_path_str(&deploy_defs)?)
             .status()
             .await
             .map_err(PushProfileError::SignError)?;

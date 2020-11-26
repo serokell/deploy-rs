@@ -312,23 +312,3 @@ pub enum DeployPathToActivatePathError {
     #[error("Deploy path was not valid utf8")]
     InvalidUtf8,
 }
-
-pub fn deploy_path_to_activate_path_str(
-    deploy_defs: &DeployDefs,
-) -> Result<String, DeployPathToActivatePathError> {
-    Ok(format!("{}/activate-rs", deploy_defs.profile_path))
-}
-
-#[test]
-fn test_activate_path_generation() {
-    let defs = DeployDefs {
-        ssh_user: "foo".to_string(),
-        profile_user: "bar".to_string(),
-        profile_path: "/nix/store/profile-closure".to_string(),
-        sudo: None,
-    };
-    match deploy_path_to_activate_path_str(&defs) {
-        Err(_) => panic!(""),
-        Ok(x) => assert_eq!(x, "/nix/store/profile-closure/activate-rs".to_string()),
-    }
-}
