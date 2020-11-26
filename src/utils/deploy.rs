@@ -8,7 +8,6 @@ use tokio::process::Command;
 use thiserror::Error;
 
 fn build_activate_command(
-    activate_path_str: String,
     sudo: &Option<String>,
     profile_path: &str,
     closure: &str,
@@ -18,8 +17,8 @@ fn build_activate_command(
     magic_rollback: bool,
 ) -> String {
     let mut self_activate_command = format!(
-        "{} '{}' '{}' --temp-path {} --confirm-timeout {}",
-        activate_path_str, profile_path, closure, temp_path, confirm_timeout
+        "{}/activate-rs '{}' '{}' --temp-path {} --confirm-timeout {}",
+        closure, profile_path, closure, temp_path, confirm_timeout
     );
 
     if magic_rollback {
@@ -42,7 +41,7 @@ fn test_activation_command_builder() {
     let activate_path_str = "/blah/bin/activate".to_string();
     let sudo = Some("sudo -u test".to_string());
     let profile_path = "/blah/profiles/test";
-    let closure = "/blah/etc";
+    let closure = "/nix/store/blah/etc";
     let auto_rollback = true;
     let temp_path = &"/tmp".into();
     let confirm_timeout = 30;
@@ -50,7 +49,6 @@ fn test_activation_command_builder() {
 
     assert_eq!(
         build_activate_command(
-            activate_path_str,
             &sudo,
             profile_path,
             closure,
@@ -59,7 +57,7 @@ fn test_activation_command_builder() {
             confirm_timeout,
             magic_rollback
         ),
-        "sudo -u test /blah/bin/activate '/blah/profiles/test' '/blah/etc' --temp-path /tmp --confirm-timeout 30 --magic-rollback --auto-rollback"
+        "sudo -u test /nix/store/blah/etc/activate-rs '/blah/profiles/test' '/nix/store/blah/etc' --temp-path /tmp --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
     );
 }
@@ -89,8 +87,6 @@ pub async fn deploy_profile(
         deploy_data.profile_name, deploy_data.node_name
     );
 
-    let activate_path_str = super::deploy_path_to_activate_path_str(deploy_defs)?;
-
     let temp_path: Cow<str> = match &deploy_data.merged_settings.temp_path {
         Some(x) => x.into(),
         None => "/tmp".into(),
@@ -103,7 +99,6 @@ pub async fn deploy_profile(
     let auto_rollback = deploy_data.merged_settings.auto_rollback.unwrap_or(true);
 
     let self_activate_command = build_activate_command(
-        activate_path_str,
         &deploy_defs.sudo,
         &deploy_defs.profile_path,
         &deploy_data.profile.profile_settings.path,
