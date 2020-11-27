@@ -101,7 +101,9 @@
                   node_name=$(echo $x | cut -f2 -d:)
                   profile_name=$(echo $x | cut -f3 -d:)
 
-                  test -f "$profile_path/deploy-rs-activate" || (echo "#$node_name.$profile_name is missing an activation script" && exit 1);
+                  test -f "$profile_path/deploy-rs-activate" || (echo "#$node_name.$profile_name is missing the deploy-rs-activate activation script" && exit 1);
+
+                  test -f "$profile_path/activate-rs" || (echo "#$node_name.$profile_name is missing the activate-rs activation script" && exit 1);
                 done
 
                 touch $out
