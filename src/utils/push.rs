@@ -47,19 +47,15 @@ pub async fn push_profile(
     };
 
     let mut build_command = if supports_flakes {
-        build_c.arg("build").arg("--no-link").arg(format!(
+        build_c.arg("build").arg(format!(
             "{}#deploy.nodes.{}.profiles.{}.path",
             repo, deploy_data.node_name, deploy_data.profile_name
         ))
     } else {
-        build_c
-            .arg(&repo)
-            .arg("--no-out-link")
-            .arg("-A")
-            .arg(format!(
-                "deploy.nodes.{}.profiles.{}.path",
-                deploy_data.node_name, deploy_data.profile_name
-            ))
+        build_c.arg(&repo).arg("-A").arg(format!(
+            "deploy.nodes.{}.profiles.{}.path",
+            deploy_data.node_name, deploy_data.profile_name
+        ))
     };
 
     build_command = match (keep_result, supports_flakes) {

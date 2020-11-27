@@ -312,7 +312,7 @@ enum RunDeployError {
     DeployProfileError(#[from] utils::deploy::DeployProfileError),
     #[error("Failed to push profile: {0}")]
     PushProfileError(#[from] utils::push::PushProfileError),
-    #[error("No profile names `{0}` was found")]
+    #[error("No profile named `{0}` was found")]
     ProfileNotFound(String),
     #[error("No node named `{0}` was found")]
     NodeNotFound(String),
