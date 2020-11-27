@@ -203,11 +203,6 @@ pub struct DeployDefs {
 #[derive(Error, Debug)]
 pub enum DeployDataDefsError {
     #[error("Neither `user` nor `sshUser` are set for profile {0} of node {1}")]
-    NoProfileUser(String, String),
-    #[error("Error reading current executable path: {0}")]
-    ExecutablePathNotFound(std::io::Error),
-    #[error("Executable was not in the Nix store")]
-    NotNixStored,
 }
 
 impl<'a> DeployData<'a> {
@@ -245,13 +240,6 @@ impl<'a> DeployData<'a> {
             Some(ref user) if user != &ssh_user => Some(format!("sudo -u {}", user)),
             _ => None,
         };
-
-        let current_exe =
-            std::env::current_exe().map_err(DeployDataDefsError::ExecutablePathNotFound)?;
-
-        if !current_exe.starts_with("/nix/store/") {
-            return Err(DeployDataDefsError::NotNixStored);
-        }
 
         Ok(DeployDefs {
             ssh_user,
