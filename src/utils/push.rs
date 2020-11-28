@@ -48,12 +48,12 @@ pub async fn push_profile(
 
     let mut build_command = if supports_flakes {
         build_c.arg("build").arg(format!(
-            "{}#deploy.nodes.{}.profiles.{}.path",
+            "{}#deploy.nodes.\"{}\".profiles.\"{}\".path",
             repo, deploy_data.node_name, deploy_data.profile_name
         ))
     } else {
         build_c.arg(&repo).arg("-A").arg(format!(
-            "deploy.nodes.{}.profiles.{}.path",
+            "deploy.nodes.\"{}\".profiles.\"{}\".path",
             deploy_data.node_name, deploy_data.profile_name
         ))
     };
