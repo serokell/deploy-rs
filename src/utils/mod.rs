@@ -49,9 +49,18 @@ pub fn parse_flake(flake: &str) -> DeployFlake {
 
     let (node, profile) = match maybe_fragment {
         Some(fragment) => {
-            let fragment_profile_start = fragment.find('.');
+            let fragment_profile_start = fragment.rfind('.');
+
             match fragment_profile_start {
-                Some(s) => (Some(&fragment[..s]), Some(&fragment[s + 1..])),
+                Some(s) => (
+                    Some(&fragment[..s]),
+                    // Ignore the trailing `.`
+                    (if (s + 1) == fragment.len() {
+                        None
+                    } else {
+                        Some(&fragment[s + 1..])
+                    }),
+                ),
                 None => (Some(fragment), None),
             }
         }
@@ -91,6 +100,36 @@ fn test_parse_flake() {
             repo: "../deploy/examples/system",
             node: None,
             profile: None,
+        }
+    );
+
+    // Trailing `.` should be ignored
+    assert_eq!(
+        parse_flake("../deploy/examples/system#example."),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: Some("example"),
+            profile: None
+        }
+    );
+
+    // The last `.` should be used for splitting
+    assert_eq!(
+        parse_flake("../deploy/examples/system#example.com.system"),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: Some("example.com"),
+            profile: Some("system")
+        }
+    );
+
+    // The last `.` should be used for splitting, _and_ trailing `.` should be ignored
+    assert_eq!(
+        parse_flake("../deploy/examples/system#example.com."),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: Some("example.com"),
+            profile: None
         }
     );
 }
