@@ -338,7 +338,7 @@ async fn run_deploy(
     extra_build_args: &[String],
 ) -> Result<(), RunDeployError> {
     let to_deploy: Vec<((&str, &utils::data::Node), (&str, &utils::data::Profile))> =
-        match (deploy_flake.node, deploy_flake.profile) {
+        match (&deploy_flake.node, &deploy_flake.profile) {
             (Some(node_name), Some(profile_name)) => {
                 let node = match data.nodes.get(node_name) {
                     Some(x) => x,
@@ -379,7 +379,7 @@ async fn run_deploy(
 
                 profiles_list
                     .into_iter()
-                    .map(|x| ((node_name, node), x))
+                    .map(|x| ((node_name.as_str(), node), x))
                     .collect()
             }
             (None, None) => {
@@ -424,7 +424,7 @@ async fn run_deploy(
 
     let mut parts: Vec<(utils::DeployData, utils::DeployDefs)> = Vec::new();
 
-    for ((node_name, node), (profile_name, profile)) in &to_deploy {
+    for ((node_name, node), (profile_name, profile)) in to_deploy {
         let deploy_data = utils::make_deploy_data(
             &data.generic_settings,
             node,
@@ -478,6 +478,8 @@ enum RunError {
     CheckDeploymentError(#[from] CheckDeploymentError),
     #[error("Failed to evaluate deployment data: {0}")]
     GetDeploymentDataError(#[from] GetDeploymentDataError),
+    #[error("Error parsing flake: {0}")]
+    ParseFlakeError(#[from] utils::ParseFlakeError),
     #[error("{0}")]
     RunDeployError(#[from] RunDeployError),
 }
@@ -491,7 +493,7 @@ async fn run() -> Result<(), RunError> {
 
     let opts: Opts = Opts::parse();
 
-    let deploy_flake = utils::parse_flake(opts.flake.as_str());
+    let deploy_flake = utils::parse_flake(opts.flake.as_str())?;
 
     let cmd_overrides = utils::CmdOverrides {
         ssh_user: opts.ssh_user,

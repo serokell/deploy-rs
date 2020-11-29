@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use rnix::{types::*, NodeOrToken, SyntaxKind::*, SyntaxNode};
+
 use std::path::PathBuf;
 
 use merge::Merge;
@@ -36,66 +38,86 @@ pub struct CmdOverrides {
 #[derive(PartialEq, Debug)]
 pub struct DeployFlake<'a> {
     pub repo: &'a str,
-    pub node: Option<&'a str>,
-    pub profile: Option<&'a str>,
+    pub node: Option<String>,
+    pub profile: Option<String>,
 }
 
-pub fn parse_flake(flake: &str) -> DeployFlake {
+#[derive(Error, Debug)]
+pub enum ParseFlakeError {
+    #[error("The given path was too long, did you mean to put something in quotes?")]
+    PathTooLong,
+    #[error("Unrecognized node or token encountered")]
+    Unrecognized,
+}
+pub fn parse_flake(flake: &str) -> Result<DeployFlake, ParseFlakeError> {
     let flake_fragment_start = flake.find('#');
     let (repo, maybe_fragment) = match flake_fragment_start {
         Some(s) => (&flake[..s], Some(&flake[s + 1..])),
         None => (flake, None),
     };
 
-    let (node, profile) = match maybe_fragment {
-        Some(fragment) => {
-            let fragment_profile_start = fragment.rfind('.');
+    let mut node: Option<String> = None;
+    let mut profile: Option<String> = None;
 
-            match fragment_profile_start {
-                Some(s) => (
-                    Some(&fragment[..s]),
-                    // Ignore the trailing `.`
-                    (if (s + 1) == fragment.len() {
-                        None
-                    } else {
-                        Some(&fragment[s + 1..])
-                    }),
-                ),
-                None => (Some(fragment), None),
+    if let Some(fragment) = maybe_fragment {
+        let ast = rnix::parse(fragment);
+
+        let first_child = match ast.root().node().first_child() {
+            Some(x) => x,
+            None => {
+                return Ok(DeployFlake {
+                    repo,
+                    node: None,
+                    profile: None,
+                })
+            }
+        };
+
+        let mut node_over = false;
+
+        for entry in first_child.children_with_tokens() {
+            let x: Option<String> = match (entry.kind(), node_over) {
+                (TOKEN_DOT, false) => {
+                    node_over = true;
+                    None
+                }
+                (TOKEN_DOT, true) => {
+                    return Err(ParseFlakeError::PathTooLong);
+                }
+                (NODE_IDENT, _) => Some(entry.into_node().unwrap().text().to_string()),
+                (TOKEN_IDENT, _) => Some(entry.into_token().unwrap().text().to_string()),
+                (NODE_STRING, _) => {
+                    let c = entry
+                        .into_node()
+                        .unwrap()
+                        .children_with_tokens()
+                        .nth(1)
+                        .unwrap();
+
+                    Some(c.into_token().unwrap().text().to_string())
+                }
+                _ => return Err(ParseFlakeError::Unrecognized),
+            };
+
+            if !node_over {
+                node = x;
+            } else {
+                profile = x;
             }
         }
-        None => (None, None),
-    };
+    }
 
-    DeployFlake {
+    Ok(DeployFlake {
         repo,
         node,
         profile,
-    }
+    })
 }
 
 #[test]
 fn test_parse_flake() {
     assert_eq!(
-        parse_flake("../deploy/examples/system#example"),
-        DeployFlake {
-            repo: "../deploy/examples/system",
-            node: Some("example"),
-            profile: None
-        }
-    );
-
-    assert_eq!(
-        parse_flake("../deploy/examples/system#example.system"),
-        DeployFlake {
-            repo: "../deploy/examples/system",
-            node: Some("example"),
-            profile: Some("system")
-        }
-    );
-
-    assert_eq!(
-        parse_flake("../deploy/examples/system"),
+        parse_flake("../deploy/examples/system").unwrap(),
         DeployFlake {
             repo: "../deploy/examples/system",
             node: None,
@@ -103,33 +125,57 @@ fn test_parse_flake() {
         }
     );
 
-    // Trailing `.` should be ignored
     assert_eq!(
-        parse_flake("../deploy/examples/system#example."),
+        parse_flake("../deploy/examples/system#").unwrap(),
         DeployFlake {
             repo: "../deploy/examples/system",
-            node: Some("example"),
+            node: None,
+            profile: None,
+        }
+    );
+
+    assert_eq!(
+        parse_flake("../deploy/examples/system#computer.\"something.nix\"").unwrap(),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: Some("computer".to_string()),
+            profile: Some("something.nix".to_string()),
+        }
+    );
+
+    assert_eq!(
+        parse_flake("../deploy/examples/system#\"example.com\".system").unwrap(),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: Some("example.com".to_string()),
+            profile: Some("system".to_string()),
+        }
+    );
+
+    assert_eq!(
+        parse_flake("../deploy/examples/system#example").unwrap(),
+        DeployFlake {
+            repo: "../deploy/examples/system",
+            node: Some("example".to_string()),
             profile: None
         }
     );
 
-    // The last `.` should be used for splitting
     assert_eq!(
-        parse_flake("../deploy/examples/system#example.com.system"),
+        parse_flake("../deploy/examples/system#example.system").unwrap(),
         DeployFlake {
             repo: "../deploy/examples/system",
-            node: Some("example.com"),
-            profile: Some("system")
+            node: Some("example".to_string()),
+            profile: Some("system".to_string())
         }
     );
 
-    // The last `.` should be used for splitting, _and_ trailing `.` should be ignored
     assert_eq!(
-        parse_flake("../deploy/examples/system#example.com."),
+        parse_flake("../deploy/examples/system").unwrap(),
         DeployFlake {
             repo: "../deploy/examples/system",
-            node: Some("example.com"),
-            profile: None
+            node: None,
+            profile: None,
         }
     );
 }

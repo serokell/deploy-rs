@@ -26,6 +26,7 @@ fork = "0.1"
 thiserror = "1.0"
 toml = "0.5"
 yn = "0.1"
+rnix = "0.8"
 
 
 [[bin]]
