@@ -203,6 +203,7 @@ pub struct DeployDefs {
 #[derive(Error, Debug)]
 pub enum DeployDataDefsError {
     #[error("Neither `user` nor `sshUser` are set for profile {0} of node {1}")]
+    NoProfileUser(String, String),
 }
 
 impl<'a> DeployData<'a> {
