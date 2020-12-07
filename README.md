@@ -68,10 +68,10 @@ A basic example of a flake that works with `deploy-rs` and deploys a simple NixO
         user = "root";
         path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.some-random-system;
     };
-  };
 
-  # This is highly advised, and will prevent many possible mistakes
-  checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
+    # This is highly advised, and will prevent many possible mistakes
+    checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
+  };
 }
 ```
 
