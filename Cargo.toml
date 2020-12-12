@@ -27,6 +27,7 @@ thiserror = "1.0"
 toml = "0.5"
 yn = "0.1"
 rnix = "0.8"
+smol_str = "=0.1.16" # required by rnix, but 0.1.17 doesn't build on nixos-20.09
 
 
 [[bin]]
