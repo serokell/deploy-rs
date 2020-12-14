@@ -1,22 +1,20 @@
 // SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+// SPDX-FileCopyrightText: 2020 Andreas Fuchs <asf@boinkor.net>
 //
 // SPDX-License-Identifier: MPL-2.0
 
 use clap::Clap;
 
-use futures_util::FutureExt;
-use std::process::Stdio;
 use tokio::fs;
 use tokio::process::Command;
+use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use std::time::Duration;
 
-use futures_util::StreamExt;
-
 use std::path::Path;
 
-use inotify::Inotify;
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 use thiserror::Error;
 
@@ -159,42 +157,36 @@ pub enum ActivationConfirmationError {
     CreateConfirmDirError(std::io::Error),
     #[error("Failed to create activation confirmation file: {0}")]
     CreateConfirmFileError(std::io::Error),
-    #[error("Failed to create inotify instance: {0}")]
-    CreateInotifyError(std::io::Error),
-    #[error("Failed to create inotify watcher: {0}")]
-    CreateInotifyWatcherError(std::io::Error),
+    #[error("Failed to create file system watcher instance: {0}")]
+    CreateWatcherError(notify::Error),
     #[error("Error forking process: {0}")]
     ForkError(i32),
+    #[error("Could not watch for activation sentinel")]
+    WatcherError(#[from] notify::Error),
 }
 
 #[derive(Error, Debug)]
 pub enum DangerZoneError {
-    #[error("Timeout elapsed for confirmation: {0}")]
-    TimesUp(#[from] tokio::time::Elapsed),
+    #[error("Timeout elapsed for confirmation")]
+    TimesUp,
     #[error("inotify stream ended without activation confirmation")]
     NoConfirmation,
-    #[error("There was some kind of error waiting for confirmation (todo figure it out)")]
-    SomeKindOfError(std::io::Error),
+    #[error("inotify encountered an error: {0}")]
+    WatchError(notify::Error),
 }
 
 async fn danger_zone(
-    profile_path: &str,
-    mut inotify: Inotify,
+    mut events: mpsc::Receiver<Result<notify::event::Event, notify::Error>>,
     confirm_timeout: u16,
 ) -> Result<(), DangerZoneError> {
     info!("Waiting for confirmation event...");
 
-    let mut buffer = [0; 32];
-    let mut stream = inotify
-        .event_stream(&mut buffer)
-        .map_err(DangerZoneError::SomeKindOfError)?;
-
-    timeout(Duration::from_secs(confirm_timeout as u64), stream.next())
-        .await?
-        .ok_or(DangerZoneError::NoConfirmation)?
-        .map_err(DangerZoneError::SomeKindOfError)?;
-
-    Ok(())
+    match timeout(Duration::from_secs(confirm_timeout as u64), events.recv()).await {
+        Ok(Some(Ok(_))) => Ok(()),
+        Ok(Some(Err(e))) => Err(DangerZoneError::WatchError(e)),
+        Ok(None) => Err(DangerZoneError::NoConfirmation),
+        Err(_) => Err(DangerZoneError::TimesUp),
+    }
 }
 
 pub async fn activation_confirmation(
@@ -216,20 +208,34 @@ pub async fn activation_confirmation(
         .await
         .map_err(ActivationConfirmationError::CreateConfirmDirError)?;
 
-    let mut inotify =
-        Inotify::init().map_err(ActivationConfirmationError::CreateConfirmDirError)?;
-    inotify
-        .add_watch(lock_path, inotify::WatchMask::DELETE)
-        .map_err(ActivationConfirmationError::CreateConfirmDirError)?;
+    let (deleted, done) = mpsc::channel(1);
+    let mut watcher: RecommendedWatcher =
+        Watcher::new_immediate(move |res: Result<notify::event::Event, notify::Error>| {
+            let send_result = match res {
+                Ok(e) if e.kind == notify::EventKind::Remove(notify::event::RemoveKind::File) => {
+                    deleted.blocking_send(Ok(e))
+                }
+                Ok(_) => Ok(()), // ignore non-removal events
+                Err(e) => deleted.blocking_send(Err(e)),
+            };
+            if let Err(e) = send_result {
+                // We can't communicate our error, but panic-ing would
+                // be bad; let's write an error and trust that the
+                // activate function will realize we aren't sending
+                // data.
+                eprintln!("Could not send file system event to watcher: {}", e);
+            }
+        })?;
+    watcher.watch(lock_path, RecursiveMode::Recursive)?;
 
     if let fork::Fork::Child =
         fork::daemon(false, false).map_err(ActivationConfirmationError::ForkError)?
     {
         std::thread::spawn(move || {
-                let mut rt = tokio::runtime::Runtime::new().unwrap();
+                let rt = tokio::runtime::Runtime::new().unwrap();
 
                 rt.block_on(async move {
-                    if let Err(err) = danger_zone(&profile_path, inotify, confirm_timeout).await {
+                    if let Err(err) = danger_zone(done, confirm_timeout).await {
                         if let Err(err) = deactivate(&profile_path).await {
                             good_panic!("Error de-activating due to another error in confirmation thread, oh no...: {}", err);
                         }
