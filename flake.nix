@@ -29,8 +29,6 @@
           nativeBuildInputs = [
             pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
           ];
-          singleStep = true; # https://github.com/nmattia/naersk/issues/127
-          cargoBuildOptions = opts: opts ++ [ "--bin" "deploy" ]; # The "activate" binary is linux-only.
         };
       in
       {
