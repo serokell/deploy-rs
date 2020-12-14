@@ -161,7 +161,7 @@ pub enum ActivationConfirmationError {
     CreateWatcherError(notify::Error),
     #[error("Error forking process: {0}")]
     ForkError(i32),
-    #[error("Could not watch for activation sentinel")]
+    #[error("Could not watch for activation sentinel: {0}")]
     WatcherError(#[from] notify::Error),
 }
 
@@ -176,13 +176,13 @@ pub enum DangerZoneError {
 }
 
 async fn danger_zone(
-    mut events: mpsc::Receiver<Result<notify::event::Event, notify::Error>>,
+    mut events: mpsc::Receiver<Result<(), notify::Error>>,
     confirm_timeout: u16,
 ) -> Result<(), DangerZoneError> {
     info!("Waiting for confirmation event...");
 
     match timeout(Duration::from_secs(confirm_timeout as u64), events.recv()).await {
-        Ok(Some(Ok(_))) => Ok(()),
+        Ok(Some(Ok(()))) => Ok(()),
         Ok(Some(Err(e))) => Err(DangerZoneError::WatchError(e)),
         Ok(None) => Err(DangerZoneError::NoConfirmation),
         Err(_) => Err(DangerZoneError::TimesUp),
@@ -213,7 +213,7 @@ pub async fn activation_confirmation(
         Watcher::new_immediate(move |res: Result<notify::event::Event, notify::Error>| {
             let send_result = match res {
                 Ok(e) if e.kind == notify::EventKind::Remove(notify::event::RemoveKind::File) => {
-                    deleted.blocking_send(Ok(e))
+                    deleted.blocking_send(Ok(()))
                 }
                 Ok(_) => Ok(()), // ignore non-removal events
                 Err(e) => deleted.blocking_send(Err(e)),
