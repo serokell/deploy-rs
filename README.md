@@ -4,11 +4,11 @@ SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
 SPDX-License-Identifier: MPL-2.0
 -->
 
-# deploy-rs
+![deploy-rs logo](./docs/logo.svg "deploy-rs")
+
+---
 
 A Simple, multi-profile Nix-flake deploy tool.
-
-**This is very early development software, you should expect to find issues, and things will change**
 
 ## Usage
 
