@@ -28,6 +28,11 @@ toml = "0.5"
 yn = "0.1"
 rnix = "0.8"
 
+# smol_str is required by rnix, but 0.1.17 doesn't build on rustc
+# 1.45.2 (shipped in nixos-20.09); it requires rustc 1.46.0. See
+# <https://github.com/serokell/deploy-rs/issues/27>:
+smol_str = "=0.1.16"
+
 
 [[bin]]
 name = "deploy"
