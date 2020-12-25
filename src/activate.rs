@@ -138,7 +138,7 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
 
     let re_activate_exit_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
         .env("PROFILE", &profile_path)
-        .current_dir(&profile_path)
+        .current_dir("/tmp")
         .status()
         .await
         .map_err(DeactivateError::ReactivateError)?;
@@ -303,7 +303,7 @@ pub async fn activate(
 
     let activate_status = match Command::new(format!("{}/deploy-rs-activate", profile_path))
         .env("PROFILE", &profile_path)
-        .current_dir(&profile_path)
+        .current_dir("/tmp")
         .status()
         .await
         .map_err(ActivateError::RunActivateError)
