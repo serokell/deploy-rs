@@ -37,7 +37,7 @@ struct Opts {
     /// Print debug logs to output
     #[clap(short, long)]
     debug_logs: bool,
-    /// File to print logs to (including the background activation process)
+    /// Directory to print logs to (including the background activation process)
     #[clap(long)]
     log_dir: Option<String>,
 

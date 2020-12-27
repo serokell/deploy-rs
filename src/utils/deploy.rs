@@ -37,7 +37,7 @@ fn build_activate_command(
     }
 
     if let Some(log_dir) = log_dir {
-        self_activate_command = format!("{} --log-file {}", self_activate_command, log_dir);
+        self_activate_command = format!("{} --log-dir {}", self_activate_command, log_dir);
     }
 
     if let Some(sudo_cmd) = &sudo {
@@ -72,7 +72,7 @@ fn test_activation_command_builder() {
             debug_logs,
             log_dir
         ),
-        "sudo -u test /nix/store/blah/etc/activate-rs '/blah/profiles/test' '/nix/store/blah/etc' --temp-path /tmp --confirm-timeout 30 --magic-rollback --auto-rollback --debug-logs --log-file /tmp/something.txt"
+        "sudo -u test /nix/store/blah/etc/activate-rs '/blah/profiles/test' '/nix/store/blah/etc' --temp-path /tmp --confirm-timeout 30 --magic-rollback --auto-rollback --debug-logs --log-dir /tmp/something.txt"
             .to_string(),
     );
 }
