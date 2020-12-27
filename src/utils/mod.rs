@@ -260,9 +260,9 @@ pub fn make_deploy_data<'a, 's>(
     profile_name: &'a str,
     cmd_overrides: &'a CmdOverrides,
 ) -> DeployData<'a> {
-    let mut merged_settings = top_settings.clone();
+    let mut merged_settings = profile.generic_settings.clone();
     merged_settings.merge(node.generic_settings.clone());
-    merged_settings.merge(profile.generic_settings.clone());
+    merged_settings.merge(top_settings.clone());
 
     if cmd_overrides.ssh_user.is_some() {
         merged_settings.ssh_user = cmd_overrides.ssh_user.clone();
