@@ -225,11 +225,7 @@ pub async fn activation_confirmation(
                 Err(e) => deleted.blocking_send(Err(e)),
             };
             if let Err(e) = send_result {
-                // We can't communicate our error, but panic-ing would
-                // be bad; let's write an error and trust that the
-                // activate function will realize we aren't sending
-                // data.
-                eprintln!("Could not send file system event to watcher: {}", e);
+                error!("Could not send file system event to watcher: {}", e);
             }
         })?;
     watcher.watch(lock_path, RecursiveMode::Recursive)?;
@@ -243,10 +239,10 @@ pub async fn activation_confirmation(
                 rt.block_on(async move {
                     if let Err(err) = danger_zone(done, confirm_timeout).await {
                         if let Err(err) = deactivate(&profile_path).await {
-                            good_panic!("Error de-activating due to another error in confirmation thread, oh no...: {}", err);
+                            error!("Error de-activating due to another error in confirmation thread, oh no...: {}", err);
                         }
 
-                        good_panic!("Error in confirmation thread: {}", err);
+                        error!("Error in confirmation thread: {}", err);
                     }
                 });
             })
