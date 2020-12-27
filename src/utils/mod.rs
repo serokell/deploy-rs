@@ -77,7 +77,6 @@ pub fn init_logger(
             .format_for_stderr(logger_formatter)
             .set_palette("196;208;51;7;8".to_string())
             .directory(log_dir)
-            .discriminant(if activate { "activate" } else { "deploy" })
             .duplicate_to_stderr(match debug_logs {
                 true => Duplicate::Debug,
                 false => Duplicate::Info,
