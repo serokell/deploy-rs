@@ -18,7 +18,6 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 use thiserror::Error;
 
-extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
@@ -34,6 +33,13 @@ mod utils;
 struct Opts {
     profile_path: String,
     closure: String,
+
+    /// Print debug logs to output
+    #[clap(short, long)]
+    debug_logs: bool,
+    /// File to print logs to (including the background activation process)
+    #[clap(long)]
+    log_dir: Option<String>,
 
     /// Temp path for any temporary files that may be needed during activation
     #[clap(long)]
@@ -347,13 +353,9 @@ pub async fn activate(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if std::env::var("DEPLOY_LOG").is_err() {
-        std::env::set_var("DEPLOY_LOG", "info");
-    }
-
-    pretty_env_logger::init_custom_env("DEPLOY_LOG");
-
     let opts: Opts = Opts::parse();
+
+    utils::init_logger(opts.debug_logs, opts.log_dir.as_deref(), true)?;
 
     match activate(
         opts.profile_path,

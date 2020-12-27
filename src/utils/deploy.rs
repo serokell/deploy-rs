@@ -16,6 +16,8 @@ fn build_activate_command(
     temp_path: &Cow<str>,
     confirm_timeout: u16,
     magic_rollback: bool,
+    debug_logs: bool,
+    log_dir: Option<&str>,
 ) -> String {
     let mut self_activate_command = format!(
         "{}/activate-rs '{}' '{}' --temp-path {} --confirm-timeout {}",
@@ -28,6 +30,14 @@ fn build_activate_command(
 
     if auto_rollback {
         self_activate_command = format!("{} --auto-rollback", self_activate_command);
+    }
+
+    if debug_logs {
+        self_activate_command = format!("{} --debug-logs", self_activate_command);
+    }
+
+    if let Some(log_dir) = log_dir {
+        self_activate_command = format!("{} --log-file {}", self_activate_command, log_dir);
     }
 
     if let Some(sudo_cmd) = &sudo {
@@ -47,6 +57,8 @@ fn test_activation_command_builder() {
     let temp_path = &"/tmp".into();
     let confirm_timeout = 30;
     let magic_rollback = true;
+    let debug_logs = true;
+    let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
         build_activate_command(
@@ -56,9 +68,11 @@ fn test_activation_command_builder() {
             auto_rollback,
             temp_path,
             confirm_timeout,
-            magic_rollback
+            magic_rollback,
+            debug_logs,
+            log_dir
         ),
-        "sudo -u test /nix/store/blah/etc/activate-rs '/blah/profiles/test' '/nix/store/blah/etc' --temp-path /tmp --confirm-timeout 30 --magic-rollback --auto-rollback"
+        "sudo -u test /nix/store/blah/etc/activate-rs '/blah/profiles/test' '/nix/store/blah/etc' --temp-path /tmp --confirm-timeout 30 --magic-rollback --auto-rollback --debug-logs --log-file /tmp/something.txt"
             .to_string(),
     );
 }
@@ -107,6 +121,8 @@ pub async fn deploy_profile(
         &temp_path,
         confirm_timeout,
         magic_rollback,
+        deploy_data.debug_logs,
+        deploy_data.log_dir,
     );
 
     debug!("Constructed activation command: {}", self_activate_command);
