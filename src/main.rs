@@ -247,7 +247,7 @@ fn print_deployment(
 
     let toml = toml::to_string(&part_map)?;
 
-    warn!("The following profiles are going to be deployed:\n{}", toml);
+    info!("The following profiles are going to be deployed:\n{}", toml);
 
     Ok(())
 }
