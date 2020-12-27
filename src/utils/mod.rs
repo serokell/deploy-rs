@@ -19,6 +19,16 @@ macro_rules! good_panic {
     }}
 }
 
+fn make_emoji(level: log::Level) -> &'static str {
+    match level {
+        log::Level::Error => "❌",
+        log::Level::Warn => "⚠️",
+        log::Level::Info => "ℹ️",
+        log::Level::Debug => "❓",
+        log::Level::Trace => "🖊️",
+    }
+}
+
 pub fn logger_formatter_activate(
     w: &mut dyn std::io::Write,
     _now: &mut DeferredNow,
@@ -29,13 +39,7 @@ pub fn logger_formatter_activate(
     write!(
         w,
         "⭐ REMOTE ⭐ {0} {1} {0} {2}",
-        match level {
-            log::Level::Error => "❌",
-            log::Level::Warn => "⚠️",
-            log::Level::Info => "ℹ️",
-            log::Level::Debug => "❓",
-            log::Level::Trace => "🖊️",
-        },
+        make_emoji(level),
         style(level, level.to_string()),
         record.args()
     )
@@ -51,13 +55,7 @@ pub fn logger_formatter_deploy(
     write!(
         w,
         "🚀 {0} {1} {0} {2}",
-        match level {
-            log::Level::Error => "❌",
-            log::Level::Warn => "⚠️",
-            log::Level::Info => "ℹ️",
-            log::Level::Debug => "❓",
-            log::Level::Trace => "🖊️",
-        },
+        make_emoji(level),
         style(level, level.to_string()),
         record.args()
     )
