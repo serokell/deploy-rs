@@ -191,6 +191,8 @@ pub struct DeployData<'a> {
     pub cmd_overrides: &'a CmdOverrides,
 
     pub merged_settings: data::GenericSettings,
+
+    pub ssh_interactive_tty: &'a bool,
 }
 
 #[derive(Debug)]
@@ -259,6 +261,7 @@ pub fn make_deploy_data<'a, 's>(
     profile: &'a data::Profile,
     profile_name: &'a str,
     cmd_overrides: &'a CmdOverrides,
+    ssh_interactive_tty: &'a bool,
 ) -> DeployData<'a> {
     let mut merged_settings = profile.generic_settings.clone();
     merged_settings.merge(node.generic_settings.clone());
@@ -292,6 +295,8 @@ pub fn make_deploy_data<'a, 's>(
         cmd_overrides,
 
         merged_settings,
+
+        ssh_interactive_tty,
     }
 }
 

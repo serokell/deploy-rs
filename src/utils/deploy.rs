@@ -117,12 +117,16 @@ pub async fn deploy_profile(
     };
 
     let mut c = Command::new("ssh");
-    let mut ssh_command = c
-        .arg("-t")
-        .arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
+    let mut ssh_command = c;
+
+    if *deploy_data.ssh_interactive_tty {
+        ssh_command.arg("-t");
+    }
+
+    ssh_command.arg(&format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_command = ssh_command.arg(ssh_opt);
+        ssh_command.arg(ssh_opt);
     }
 
     let ssh_exit_status = ssh_command
@@ -142,10 +146,16 @@ pub async fn deploy_profile(
         info!("Attempting to confirm activation");
 
         let mut c = Command::new("ssh");
-        let mut ssh_confirm_command = c.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
+        let mut ssh_confirm_command = c;
+
+        if *deploy_data.ssh_interactive_tty {
+            ssh_confirm_command.arg("-t");
+        }
+
+        ssh_confirm_command.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
 
         for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-            ssh_confirm_command = ssh_confirm_command.arg(ssh_opt);
+            ssh_confirm_command.arg(ssh_opt);
         }
 
         let lock_hash = &deploy_data.profile.profile_settings.path["/nix/store/".len()..];
