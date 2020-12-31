@@ -19,6 +19,12 @@ macro_rules! good_panic {
     }}
 }
 
+pub fn make_lock_path(temp_path: &str, closure: &str) -> String {
+    let lock_hash =
+        &closure["/nix/store/".len()..closure.find("-").unwrap_or_else(|| closure.len())];
+    format!("{}/deploy-rs-canary-{}", temp_path, lock_hash)
+}
+
 fn make_emoji(level: log::Level) -> &'static str {
     match level {
         log::Level::Error => "❌",
@@ -38,7 +44,23 @@ pub fn logger_formatter_activate(
 
     write!(
         w,
-        "⭐ REMOTE ⭐ {0} {1} {0} {2}",
+        "⭐ {0} {1} {0} {2}",
+        make_emoji(level),
+        style(level, level.to_string()),
+        record.args()
+    )
+}
+
+pub fn logger_formatter_wait(
+    w: &mut dyn std::io::Write,
+    _now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    let level = record.level();
+
+    write!(
+        w,
+        "👀 {0} {1} {0} {2}",
         make_emoji(level),
         style(level, level.to_string()),
         record.args()
@@ -61,18 +83,25 @@ pub fn logger_formatter_deploy(
     )
 }
 
+pub enum LoggerType {
+    Deploy,
+    Activate,
+    Wait,
+}
+
 pub fn init_logger(
     debug_logs: bool,
     log_dir: Option<&str>,
-    activate: bool,
+    logger_type: LoggerType,
 ) -> Result<(), FlexiLoggerError> {
-    let logger_formatter = match activate {
-        true => logger_formatter_activate,
-        false => logger_formatter_deploy,
+    let logger_formatter = match logger_type {
+        LoggerType::Deploy => logger_formatter_deploy,
+        LoggerType::Activate => logger_formatter_activate,
+        LoggerType::Wait => logger_formatter_wait,
     };
 
     if let Some(log_dir) = log_dir {
-        Logger::with_env_or_str("debug")
+        let mut logger = Logger::with_env_or_str("debug")
             .log_to_file()
             .format_for_stderr(logger_formatter)
             .set_palette("196;208;51;7;8".to_string())
@@ -81,15 +110,22 @@ pub fn init_logger(
                 true => Duplicate::Debug,
                 false => Duplicate::Info,
             })
-            .print_message()
-            .start()?;
+            .print_message();
+
+        match logger_type {
+            LoggerType::Activate => logger = logger.discriminant("activate"),
+            LoggerType::Wait => logger = logger.discriminant("wait"),
+            LoggerType::Deploy => (),
+        }
+
+        logger.start()?;
     } else {
         Logger::with_env_or_str(match debug_logs {
             true => "debug",
             false => "info",
         })
         .log_target(LogTarget::StdErr)
-        .format(logger_formatter_deploy)
+        .format(logger_formatter)
         .set_palette("196;208;51;7;8".to_string())
         .start()?;
     }

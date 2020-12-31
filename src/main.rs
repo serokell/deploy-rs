@@ -498,7 +498,11 @@ enum RunError {
 async fn run() -> Result<(), RunError> {
     let opts: Opts = Opts::parse();
 
-    utils::init_logger(opts.debug_logs, opts.log_dir.as_deref(), false)?;
+    utils::init_logger(
+        opts.debug_logs,
+        opts.log_dir.as_deref(),
+        utils::LoggerType::Deploy,
+    )?;
 
     let deploy_flake = utils::parse_flake(opts.flake.as_str())?;
 

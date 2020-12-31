@@ -27,6 +27,7 @@ thiserror = "1.0"
 toml = "0.5"
 yn = "0.1"
 rnix = "0.8"
+signal-hook = "0.3"
 
 # smol_str is required by rnix, but 0.1.17 doesn't build on rustc
 # 1.45.2 (shipped in nixos-20.09); it requires rustc 1.46.0. See
