@@ -14,7 +14,7 @@ A Simple, multi-profile Nix-flake deploy tool.
 
 Basic usage: `deploy [options] <flake>`.
 
-The given flake can be just a source `my-flake`, or optionally specify the node to deploy `my-flake#my-node`, or specify a profile too `my-flake#my-node.my-profile`.
+The given flake can be just a source `my-flake`, or optionally specify the node to deploy `my-flake#my-node`, or specify a profile too `my-flake#my-node.my-profile`. If your profile or node name has a `.` in it, simply wrap it in quotes, for example `my-flake."myserver.com".system`.
 
 You can try out this tool easily with `nix run`:
 - `nix run github:serokell/deploy-rs your-flake`
