@@ -44,7 +44,7 @@ pub fn logger_formatter_activate(
 
     write!(
         w,
-        "⭐ {0} {1} {0} {2}",
+        "⭐ {} [activate] [{}] {}",
         make_emoji(level),
         style(level, level.to_string()),
         record.args()
@@ -60,7 +60,7 @@ pub fn logger_formatter_wait(
 
     write!(
         w,
-        "👀 {0} {1} {0} {2}",
+        "👀 {} [wait] [{}] {}",
         make_emoji(level),
         style(level, level.to_string()),
         record.args()
@@ -76,7 +76,7 @@ pub fn logger_formatter_deploy(
 
     write!(
         w,
-        "🚀 {0} {1} {0} {2}",
+        "🚀 {} [deploy] [{}] {}",
         make_emoji(level),
         style(level, level.to_string()),
         record.args()
