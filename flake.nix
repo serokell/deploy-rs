@@ -80,7 +80,12 @@
               ];
             };
 
-            nixos = base: custom base.config.system.build.toplevel "$PROFILE/bin/switch-to-configuration switch";
+            nixos = base: custom base.config.system.build.toplevel ''
+              $PROFILE/bin/switch-to-configuration switch
+
+              # https://github.com/serokell/deploy-rs/issues/31
+              sed -i '/^default /d' /boot/loader/loader.conf
+            '';
 
             noop = base: custom base ":";
           };
