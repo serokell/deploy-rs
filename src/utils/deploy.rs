@@ -16,10 +16,27 @@ fn build_activate_command(
     temp_path: &Cow<str>,
     confirm_timeout: u16,
     magic_rollback: bool,
+    debug_logs: bool,
+    log_dir: Option<&str>,
 ) -> String {
-    let mut self_activate_command = format!(
-        "{}/activate-rs '{}' '{}' --temp-path {} --confirm-timeout {}",
-        closure, profile_path, closure, temp_path, confirm_timeout
+    let mut self_activate_command = format!("{}/activate-rs", closure);
+
+    if debug_logs {
+        self_activate_command = format!("{} --debug-logs", self_activate_command);
+    }
+
+    if let Some(log_dir) = log_dir {
+        self_activate_command = format!("{} --log-dir {}", self_activate_command, log_dir);
+    }
+
+    self_activate_command = format!(
+        "{} --temp-path '{}' activate '{}' '{}'",
+        self_activate_command, temp_path, closure, profile_path
+    );
+
+    self_activate_command = format!(
+        "{} --confirm-timeout {}",
+        self_activate_command, confirm_timeout
     );
 
     if magic_rollback {
@@ -39,7 +56,6 @@ fn build_activate_command(
 
 #[test]
 fn test_activation_command_builder() {
-    let activate_path_str = "/blah/bin/activate".to_string();
     let sudo = Some("sudo -u test".to_string());
     let profile_path = "/blah/profiles/test";
     let closure = "/nix/store/blah/etc";
@@ -47,6 +63,8 @@ fn test_activation_command_builder() {
     let temp_path = &"/tmp".into();
     let confirm_timeout = 30;
     let magic_rollback = true;
+    let debug_logs = true;
+    let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
         build_activate_command(
@@ -56,9 +74,61 @@ fn test_activation_command_builder() {
             auto_rollback,
             temp_path,
             confirm_timeout,
-            magic_rollback
+            magic_rollback,
+            debug_logs,
+            log_dir
         ),
-        "sudo -u test /nix/store/blah/etc/activate-rs '/blah/profiles/test' '/nix/store/blah/etc' --temp-path /tmp --confirm-timeout 30 --magic-rollback --auto-rollback"
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt --temp-path '/tmp' activate '/nix/store/blah/etc' '/blah/profiles/test' --confirm-timeout 30 --magic-rollback --auto-rollback"
+            .to_string(),
+    );
+}
+
+fn build_wait_command(
+    sudo: &Option<String>,
+    closure: &str,
+    temp_path: &Cow<str>,
+    debug_logs: bool,
+    log_dir: Option<&str>,
+) -> String {
+    let mut self_activate_command = format!("{}/activate-rs", closure);
+
+    if debug_logs {
+        self_activate_command = format!("{} --debug-logs", self_activate_command);
+    }
+
+    if let Some(log_dir) = log_dir {
+        self_activate_command = format!("{} --log-dir {}", self_activate_command, log_dir);
+    }
+
+    self_activate_command = format!(
+        "{} --temp-path '{}' wait '{}'",
+        self_activate_command, temp_path, closure
+    );
+
+    if let Some(sudo_cmd) = &sudo {
+        self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
+    }
+
+    self_activate_command
+}
+
+#[test]
+fn test_wait_command_builder() {
+    let sudo = Some("sudo -u test".to_string());
+    let closure = "/nix/store/blah/etc";
+    let temp_path = &"/tmp".into();
+    let debug_logs = true;
+    let log_dir = Some("/tmp/something.txt");
+
+    assert_eq!(
+        build_wait_command(
+            &sudo,
+            closure,
+            temp_path,
+            debug_logs,
+            log_dir
+        ),
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt --temp-path '/tmp' wait '/nix/store/blah/etc'"
             .to_string(),
     );
 }
@@ -67,10 +137,20 @@ fn test_activation_command_builder() {
 pub enum DeployProfileError {
     #[error("Failed to calculate activate bin path from deploy bin path: {0}")]
     DeployPathToActivatePathError(#[from] super::DeployPathToActivatePathError),
+
+    #[error("Failed to spawn activation command over SSH: {0}")]
+    SSHSpawnActivateError(std::io::Error),
+
     #[error("Failed to run activation command over SSH: {0}")]
     SSHActivateError(std::io::Error),
-    #[error("Activation over SSH resulted in a bad exit code: {0:?}")]
+    #[error("Activating over SSH resulted in a bad exit code: {0:?}")]
     SSHActivateExitError(Option<i32>),
+
+    #[error("Failed to run wait command over SSH: {0}")]
+    SSHWaitError(std::io::Error),
+    #[error("Waiting over SSH resulted in a bad exit code: {0:?}")]
+    SSHWaitExitError(Option<i32>),
+
     #[error("Failed to run confirmation command over SSH (the server should roll back): {0}")]
     SSHConfirmError(std::io::Error),
     #[error(
@@ -107,39 +187,76 @@ pub async fn deploy_profile(
         &temp_path,
         confirm_timeout,
         magic_rollback,
+        deploy_data.debug_logs,
+        deploy_data.log_dir,
     );
 
     debug!("Constructed activation command: {}", self_activate_command);
+
+    let self_wait_command = build_wait_command(
+        &deploy_defs.sudo,
+        &deploy_data.profile.profile_settings.path,
+        &temp_path,
+        deploy_data.debug_logs,
+        deploy_data.log_dir,
+    );
+
+    debug!("Constructed wait command: {}", self_wait_command);
 
     let hostname = match deploy_data.cmd_overrides.hostname {
         Some(ref x) => x,
         None => &deploy_data.node.node_settings.hostname,
     };
 
-    let mut c = Command::new("ssh");
-    let mut ssh_command = c
-        .arg("-t")
-        .arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
+    let ssh_addr = format!("ssh://{}@{}", deploy_defs.ssh_user, hostname);
+
+    let mut ssh_activate_command_ = Command::new("ssh");
+    let ssh_activate_command = ssh_activate_command_.arg(&ssh_addr);
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_command = ssh_command.arg(ssh_opt);
+        ssh_activate_command.arg(&ssh_opt);
     }
 
-    let ssh_exit_status = ssh_command
-        .arg(self_activate_command)
-        .status()
-        .await
-        .map_err(DeployProfileError::SSHActivateError)?;
+    if !magic_rollback {
+        let ssh_activate_exit_status = ssh_activate_command
+            .arg(self_activate_command)
+            .status()
+            .await
+            .map_err(DeployProfileError::SSHActivateError)?;
 
-    match ssh_exit_status.code() {
-        Some(0) => (),
-        a => return Err(DeployProfileError::SSHActivateExitError(a)),
-    };
+        match ssh_activate_exit_status.code() {
+            Some(0) => (),
+            a => return Err(DeployProfileError::SSHActivateExitError(a)),
+        };
 
-    info!("Success activating!");
+        info!("Success activating, done!");
+    } else {
+        let ssh_activate = ssh_activate_command
+            .arg(self_activate_command)
+            .spawn()
+            .map_err(DeployProfileError::SSHSpawnActivateError)?;
 
-    if magic_rollback {
-        info!("Attempting to confirm activation");
+        info!("Creating activation waiter");
+
+        let mut ssh_wait_command_ = Command::new("ssh");
+        let ssh_wait_command = ssh_wait_command_.arg(&ssh_addr);
+
+        for ssh_opt in &deploy_data.merged_settings.ssh_opts {
+            ssh_wait_command.arg(ssh_opt);
+        }
+
+        let ssh_wait_exit_status = ssh_wait_command
+            .arg(self_wait_command)
+            .status()
+            .await
+            .map_err(DeployProfileError::SSHWaitError)?;
+
+        match ssh_wait_exit_status.code() {
+            Some(0) => (),
+            a => return Err(DeployProfileError::SSHWaitExitError(a)),
+        };
+
+        info!("Success activating, attempting to confirm activation");
 
         let mut c = Command::new("ssh");
         let mut ssh_confirm_command = c.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
@@ -148,8 +265,8 @@ pub async fn deploy_profile(
             ssh_confirm_command = ssh_confirm_command.arg(ssh_opt);
         }
 
-        let lock_hash = &deploy_data.profile.profile_settings.path["/nix/store/".len()..];
-        let lock_path = format!("{}/deploy-rs-canary-{}", temp_path, lock_hash);
+        let lock_path =
+            super::make_lock_path(&temp_path, &deploy_data.profile.profile_settings.path);
 
         let mut confirm_command = format!("rm {}", lock_path);
         if let Some(sudo_cmd) = &deploy_defs.sudo {
