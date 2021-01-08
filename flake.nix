@@ -84,7 +84,9 @@
               $PROFILE/bin/switch-to-configuration switch
 
               # https://github.com/serokell/deploy-rs/issues/31
-              sed -i '/^default /d' ${base.config.boot.loader.efi.efiSysMountPoint}/loader/loader.conf || :
+              ${with base.config.boot.loader;
+              pkgs.lib.optionalString systemd-boot.enable
+              "sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
             '';
 
             noop = base: custom base ":";
