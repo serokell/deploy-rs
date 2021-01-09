@@ -101,9 +101,9 @@ async fn test_flake_support() -> Result<bool, std::io::Error> {
 #[derive(Error, Debug)]
 enum CheckDeploymentError {
     #[error("Failed to execute Nix checking command: {0}")]
-    NixCheckError(#[from] std::io::Error),
+    NixCheck(#[from] std::io::Error),
     #[error("Nix checking command resulted in a bad exit code: {0:?}")]
-    NixCheckExitError(Option<i32>),
+    NixCheckExit(Option<i32>),
 }
 
 async fn check_deployment(
@@ -139,7 +139,7 @@ async fn check_deployment(
 
     match check_status.code() {
         Some(0) => (),
-        a => return Err(CheckDeploymentError::NixCheckExitError(a)),
+        a => return Err(CheckDeploymentError::NixCheckExit(a)),
     };
 
     Ok(())
@@ -312,9 +312,9 @@ fn prompt_deployment(
 #[derive(Error, Debug)]
 enum RunDeployError {
     #[error("Failed to deploy profile: {0}")]
-    DeployProfileError(#[from] deploy::deploy::DeployProfileError),
+    DeployProfile(#[from] deploy::deploy::DeployProfileError),
     #[error("Failed to push profile: {0}")]
-    PushProfileError(#[from] deploy::push::PushProfileError),
+    PushProfile(#[from] deploy::push::PushProfileError),
     #[error("No profile named `{0}` was found")]
     ProfileNotFound(String),
     #[error("No node named `{0}` was found")]
@@ -322,11 +322,11 @@ enum RunDeployError {
     #[error("Profile was provided without a node name")]
     ProfileWithoutNode,
     #[error("Error processing deployment definitions: {0}")]
-    DeployDataDefsError(#[from] deploy::DeployDataDefsError),
+    DeployDataDefs(#[from] deploy::DeployDataDefsError),
     #[error("Failed to make printable TOML of deployment: {0}")]
     TomlFormat(#[from] toml::ser::Error),
     #[error("{0}")]
-    PromptDeploymentError(#[from] PromptDeploymentError),
+    PromptDeployment(#[from] PromptDeploymentError),
 }
 
 type ToDeploy<'a> = Vec<(
@@ -475,21 +475,21 @@ async fn run_deploy(
 #[derive(Error, Debug)]
 enum RunError {
     #[error("Failed to deploy profile: {0}")]
-    DeployProfileError(#[from] deploy::deploy::DeployProfileError),
+    DeployProfile(#[from] deploy::deploy::DeployProfileError),
     #[error("Failed to push profile: {0}")]
-    PushProfileError(#[from] deploy::push::PushProfileError),
+    PushProfile(#[from] deploy::push::PushProfileError),
     #[error("Failed to test for flake support: {0}")]
-    FlakeTestError(std::io::Error),
+    FlakeTest(std::io::Error),
     #[error("Failed to check deployment: {0}")]
-    CheckDeploymentError(#[from] CheckDeploymentError),
+    CheckDeployment(#[from] CheckDeploymentError),
     #[error("Failed to evaluate deployment data: {0}")]
-    GetDeploymentDataError(#[from] GetDeploymentDataError),
+    GetDeploymentData(#[from] GetDeploymentDataError),
     #[error("Error parsing flake: {0}")]
-    ParseFlakeError(#[from] deploy::ParseFlakeError),
+    ParseFlake(#[from] deploy::ParseFlakeError),
     #[error("Error initiating logger: {0}")]
-    LoggerError(#[from] flexi_logger::FlexiLoggerError),
+    Logger(#[from] flexi_logger::FlexiLoggerError),
     #[error("{0}")]
-    RunDeployError(#[from] RunDeployError),
+    RunDeploy(#[from] RunDeployError),
 }
 
 async fn run() -> Result<(), RunError> {
@@ -515,9 +515,7 @@ async fn run() -> Result<(), RunError> {
         confirm_timeout: opts.confirm_timeout,
     };
 
-    let supports_flakes = test_flake_support()
-        .await
-        .map_err(RunError::FlakeTestError)?;
+    let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;
 
     if !supports_flakes {
         warn!("A Nix version without flakes support was detected, support for this is work in progress");
