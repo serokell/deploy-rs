@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
 use clap::Clap;
+use deploy::push::PushProfileData;
 
 use std::process::Stdio;
 use tokio::process::Command;
@@ -452,16 +453,16 @@ async fn run_deploy(
     }
 
     for (deploy_data, deploy_defs) in &parts {
-        deploy::push::push_profile(
+        deploy::push::push_profile(PushProfileData {
             supports_flakes,
             check_sigs,
-            deploy_flake.repo,
-            &deploy_data,
-            &deploy_defs,
+            repo: deploy_flake.repo,
+            deploy_data: &deploy_data,
+            deploy_defs: &deploy_defs,
             keep_result,
             result_path,
             extra_build_args,
-        )
+        })
         .await?;
     }
 
