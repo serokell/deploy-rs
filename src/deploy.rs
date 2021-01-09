@@ -8,46 +8,48 @@ use tokio::process::Command;
 
 use thiserror::Error;
 
-fn build_activate_command(
-    sudo: &Option<String>,
-    profile_path: &str,
-    closure: &str,
+struct ActivateCommandData<'a> {
+    sudo: &'a Option<String>,
+    profile_path: &'a str,
+    closure: &'a str,
     auto_rollback: bool,
-    temp_path: &str,
+    temp_path: &'a str,
     confirm_timeout: u16,
     magic_rollback: bool,
     debug_logs: bool,
-    log_dir: Option<&str>,
-) -> String {
-    let mut self_activate_command = format!("{}/activate-rs", closure);
+    log_dir: Option<&'a str>,
+}
 
-    if debug_logs {
+fn build_activate_command(data: ActivateCommandData) -> String {
+    let mut self_activate_command = format!("{}/activate-rs", data.closure);
+
+    if data.debug_logs {
         self_activate_command = format!("{} --debug-logs", self_activate_command);
     }
 
-    if let Some(log_dir) = log_dir {
+    if let Some(log_dir) = data.log_dir {
         self_activate_command = format!("{} --log-dir {}", self_activate_command, log_dir);
     }
 
     self_activate_command = format!(
         "{} --temp-path '{}' activate '{}' '{}'",
-        self_activate_command, temp_path, closure, profile_path
+        self_activate_command, data.temp_path, data.closure, data.profile_path
     );
 
     self_activate_command = format!(
         "{} --confirm-timeout {}",
-        self_activate_command, confirm_timeout
+        self_activate_command, data.confirm_timeout
     );
 
-    if magic_rollback {
+    if data.magic_rollback {
         self_activate_command = format!("{} --magic-rollback", self_activate_command);
     }
 
-    if auto_rollback {
+    if data.auto_rollback {
         self_activate_command = format!("{} --auto-rollback", self_activate_command);
     }
 
-    if let Some(sudo_cmd) = &sudo {
+    if let Some(sudo_cmd) = &data.sudo {
         self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
     }
 
@@ -67,8 +69,8 @@ fn test_activation_command_builder() {
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_activate_command(
-            &sudo,
+        build_activate_command(ActivateCommandData {
+            sudo: &sudo,
             profile_path,
             closure,
             auto_rollback,
@@ -77,7 +79,7 @@ fn test_activation_command_builder() {
             magic_rollback,
             debug_logs,
             log_dir
-        ),
+        }),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt --temp-path '/tmp' activate '/nix/store/blah/etc' '/blah/profiles/test' --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
     );
@@ -179,17 +181,17 @@ pub async fn deploy_profile(
 
     let auto_rollback = deploy_data.merged_settings.auto_rollback.unwrap_or(true);
 
-    let self_activate_command = build_activate_command(
-        &deploy_defs.sudo,
-        &deploy_defs.profile_path,
-        &deploy_data.profile.profile_settings.path,
+    let self_activate_command = build_activate_command(ActivateCommandData {
+        sudo: &deploy_defs.sudo,
+        profile_path: &deploy_defs.profile_path,
+        closure: &deploy_data.profile.profile_settings.path,
         auto_rollback,
-        &temp_path,
+        temp_path: &temp_path,
         confirm_timeout,
         magic_rollback,
-        deploy_data.debug_logs,
-        deploy_data.log_dir,
-    );
+        debug_logs: deploy_data.debug_logs,
+        log_dir: deploy_data.log_dir,
+    });
 
     debug!("Constructed activation command: {}", self_activate_command);
 
