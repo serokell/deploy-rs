@@ -18,9 +18,6 @@ extern crate log;
 #[macro_use]
 extern crate serde_derive;
 
-#[macro_use]
-mod utils;
-
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
 #[derive(Clap, Debug)]
 #[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
@@ -150,15 +147,15 @@ async fn check_deployment(
 #[derive(Error, Debug)]
 enum GetDeploymentDataError {
     #[error("Failed to execute nix eval command: {0}")]
-    NixEvalError(std::io::Error),
+    NixEval(std::io::Error),
     #[error("Failed to read output from evaluation: {0}")]
-    NixEvalOutError(std::io::Error),
+    NixEvalOut(std::io::Error),
     #[error("Evaluation resulted in a bad exit code: {0:?}")]
-    NixEvalExitError(Option<i32>),
+    NixEvalExit(Option<i32>),
     #[error("Error converting evaluation output to utf8: {0}")]
-    DecodeUtf8Error(#[from] std::string::FromUtf8Error),
+    DecodeUtf8(#[from] std::string::FromUtf8Error),
     #[error("Error decoding the JSON from evaluation: {0}")]
-    DecodeJsonError(#[from] serde_json::error::Error),
+    DecodeJson(#[from] serde_json::error::Error),
 }
 
 /// Evaluates the Nix in the given `repo` and return the processed Data from it
@@ -166,7 +163,7 @@ async fn get_deployment_data(
     supports_flakes: bool,
     repo: &str,
     extra_build_args: &[String],
-) -> Result<utils::data::Data, GetDeploymentDataError> {
+) -> Result<deploy::data::Data, GetDeploymentDataError> {
     info!("Evaluating flake in {}", repo);
 
     let mut c = match supports_flakes {
@@ -198,16 +195,16 @@ async fn get_deployment_data(
     let build_child = build_command
         .stdout(Stdio::piped())
         .spawn()
-        .map_err(GetDeploymentDataError::NixEvalError)?;
+        .map_err(GetDeploymentDataError::NixEval)?;
 
     let build_output = build_child
         .wait_with_output()
         .await
-        .map_err(GetDeploymentDataError::NixEvalOutError)?;
+        .map_err(GetDeploymentDataError::NixEvalOut)?;
 
     match build_output.status.code() {
         Some(0) => (),
-        a => return Err(GetDeploymentDataError::NixEvalExitError(a)),
+        a => return Err(GetDeploymentDataError::NixEvalExit(a)),
     };
 
     let data_json = String::from_utf8(build_output.stdout)?;
@@ -225,7 +222,7 @@ struct PromptPart<'a> {
 }
 
 fn print_deployment(
-    parts: &[(utils::DeployData, utils::DeployDefs)],
+    parts: &[(deploy::DeployData, deploy::DeployDefs)],
 ) -> Result<(), toml::ser::Error> {
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
 
@@ -264,7 +261,7 @@ enum PromptDeploymentError {
 }
 
 fn prompt_deployment(
-    parts: &[(utils::DeployData, utils::DeployDefs)],
+    parts: &[(deploy::DeployData, deploy::DeployDefs)],
 ) -> Result<(), PromptDeploymentError> {
     print_deployment(parts)?;
 
@@ -314,9 +311,9 @@ fn prompt_deployment(
 #[derive(Error, Debug)]
 enum RunDeployError {
     #[error("Failed to deploy profile: {0}")]
-    DeployProfileError(#[from] utils::deploy::DeployProfileError),
+    DeployProfileError(#[from] deploy::deploy::DeployProfileError),
     #[error("Failed to push profile: {0}")]
-    PushProfileError(#[from] utils::push::PushProfileError),
+    PushProfileError(#[from] deploy::push::PushProfileError),
     #[error("No profile named `{0}` was found")]
     ProfileNotFound(String),
     #[error("No node named `{0}` was found")]
@@ -324,7 +321,7 @@ enum RunDeployError {
     #[error("Profile was provided without a node name")]
     ProfileWithoutNode,
     #[error("Error processing deployment definitions: {0}")]
-    DeployDataDefsError(#[from] utils::DeployDataDefsError),
+    DeployDataDefsError(#[from] deploy::DeployDataDefsError),
     #[error("Failed to make printable TOML of deployment: {0}")]
     TomlFormat(#[from] toml::ser::Error),
     #[error("{0}")]
@@ -332,19 +329,19 @@ enum RunDeployError {
 }
 
 async fn run_deploy(
-    deploy_flake: utils::DeployFlake<'_>,
-    data: utils::data::Data,
+    deploy_flake: deploy::DeployFlake<'_>,
+    data: deploy::data::Data,
     supports_flakes: bool,
     check_sigs: bool,
     interactive: bool,
-    cmd_overrides: utils::CmdOverrides,
+    cmd_overrides: deploy::CmdOverrides,
     keep_result: bool,
     result_path: Option<&str>,
     extra_build_args: &[String],
     debug_logs: bool,
     log_dir: Option<String>,
 ) -> Result<(), RunDeployError> {
-    let to_deploy: Vec<((&str, &utils::data::Node), (&str, &utils::data::Profile))> =
+    let to_deploy: Vec<((&str, &deploy::data::Node), (&str, &deploy::data::Profile))> =
         match (&deploy_flake.node, &deploy_flake.profile) {
             (Some(node_name), Some(profile_name)) => {
                 let node = match data.nodes.get(node_name) {
@@ -364,7 +361,7 @@ async fn run_deploy(
                     None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
                 };
 
-                let mut profiles_list: Vec<(&str, &utils::data::Profile)> = Vec::new();
+                let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
 
                 for profile_name in [
                     node.node_settings.profiles_order.iter().collect(),
@@ -393,7 +390,7 @@ async fn run_deploy(
                 let mut l = Vec::new();
 
                 for (node_name, node) in &data.nodes {
-                    let mut profiles_list: Vec<(&str, &utils::data::Profile)> = Vec::new();
+                    let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
 
                     for profile_name in [
                         node.node_settings.profiles_order.iter().collect(),
@@ -415,7 +412,7 @@ async fn run_deploy(
                         }
                     }
 
-                    let ll: Vec<((&str, &utils::data::Node), (&str, &utils::data::Profile))> =
+                    let ll: Vec<((&str, &deploy::data::Node), (&str, &deploy::data::Profile))> =
                         profiles_list
                             .into_iter()
                             .map(|x| ((node_name.as_str(), node), x))
@@ -429,10 +426,10 @@ async fn run_deploy(
             (None, Some(_)) => return Err(RunDeployError::ProfileWithoutNode),
         };
 
-    let mut parts: Vec<(utils::DeployData, utils::DeployDefs)> = Vec::new();
+    let mut parts: Vec<(deploy::DeployData, deploy::DeployDefs)> = Vec::new();
 
     for ((node_name, node), (profile_name, profile)) in to_deploy {
-        let deploy_data = utils::make_deploy_data(
+        let deploy_data = deploy::make_deploy_data(
             &data.generic_settings,
             node,
             node_name,
@@ -455,7 +452,7 @@ async fn run_deploy(
     }
 
     for (deploy_data, deploy_defs) in &parts {
-        utils::push::push_profile(
+        deploy::push::push_profile(
             supports_flakes,
             check_sigs,
             deploy_flake.repo,
@@ -469,7 +466,7 @@ async fn run_deploy(
     }
 
     for (deploy_data, deploy_defs) in &parts {
-        utils::deploy::deploy_profile(&deploy_data, &deploy_defs).await?;
+        deploy::deploy::deploy_profile(&deploy_data, &deploy_defs).await?;
     }
 
     Ok(())
@@ -478,9 +475,9 @@ async fn run_deploy(
 #[derive(Error, Debug)]
 enum RunError {
     #[error("Failed to deploy profile: {0}")]
-    DeployProfileError(#[from] utils::deploy::DeployProfileError),
+    DeployProfileError(#[from] deploy::deploy::DeployProfileError),
     #[error("Failed to push profile: {0}")]
-    PushProfileError(#[from] utils::push::PushProfileError),
+    PushProfileError(#[from] deploy::push::PushProfileError),
     #[error("Failed to test for flake support: {0}")]
     FlakeTestError(std::io::Error),
     #[error("Failed to check deployment: {0}")]
@@ -488,7 +485,7 @@ enum RunError {
     #[error("Failed to evaluate deployment data: {0}")]
     GetDeploymentDataError(#[from] GetDeploymentDataError),
     #[error("Error parsing flake: {0}")]
-    ParseFlakeError(#[from] utils::ParseFlakeError),
+    ParseFlakeError(#[from] deploy::ParseFlakeError),
     #[error("Error initiating logger: {0}")]
     LoggerError(#[from] flexi_logger::FlexiLoggerError),
     #[error("{0}")]
@@ -498,15 +495,15 @@ enum RunError {
 async fn run() -> Result<(), RunError> {
     let opts: Opts = Opts::parse();
 
-    utils::init_logger(
+    deploy::init_logger(
         opts.debug_logs,
         opts.log_dir.as_deref(),
-        utils::LoggerType::Deploy,
+        deploy::LoggerType::Deploy,
     )?;
 
-    let deploy_flake = utils::parse_flake(opts.flake.as_str())?;
+    let deploy_flake = deploy::parse_flake(opts.flake.as_str())?;
 
-    let cmd_overrides = utils::CmdOverrides {
+    let cmd_overrides = deploy::CmdOverrides {
         ssh_user: opts.ssh_user,
         profile_user: opts.profile_user,
         ssh_opts: opts.ssh_opts,
@@ -557,7 +554,10 @@ async fn run() -> Result<(), RunError> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match run().await {
         Ok(()) => (),
-        Err(err) => good_panic!("{}", err),
+        Err(err) => {
+            error!("{}", err);
+            std::process::exit(1);
+        }
     }
 
     Ok(())

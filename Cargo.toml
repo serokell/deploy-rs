@@ -35,10 +35,6 @@ signal-hook = "0.3"
 smol_str = "=0.1.16"
 
 
-[[bin]]
+[lib]
 name = "deploy"
-path = "src/main.rs"
-
-[[bin]]
-name = "activate"
-path = "src/activate.rs"
+path = "src/lib.rs"

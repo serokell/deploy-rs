@@ -11,13 +11,11 @@ use thiserror::Error;
 
 use flexi_logger::*;
 
-#[macro_export]
-macro_rules! good_panic {
-    ($($tts:tt)*) => {{
-        error!($($tts)*);
-        std::process::exit(1);
-    }}
-}
+#[macro_use]
+extern crate log;
+
+#[macro_use]
+extern crate serde_derive;
 
 pub fn make_lock_path(temp_path: &str, closure: &str) -> String {
     let lock_hash =
