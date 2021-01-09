@@ -85,29 +85,31 @@ fn test_activation_command_builder() {
     );
 }
 
-fn build_wait_command(
-    sudo: &Option<String>,
-    closure: &str,
-    temp_path: &str,
+struct WaitCommandData<'a> {
+    sudo: &'a Option<String>,
+    closure: &'a str,
+    temp_path: &'a str,
     debug_logs: bool,
-    log_dir: Option<&str>,
-) -> String {
-    let mut self_activate_command = format!("{}/activate-rs", closure);
+    log_dir: Option<&'a str>,
+}
 
-    if debug_logs {
+fn build_wait_command(data: WaitCommandData) -> String {
+    let mut self_activate_command = format!("{}/activate-rs", data.closure);
+
+    if data.debug_logs {
         self_activate_command = format!("{} --debug-logs", self_activate_command);
     }
 
-    if let Some(log_dir) = log_dir {
+    if let Some(log_dir) = data.log_dir {
         self_activate_command = format!("{} --log-dir {}", self_activate_command, log_dir);
     }
 
     self_activate_command = format!(
         "{} --temp-path '{}' wait '{}'",
-        self_activate_command, temp_path, closure
+        self_activate_command, data.temp_path, data.closure
     );
 
-    if let Some(sudo_cmd) = &sudo {
+    if let Some(sudo_cmd) = &data.sudo {
         self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
     }
 
@@ -123,13 +125,13 @@ fn test_wait_command_builder() {
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_wait_command(
-            &sudo,
+        build_wait_command(WaitCommandData {
+            sudo: &sudo,
             closure,
             temp_path,
             debug_logs,
             log_dir
-        ),
+        }),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt --temp-path '/tmp' wait '/nix/store/blah/etc'"
             .to_string(),
     );
@@ -195,13 +197,13 @@ pub async fn deploy_profile(
 
     debug!("Constructed activation command: {}", self_activate_command);
 
-    let self_wait_command = build_wait_command(
-        &deploy_defs.sudo,
-        &deploy_data.profile.profile_settings.path,
-        &temp_path,
-        deploy_data.debug_logs,
-        deploy_data.log_dir,
-    );
+    let self_wait_command = build_wait_command(WaitCommandData {
+        sudo: &deploy_defs.sudo,
+        closure: &deploy_data.profile.profile_settings.path,
+        temp_path: &temp_path,
+        debug_logs: deploy_data.debug_logs,
+        log_dir: deploy_data.log_dir,
+    });
 
     debug!("Constructed wait command: {}", self_wait_command);
 
