@@ -229,7 +229,7 @@ fn print_deployment(
     for (data, defs) in parts {
         part_map
             .entry(data.node_name.to_string())
-            .or_insert(HashMap::new())
+            .or_insert_with(HashMap::new)
             .insert(
                 data.profile_name.to_string(),
                 PromptPart {

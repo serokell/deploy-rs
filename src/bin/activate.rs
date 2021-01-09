@@ -23,7 +23,6 @@ use thiserror::Error;
 #[macro_use]
 extern crate log;
 
-#[macro_use]
 extern crate serde_derive;
 
 /// Remote activation utility for deploy-rs
@@ -426,7 +425,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Ensure that this process stays alive after the SSH connection dies
     let mut signals = Signals::new(&[SIGHUP])?;
     std::thread::spawn(move || {
-        for sig in signals.forever() {
+        for _ in signals.forever() {
             println!("Received NOHUP - ignoring...");
         }
     });

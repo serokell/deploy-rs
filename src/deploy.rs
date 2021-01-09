@@ -13,7 +13,7 @@ fn build_activate_command(
     profile_path: &str,
     closure: &str,
     auto_rollback: bool,
-    temp_path: &Cow<str>,
+    temp_path: &str,
     confirm_timeout: u16,
     magic_rollback: bool,
     debug_logs: bool,
@@ -60,7 +60,7 @@ fn test_activation_command_builder() {
     let profile_path = "/blah/profiles/test";
     let closure = "/nix/store/blah/etc";
     let auto_rollback = true;
-    let temp_path = &"/tmp".into();
+    let temp_path = "/tmp";
     let confirm_timeout = 30;
     let magic_rollback = true;
     let debug_logs = true;
@@ -86,7 +86,7 @@ fn test_activation_command_builder() {
 fn build_wait_command(
     sudo: &Option<String>,
     closure: &str,
-    temp_path: &Cow<str>,
+    temp_path: &str,
     debug_logs: bool,
     log_dir: Option<&str>,
 ) -> String {
@@ -116,7 +116,7 @@ fn build_wait_command(
 fn test_wait_command_builder() {
     let sudo = Some("sudo -u test".to_string());
     let closure = "/nix/store/blah/etc";
-    let temp_path = &"/tmp".into();
+    let temp_path = "/tmp";
     let debug_logs = true;
     let log_dir = Some("/tmp/something.txt");
 

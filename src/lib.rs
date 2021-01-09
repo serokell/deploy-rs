@@ -19,7 +19,7 @@ extern crate serde_derive;
 
 pub fn make_lock_path(temp_path: &str, closure: &str) -> String {
     let lock_hash =
-        &closure["/nix/store/".len()..closure.find("-").unwrap_or_else(|| closure.len())];
+        &closure["/nix/store/".len()..closure.find('-').unwrap_or_else(|| closure.len())];
     format!("{}/deploy-rs-canary-{}", temp_path, lock_hash)
 }
 
