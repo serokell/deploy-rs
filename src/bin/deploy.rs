@@ -329,6 +329,11 @@ enum RunDeployError {
     PromptDeploymentError(#[from] PromptDeploymentError),
 }
 
+type ToDeploy<'a> = Vec<(
+    (&'a str, &'a deploy::data::Node),
+    (&'a str, &'a deploy::data::Profile),
+)>;
+
 async fn run_deploy(
     deploy_flake: deploy::DeployFlake<'_>,
     data: deploy::data::Data,
@@ -342,26 +347,52 @@ async fn run_deploy(
     debug_logs: bool,
     log_dir: Option<String>,
 ) -> Result<(), RunDeployError> {
-    let to_deploy: Vec<((&str, &deploy::data::Node), (&str, &deploy::data::Profile))> =
-        match (&deploy_flake.node, &deploy_flake.profile) {
-            (Some(node_name), Some(profile_name)) => {
-                let node = match data.nodes.get(node_name) {
-                    Some(x) => x,
-                    None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
-                };
+    let to_deploy: ToDeploy = match (&deploy_flake.node, &deploy_flake.profile) {
+        (Some(node_name), Some(profile_name)) => {
+            let node = match data.nodes.get(node_name) {
+                Some(x) => x,
+                None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
+            };
+            let profile = match node.node_settings.profiles.get(profile_name) {
+                Some(x) => x,
+                None => return Err(RunDeployError::ProfileNotFound(profile_name.to_owned())),
+            };
+
+            vec![((node_name, node), (profile_name, profile))]
+        }
+        (Some(node_name), None) => {
+            let node = match data.nodes.get(node_name) {
+                Some(x) => x,
+                None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
+            };
+
+            let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
+
+            for profile_name in [
+                node.node_settings.profiles_order.iter().collect(),
+                node.node_settings.profiles.keys().collect::<Vec<&String>>(),
+            ]
+            .concat()
+            {
                 let profile = match node.node_settings.profiles.get(profile_name) {
                     Some(x) => x,
                     None => return Err(RunDeployError::ProfileNotFound(profile_name.to_owned())),
                 };
 
-                vec![((node_name, node), (profile_name, profile))]
+                if !profiles_list.iter().any(|(n, _)| n == profile_name) {
+                    profiles_list.push((&profile_name, profile));
+                }
             }
-            (Some(node_name), None) => {
-                let node = match data.nodes.get(node_name) {
-                    Some(x) => x,
-                    None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
-                };
 
+            profiles_list
+                .into_iter()
+                .map(|x| ((node_name.as_str(), node), x))
+                .collect()
+        }
+        (None, None) => {
+            let mut l = Vec::new();
+
+            for (node_name, node) in &data.nodes {
                 let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
 
                 for profile_name in [
@@ -382,50 +413,18 @@ async fn run_deploy(
                     }
                 }
 
-                profiles_list
+                let ll: ToDeploy = profiles_list
                     .into_iter()
                     .map(|x| ((node_name.as_str(), node), x))
-                    .collect()
+                    .collect();
+
+                l.extend(ll);
             }
-            (None, None) => {
-                let mut l = Vec::new();
 
-                for (node_name, node) in &data.nodes {
-                    let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
-
-                    for profile_name in [
-                        node.node_settings.profiles_order.iter().collect(),
-                        node.node_settings.profiles.keys().collect::<Vec<&String>>(),
-                    ]
-                    .concat()
-                    {
-                        let profile = match node.node_settings.profiles.get(profile_name) {
-                            Some(x) => x,
-                            None => {
-                                return Err(RunDeployError::ProfileNotFound(
-                                    profile_name.to_owned(),
-                                ))
-                            }
-                        };
-
-                        if !profiles_list.iter().any(|(n, _)| n == profile_name) {
-                            profiles_list.push((&profile_name, profile));
-                        }
-                    }
-
-                    let ll: Vec<((&str, &deploy::data::Node), (&str, &deploy::data::Profile))> =
-                        profiles_list
-                            .into_iter()
-                            .map(|x| ((node_name.as_str(), node), x))
-                            .collect();
-
-                    l.extend(ll);
-                }
-
-                l
-            }
-            (None, Some(_)) => return Err(RunDeployError::ProfileWithoutNode),
-        };
+            l
+        }
+        (None, Some(_)) => return Err(RunDeployError::ProfileWithoutNode),
+    };
 
     let mut parts: Vec<(deploy::DeployData, deploy::DeployDefs)> = Vec::new();
 
