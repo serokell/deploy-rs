@@ -414,11 +414,3 @@ pub fn make_deploy_data<'a, 's>(
         log_dir,
     }
 }
-
-#[derive(Error, Debug)]
-pub enum DeployPathToActivatePathError {
-    #[error("Deploy path did not have a parent directory")]
-    PathTooShort,
-    #[error("Deploy path was not valid utf8")]
-    InvalidUtf8,
-}

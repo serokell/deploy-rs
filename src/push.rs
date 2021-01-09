@@ -10,8 +10,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum PushProfileError {
-    #[error("Failed to calculate activate bin path from deploy bin path: {0}")]
-    DeployPathToActivatePathError(#[from] super::DeployPathToActivatePathError),
     #[error("Failed to run Nix build command: {0}")]
     BuildError(std::io::Error),
     #[error("Nix build command resulted in a bad exit code: {0:?}")]

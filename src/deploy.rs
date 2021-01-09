@@ -139,9 +139,6 @@ fn test_wait_command_builder() {
 
 #[derive(Error, Debug)]
 pub enum DeployProfileError {
-    #[error("Failed to calculate activate bin path from deploy bin path: {0}")]
-    DeployPathToActivatePathError(#[from] super::DeployPathToActivatePathError),
-
     #[error("Failed to spawn activation command over SSH: {0}")]
     SSHSpawnActivateError(std::io::Error),
 
