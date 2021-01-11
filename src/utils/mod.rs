@@ -3,13 +3,13 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use rnix::{types::*, NodeOrToken, SyntaxKind::*, SyntaxNode};
-
-use std::path::PathBuf;
+use rnix::{types::*, SyntaxKind::*};
 
 use merge::Merge;
 
 use thiserror::Error;
+
+use flexi_logger::*;
 
 #[macro_export]
 macro_rules! good_panic {
@@ -17,6 +17,120 @@ macro_rules! good_panic {
         error!($($tts)*);
         std::process::exit(1);
     }}
+}
+
+pub fn make_lock_path(temp_path: &str, closure: &str) -> String {
+    let lock_hash =
+        &closure["/nix/store/".len()..closure.find("-").unwrap_or_else(|| closure.len())];
+    format!("{}/deploy-rs-canary-{}", temp_path, lock_hash)
+}
+
+fn make_emoji(level: log::Level) -> &'static str {
+    match level {
+        log::Level::Error => "❌",
+        log::Level::Warn => "⚠️",
+        log::Level::Info => "ℹ️",
+        log::Level::Debug => "❓",
+        log::Level::Trace => "🖊️",
+    }
+}
+
+pub fn logger_formatter_activate(
+    w: &mut dyn std::io::Write,
+    _now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    let level = record.level();
+
+    write!(
+        w,
+        "⭐ {} [activate] [{}] {}",
+        make_emoji(level),
+        style(level, level.to_string()),
+        record.args()
+    )
+}
+
+pub fn logger_formatter_wait(
+    w: &mut dyn std::io::Write,
+    _now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    let level = record.level();
+
+    write!(
+        w,
+        "👀 {} [wait] [{}] {}",
+        make_emoji(level),
+        style(level, level.to_string()),
+        record.args()
+    )
+}
+
+pub fn logger_formatter_deploy(
+    w: &mut dyn std::io::Write,
+    _now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    let level = record.level();
+
+    write!(
+        w,
+        "🚀 {} [deploy] [{}] {}",
+        make_emoji(level),
+        style(level, level.to_string()),
+        record.args()
+    )
+}
+
+pub enum LoggerType {
+    Deploy,
+    Activate,
+    Wait,
+}
+
+pub fn init_logger(
+    debug_logs: bool,
+    log_dir: Option<&str>,
+    logger_type: LoggerType,
+) -> Result<(), FlexiLoggerError> {
+    let logger_formatter = match logger_type {
+        LoggerType::Deploy => logger_formatter_deploy,
+        LoggerType::Activate => logger_formatter_activate,
+        LoggerType::Wait => logger_formatter_wait,
+    };
+
+    if let Some(log_dir) = log_dir {
+        let mut logger = Logger::with_env_or_str("debug")
+            .log_to_file()
+            .format_for_stderr(logger_formatter)
+            .set_palette("196;208;51;7;8".to_string())
+            .directory(log_dir)
+            .duplicate_to_stderr(match debug_logs {
+                true => Duplicate::Debug,
+                false => Duplicate::Info,
+            })
+            .print_message();
+
+        match logger_type {
+            LoggerType::Activate => logger = logger.discriminant("activate"),
+            LoggerType::Wait => logger = logger.discriminant("wait"),
+            LoggerType::Deploy => (),
+        }
+
+        logger.start()?;
+    } else {
+        Logger::with_env_or_str(match debug_logs {
+            true => "debug",
+            false => "info",
+        })
+        .log_target(LogTarget::StdErr)
+        .format(logger_formatter)
+        .set_palette("196;208;51;7;8".to_string())
+        .start()?;
+    }
+
+    Ok(())
 }
 
 pub mod data;
@@ -191,6 +305,9 @@ pub struct DeployData<'a> {
     pub cmd_overrides: &'a CmdOverrides,
 
     pub merged_settings: data::GenericSettings,
+
+    pub debug_logs: bool,
+    pub log_dir: Option<&'a str>,
 }
 
 #[derive(Debug)]
@@ -259,6 +376,8 @@ pub fn make_deploy_data<'a, 's>(
     profile: &'a data::Profile,
     profile_name: &'a str,
     cmd_overrides: &'a CmdOverrides,
+    debug_logs: bool,
+    log_dir: Option<&'a str>,
 ) -> DeployData<'a> {
     let mut merged_settings = profile.generic_settings.clone();
     merged_settings.merge(node.generic_settings.clone());
@@ -292,6 +411,9 @@ pub fn make_deploy_data<'a, 's>(
         cmd_overrides,
 
         merged_settings,
+
+        debug_logs,
+        log_dir,
     }
 }
 

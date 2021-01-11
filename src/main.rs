@@ -12,8 +12,6 @@ use tokio::process::Command;
 
 use thiserror::Error;
 
-extern crate pretty_env_logger;
-
 #[macro_use]
 extern crate log;
 
@@ -38,6 +36,13 @@ struct Opts {
     interactive: bool,
     /// Extra arguments to be passed to nix build
     extra_build_args: Vec<String>,
+
+    /// Print debug logs to output
+    #[clap(short, long)]
+    debug_logs: bool,
+    /// Directory to print logs to (including the background activation process)
+    #[clap(long)]
+    log_dir: Option<String>,
 
     /// Keep the build outputs of each built profile
     #[clap(short, long)]
@@ -242,7 +247,7 @@ fn print_deployment(
 
     let toml = toml::to_string(&part_map)?;
 
-    warn!("The following profiles are going to be deployed:\n{}", toml);
+    info!("The following profiles are going to be deployed:\n{}", toml);
 
     Ok(())
 }
@@ -336,6 +341,8 @@ async fn run_deploy(
     keep_result: bool,
     result_path: Option<&str>,
     extra_build_args: &[String],
+    debug_logs: bool,
+    log_dir: Option<String>,
 ) -> Result<(), RunDeployError> {
     let to_deploy: Vec<((&str, &utils::data::Node), (&str, &utils::data::Profile))> =
         match (&deploy_flake.node, &deploy_flake.profile) {
@@ -432,6 +439,8 @@ async fn run_deploy(
             profile,
             profile_name,
             &cmd_overrides,
+            debug_logs,
+            log_dir.as_deref(),
         );
 
         let deploy_defs = deploy_data.defs()?;
@@ -480,18 +489,20 @@ enum RunError {
     GetDeploymentDataError(#[from] GetDeploymentDataError),
     #[error("Error parsing flake: {0}")]
     ParseFlakeError(#[from] utils::ParseFlakeError),
+    #[error("Error initiating logger: {0}")]
+    LoggerError(#[from] flexi_logger::FlexiLoggerError),
     #[error("{0}")]
     RunDeployError(#[from] RunDeployError),
 }
 
 async fn run() -> Result<(), RunError> {
-    if std::env::var("DEPLOY_LOG").is_err() {
-        std::env::set_var("DEPLOY_LOG", "info");
-    }
-
-    pretty_env_logger::init_custom_env("DEPLOY_LOG");
-
     let opts: Opts = Opts::parse();
+
+    utils::init_logger(
+        opts.debug_logs,
+        opts.log_dir.as_deref(),
+        utils::LoggerType::Deploy,
+    )?;
 
     let deploy_flake = utils::parse_flake(opts.flake.as_str())?;
 
@@ -534,6 +545,8 @@ async fn run() -> Result<(), RunError> {
         opts.keep_result,
         result_path,
         &opts.extra_build_args,
+        opts.debug_logs,
+        opts.log_dir,
     )
     .await?;
 
