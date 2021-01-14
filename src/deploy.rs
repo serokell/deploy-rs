@@ -194,16 +194,6 @@ pub async fn deploy_profile(
 
     debug!("Constructed activation command: {}", self_activate_command);
 
-    let self_wait_command = build_wait_command(WaitCommandData {
-        sudo: &deploy_defs.sudo,
-        closure: &deploy_data.profile.profile_settings.path,
-        temp_path: &temp_path,
-        debug_logs: deploy_data.debug_logs,
-        log_dir: deploy_data.log_dir,
-    });
-
-    debug!("Constructed wait command: {}", self_wait_command);
-
     let hostname = match deploy_data.cmd_overrides.hostname {
         Some(ref x) => x,
         None => &deploy_data.node.node_settings.hostname,
@@ -232,6 +222,16 @@ pub async fn deploy_profile(
 
         info!("Success activating, done!");
     } else {
+        let self_wait_command = build_wait_command(WaitCommandData {
+            sudo: &deploy_defs.sudo,
+            closure: &deploy_data.profile.profile_settings.path,
+            temp_path: &temp_path,
+            debug_logs: deploy_data.debug_logs,
+            log_dir: deploy_data.log_dir,
+        });
+
+        debug!("Constructed wait command: {}", self_wait_command);
+
         let ssh_activate = ssh_activate_command
             .arg(self_activate_command)
             .spawn()
