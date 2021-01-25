@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use merge::Merge;
-
+use serde::Deserialize;
 use std::collections::HashMap;
 
 #[derive(Deserialize, Debug, Clone, Merge)]

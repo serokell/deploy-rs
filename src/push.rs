@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use log::{debug, info};
 use std::path::Path;
 use std::process::Stdio;
-use tokio::process::Command;
-
 use thiserror::Error;
+use tokio::process::Command;
 
 #[derive(Error, Debug)]
 pub enum PushProfileError {

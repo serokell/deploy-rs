@@ -7,16 +7,11 @@ use std::io::{stdin, stdout, Write};
 
 use clap::Clap;
 
+use log::{debug, error, info, warn};
+use serde::Serialize;
 use std::process::Stdio;
-use tokio::process::Command;
-
 use thiserror::Error;
-
-#[macro_use]
-extern crate log;
-
-#[macro_use]
-extern crate serde_derive;
+use tokio::process::Command;
 
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
 #[derive(Clap, Debug)]

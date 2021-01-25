@@ -11,12 +11,6 @@ use thiserror::Error;
 
 use flexi_logger::*;
 
-#[macro_use]
-extern crate log;
-
-#[macro_use]
-extern crate serde_derive;
-
 pub fn make_lock_path(temp_path: &str, closure: &str) -> String {
     let lock_hash =
         &closure["/nix/store/".len()..closure.find('-').unwrap_or_else(|| closure.len())];
