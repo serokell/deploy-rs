@@ -23,11 +23,7 @@ use thiserror::Error;
 #[macro_use]
 extern crate log;
 
-#[macro_use]
 extern crate serde_derive;
-
-#[macro_use]
-mod utils;
 
 /// Remote activation utility for deploy-rs
 #[derive(Clap, Debug)]
@@ -225,7 +221,7 @@ pub async fn activation_confirmation(
     confirm_timeout: u16,
     closure: String,
 ) -> Result<(), ActivationConfirmationError> {
-    let lock_path = utils::make_lock_path(&temp_path, &closure);
+    let lock_path = deploy::make_lock_path(&temp_path, &closure);
 
     debug!("Ensuring parent directory exists for canary file");
 
@@ -288,7 +284,7 @@ pub enum WaitError {
     Waiting(#[from] DangerZoneError),
 }
 pub async fn wait(temp_path: String, closure: String) -> Result<(), WaitError> {
-    let lock_path = utils::make_lock_path(&temp_path, &closure);
+    let lock_path = deploy::make_lock_path(&temp_path, &closure);
 
     let (created, done) = mpsc::channel(1);
 
@@ -429,19 +425,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Ensure that this process stays alive after the SSH connection dies
     let mut signals = Signals::new(&[SIGHUP])?;
     std::thread::spawn(move || {
-        for sig in signals.forever() {
+        for _ in signals.forever() {
             println!("Received NOHUP - ignoring...");
         }
     });
 
     let opts: Opts = Opts::parse();
 
-    utils::init_logger(
+    deploy::init_logger(
         opts.debug_logs,
         opts.log_dir.as_deref(),
         match opts.subcmd {
-            SubCommand::Activate(_) => utils::LoggerType::Activate,
-            SubCommand::Wait(_) => utils::LoggerType::Wait,
+            SubCommand::Activate(_) => deploy::LoggerType::Activate,
+            SubCommand::Wait(_) => deploy::LoggerType::Wait,
         },
     )?;
 
@@ -464,7 +460,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match r {
         Ok(()) => (),
-        Err(err) => good_panic!("{}", err),
+        Err(err) => {
+            error!("{}", err);
+            std::process::exit(1)
+        }
     }
 
     Ok(())

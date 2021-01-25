@@ -11,17 +11,15 @@ use thiserror::Error;
 
 use flexi_logger::*;
 
-#[macro_export]
-macro_rules! good_panic {
-    ($($tts:tt)*) => {{
-        error!($($tts)*);
-        std::process::exit(1);
-    }}
-}
+#[macro_use]
+extern crate log;
+
+#[macro_use]
+extern crate serde_derive;
 
 pub fn make_lock_path(temp_path: &str, closure: &str) -> String {
     let lock_hash =
-        &closure["/nix/store/".len()..closure.find("-").unwrap_or_else(|| closure.len())];
+        &closure["/nix/store/".len()..closure.find('-').unwrap_or_else(|| closure.len())];
     format!("{}/deploy-rs-canary-{}", temp_path, lock_hash)
 }
 
@@ -415,12 +413,4 @@ pub fn make_deploy_data<'a, 's>(
         debug_logs,
         log_dir,
     }
-}
-
-#[derive(Error, Debug)]
-pub enum DeployPathToActivatePathError {
-    #[error("Deploy path did not have a parent directory")]
-    PathTooShort,
-    #[error("Deploy path was not valid utf8")]
-    InvalidUtf8,
 }
