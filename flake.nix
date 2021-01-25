@@ -63,6 +63,8 @@
                   name = base.name + "-activate-path";
                   text = ''
                     #!${pkgs.runtimeShell}
+                    set -euo pipefail
+
                     ${activate}
                   '';
                   executable = true;
