@@ -63,6 +63,8 @@
                   name = base.name + "-activate-path";
                   text = ''
                     #!${pkgs.runtimeShell}
+                    set -euo pipefail
+
                     ${activate}
                   '';
                   executable = true;
@@ -80,7 +82,14 @@
               ];
             };
 
-            nixos = base: custom base.config.system.build.toplevel "$PROFILE/bin/switch-to-configuration switch";
+            nixos = base: custom base.config.system.build.toplevel ''
+              $PROFILE/bin/switch-to-configuration switch
+
+              # https://github.com/serokell/deploy-rs/issues/31
+              ${with base.config.boot.loader;
+              pkgs.lib.optionalString systemd-boot.enable
+              "sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
+            '';
 
             noop = base: custom base ":";
           };

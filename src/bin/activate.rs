@@ -3,6 +3,8 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use signal_hook::{consts::signal::SIGHUP, iterator::Signals};
+
 use clap::Clap;
 
 use tokio::fs;
@@ -18,26 +20,43 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 use thiserror::Error;
 
-extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
-#[macro_use]
 extern crate serde_derive;
 
-#[macro_use]
-mod utils;
-
-/// Activation portion of the simple Rust Nix deploy tool
+/// Remote activation utility for deploy-rs
 #[derive(Clap, Debug)]
 #[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
 struct Opts {
-    profile_path: String,
-    closure: String,
+    /// Print debug logs to output
+    #[clap(short, long)]
+    debug_logs: bool,
+    /// Directory to print logs to
+    #[clap(long)]
+    log_dir: Option<String>,
 
-    /// Temp path for any temporary files that may be needed during activation
+    /// Path for any temporary files that may be needed during activation
     #[clap(long)]
     temp_path: String,
+
+    #[clap(subcommand)]
+    subcmd: SubCommand,
+}
+
+#[derive(Clap, Debug)]
+enum SubCommand {
+    Activate(ActivateOpts),
+    Wait(WaitOpts),
+}
+
+/// Activate a profile
+#[derive(Clap, Debug)]
+struct ActivateOpts {
+    /// The closure to activate
+    closure: String,
+    /// The profile path to install into
+    profile_path: String,
 
     /// Maximum time to wait for confirmation after activation
     #[clap(long)]
@@ -50,6 +69,13 @@ struct Opts {
     /// Auto rollback if failure
     #[clap(long)]
     auto_rollback: bool,
+}
+
+/// Activate a profile
+#[derive(Clap, Debug)]
+struct WaitOpts {
+    /// The closure to wait for
+    closure: String,
 }
 
 #[derive(Error, Debug)]
@@ -195,8 +221,9 @@ pub async fn activation_confirmation(
     confirm_timeout: u16,
     closure: String,
 ) -> Result<(), ActivationConfirmationError> {
-    let lock_hash = &closure["/nix/store/".len()..];
-    let lock_path = format!("{}/deploy-rs-canary-{}", temp_path, lock_hash);
+    let lock_path = deploy::make_lock_path(&temp_path, &closure);
+
+    debug!("Ensuring parent directory exists for canary file");
 
     if let Some(parent) = Path::new(&lock_path).parent() {
         fs::create_dir_all(parent)
@@ -204,53 +231,98 @@ pub async fn activation_confirmation(
             .map_err(ActivationConfirmationError::CreateConfirmDirError)?;
     }
 
+    debug!("Creating canary file");
+
     fs::File::create(&lock_path)
         .await
-        .map_err(ActivationConfirmationError::CreateConfirmDirError)?;
+        .map_err(ActivationConfirmationError::CreateConfirmFileError)?;
+
+    debug!("Creating notify watcher");
 
     let (deleted, done) = mpsc::channel(1);
+
     let mut watcher: RecommendedWatcher =
         Watcher::new_immediate(move |res: Result<notify::event::Event, notify::Error>| {
             let send_result = match res {
                 Ok(e) if e.kind == notify::EventKind::Remove(notify::event::RemoveKind::File) => {
-                    deleted.blocking_send(Ok(()))
+                    debug!("Got worthy removal event, sending on channel");
+                    deleted.try_send(Ok(()))
+                }
+                Err(e) => {
+                    debug!("Got error waiting for removal event, sending on channel");
+                    deleted.try_send(Err(e))
                 }
                 Ok(_) => Ok(()), // ignore non-removal events
-                Err(e) => deleted.blocking_send(Err(e)),
             };
+
             if let Err(e) = send_result {
-                // We can't communicate our error, but panic-ing would
-                // be bad; let's write an error and trust that the
-                // activate function will realize we aren't sending
-                // data.
-                eprintln!("Could not send file system event to watcher: {}", e);
+                error!("Could not send file system event to watcher: {}", e);
             }
         })?;
-    watcher.watch(lock_path, RecursiveMode::Recursive)?;
 
-    if let fork::Fork::Child =
-        fork::daemon(false, false).map_err(ActivationConfirmationError::ForkError)?
-    {
-        std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
+    watcher.watch(&lock_path, RecursiveMode::NonRecursive)?;
 
-                rt.block_on(async move {
-                    if let Err(err) = danger_zone(done, confirm_timeout).await {
-                        if let Err(err) = deactivate(&profile_path).await {
-                            good_panic!("Error de-activating due to another error in confirmation thread, oh no...: {}", err);
-                        }
+    if let Err(err) = danger_zone(done, confirm_timeout).await {
+        error!("Error waiting for confirmation event: {}", err);
 
-                        good_panic!("Error in confirmation thread: {}", err);
-                    }
-                });
-            })
-            .join()
-            .unwrap();
-
-        info!("Confirmation successful!");
+        if let Err(err) = deactivate(&profile_path).await {
+            error!(
+                "Error de-activating due to another error waiting for confirmation, oh no...: {}",
+                err
+            );
+        }
     }
 
-    std::process::exit(0);
+    Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum WaitError {
+    #[error("Error creating watcher for activation: {0}")]
+    Watcher(#[from] notify::Error),
+    #[error("Error waiting for activation: {0}")]
+    Waiting(#[from] DangerZoneError),
+}
+pub async fn wait(temp_path: String, closure: String) -> Result<(), WaitError> {
+    let lock_path = deploy::make_lock_path(&temp_path, &closure);
+
+    let (created, done) = mpsc::channel(1);
+
+    let mut watcher: RecommendedWatcher = {
+        // TODO: fix wasteful clone
+        let lock_path = lock_path.clone();
+
+        Watcher::new_immediate(move |res: Result<notify::event::Event, notify::Error>| {
+            let send_result = match res {
+                Ok(e) if e.kind == notify::EventKind::Create(notify::event::CreateKind::File) => {
+                    match &e.paths[..] {
+                        [x] if x == Path::new(&lock_path) => created.try_send(Ok(())),
+                        _ => Ok(()),
+                    }
+                }
+                Err(e) => created.try_send(Err(e)),
+                Ok(_) => Ok(()), // ignore non-removal events
+            };
+
+            if let Err(e) = send_result {
+                error!("Could not send file system event to watcher: {}", e);
+            }
+        })?
+    };
+
+    watcher.watch(&temp_path, RecursiveMode::NonRecursive)?;
+
+    // Avoid a potential race condition by checking for existence after watcher creation
+    if fs::metadata(&lock_path).await.is_ok() {
+        watcher.unwatch(&temp_path)?;
+        return Ok(());
+    }
+
+    danger_zone(done, 240).await?;
+
+    info!("Found canary file, done waiting!");
+
+    Ok(())
 }
 
 #[derive(Error, Debug)]
@@ -301,6 +373,8 @@ pub async fn activate(
         }
     };
 
+    debug!("Running activation script");
+
     let activate_status = match Command::new(format!("{}/deploy-rs-activate", profile_path))
         .env("PROFILE", &profile_path)
         .current_dir(&profile_path)
@@ -331,6 +405,7 @@ pub async fn activate(
 
     if magic_rollback {
         info!("Magic rollback is enabled, setting up confirmation hook...");
+
         match activation_confirmation(profile_path.clone(), temp_path, confirm_timeout, closure)
             .await
         {
@@ -347,26 +422,48 @@ pub async fn activate(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if std::env::var("DEPLOY_LOG").is_err() {
-        std::env::set_var("DEPLOY_LOG", "info");
-    }
-
-    pretty_env_logger::init_custom_env("DEPLOY_LOG");
+    // Ensure that this process stays alive after the SSH connection dies
+    let mut signals = Signals::new(&[SIGHUP])?;
+    std::thread::spawn(move || {
+        for _ in signals.forever() {
+            println!("Received NOHUP - ignoring...");
+        }
+    });
 
     let opts: Opts = Opts::parse();
 
-    match activate(
-        opts.profile_path,
-        opts.closure,
-        opts.auto_rollback,
-        opts.temp_path,
-        opts.confirm_timeout,
-        opts.magic_rollback,
-    )
-    .await
-    {
+    deploy::init_logger(
+        opts.debug_logs,
+        opts.log_dir.as_deref(),
+        match opts.subcmd {
+            SubCommand::Activate(_) => deploy::LoggerType::Activate,
+            SubCommand::Wait(_) => deploy::LoggerType::Wait,
+        },
+    )?;
+
+    let r = match opts.subcmd {
+        SubCommand::Activate(activate_opts) => activate(
+            activate_opts.profile_path,
+            activate_opts.closure,
+            activate_opts.auto_rollback,
+            opts.temp_path,
+            activate_opts.confirm_timeout,
+            activate_opts.magic_rollback,
+        )
+        .await
+        .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
+
+        SubCommand::Wait(wait_opts) => wait(opts.temp_path, wait_opts.closure)
+            .await
+            .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
+    };
+
+    match r {
         Ok(()) => (),
-        Err(err) => good_panic!("{}", err),
+        Err(err) => {
+            error!("{}", err);
+            std::process::exit(1)
+        }
     }
 
     Ok(())
