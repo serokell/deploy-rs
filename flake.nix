@@ -48,6 +48,10 @@
           buildInputs = [ pkgs.nixUnstable ];
         };
 
+        checks = {
+          deploy-rs = self.defaultPackage.${system}.overrideAttrs (super: { doCheck = true; });
+        };
+
         lib = rec {
 
           setActivate = builtins.trace
