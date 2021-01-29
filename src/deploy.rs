@@ -246,20 +246,25 @@ pub async fn deploy_profile(
             ssh_wait_command.arg(ssh_opt);
         }
 
-        tokio::pin! {
-            let ssh_wait_future = ssh_wait_command.arg(self_wait_command).status();
-            let ssh_activate_future = ssh_activate.wait_with_output();
-        }
+        let (send_activate, recv_activate) = tokio::sync::oneshot::channel();
+        let (send_activated, recv_activated) = tokio::sync::oneshot::channel();
+
+        tokio::spawn(async move {
+            send_activate
+                .send(ssh_activate.wait_with_output().await)
+                .unwrap();
+            send_activated.send(()).unwrap();
+        });
 
         tokio::select! {
-            x = ssh_wait_future => {
+            x = ssh_wait_command.arg(self_wait_command).status() => {
                 match x.map_err(DeployProfileError::SSHWaitError)?.code() {
                     Some(0) => (),
                     a => return Err(DeployProfileError::SSHWaitExitError(a)),
                 };
             },
-            x = ssh_activate_future => {
-                match x.map_err(DeployProfileError::SSHActivateError)?.status.code() {
+            x = recv_activate => {
+                match x.unwrap().map_err(DeployProfileError::SSHActivateError)?.status.code() {
                     Some(0) => (),
                     a => return Err(DeployProfileError::SSHActivateExitError(a)),
                 };
@@ -300,6 +305,8 @@ pub async fn deploy_profile(
         };
 
         info!("Deployment confirmed.");
+
+        recv_activated.await.unwrap();
     }
 
     Ok(())
