@@ -246,16 +246,25 @@ pub async fn deploy_profile(
             ssh_wait_command.arg(ssh_opt);
         }
 
-        let ssh_wait_exit_status = ssh_wait_command
-            .arg(self_wait_command)
-            .status()
-            .await
-            .map_err(DeployProfileError::SSHWaitError)?;
+        tokio::pin! {
+            let ssh_wait_future = ssh_wait_command.arg(self_wait_command).status();
+            let ssh_activate_future = ssh_activate.wait_with_output();
+        }
 
-        match ssh_wait_exit_status.code() {
-            Some(0) => (),
-            a => return Err(DeployProfileError::SSHWaitExitError(a)),
-        };
+        tokio::select! {
+            x = ssh_wait_future => {
+                match x.map_err(DeployProfileError::SSHWaitError)?.code() {
+                    Some(0) => (),
+                    a => return Err(DeployProfileError::SSHWaitExitError(a)),
+                };
+            },
+            x = ssh_activate_future => {
+                match x.map_err(DeployProfileError::SSHActivateError)?.status.code() {
+                    Some(0) => (),
+                    a => return Err(DeployProfileError::SSHActivateExitError(a)),
+                };
+            },
+        }
 
         info!("Success activating, attempting to confirm activation");
 
@@ -279,13 +288,13 @@ pub async fn deploy_profile(
             confirm_command
         );
 
-        let ssh_exit_status = ssh_confirm_command
+        let ssh_confirm_exit_status = ssh_confirm_command
             .arg(confirm_command)
             .status()
             .await
             .map_err(DeployProfileError::SSHConfirmError)?;
 
-        match ssh_exit_status.code() {
+        match ssh_confirm_exit_status.code() {
             Some(0) => (),
             a => return Err(DeployProfileError::SSHConfirmExitError(a)),
         };
