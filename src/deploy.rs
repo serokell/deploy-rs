@@ -199,7 +199,7 @@ pub async fn deploy_profile(
         None => &deploy_data.node.node_settings.hostname,
     };
 
-    let ssh_addr = format!("ssh://{}@{}", deploy_defs.ssh_user, hostname);
+    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
 
     let mut ssh_activate_command_ = Command::new("ssh");
     let ssh_activate_command = ssh_activate_command_.arg(&ssh_addr);
@@ -260,7 +260,7 @@ pub async fn deploy_profile(
         info!("Success activating, attempting to confirm activation");
 
         let mut c = Command::new("ssh");
-        let mut ssh_confirm_command = c.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
+        let mut ssh_confirm_command = c.arg(format!("{}@{}", deploy_defs.ssh_user, hostname));
 
         for ssh_opt in &deploy_data.merged_settings.ssh_opts {
             ssh_confirm_command = ssh_confirm_command.arg(ssh_opt);
