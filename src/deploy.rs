@@ -323,6 +323,7 @@ pub async fn deploy_profile(
                 };
             },
             x = recv_activate => {
+                debug!("Activate command exited with an error");
                 return Err(x.unwrap());
             },
         }
