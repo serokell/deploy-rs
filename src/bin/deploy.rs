@@ -52,10 +52,6 @@ struct Opts {
     #[clap(short, long)]
     skip_checks: bool,
 
-    /// Always evaluate deploy attribute strictly
-    #[clap(long)]
-    strict_eval: bool,
-
     /// Override the SSH user with the given value
     #[clap(long)]
     ssh_user: Option<String>,
@@ -160,12 +156,13 @@ enum GetDeploymentDataError {
     DecodeUtf8(#[from] std::string::FromUtf8Error),
     #[error("Error decoding the JSON from evaluation: {0}")]
     DecodeJson(#[from] serde_json::error::Error),
+    #[error("Impossible happened: profile is set but node is not")]
+    ProfileNoNode,
 }
 
 /// Evaluates the Nix in the given `repo` and return the processed Data from it
 async fn get_deployment_data(
     supports_flakes: bool,
-    strict_eval: bool,
     flake: &deploy::DeployFlake<'_>,
     extra_build_args: &[String],
 ) -> Result<deploy::data::Data, GetDeploymentDataError> {
@@ -178,54 +175,49 @@ async fn get_deployment_data(
     };
 
     if supports_flakes {
-        c
-            .arg("eval")
+        c.arg("eval")
             .arg("--json")
-            .arg(format!("{}#deploy", flake.repo));
-        match (&flake.node, strict_eval) {
-            (Some(node), false) => {
-                // We use --apply instead of --expr so that we don't have to deal with builtins.getFlake
-                c.arg("--apply");
-                info!("Evaluating the flake lazily; Use --strict-eval for old behavior");
-                match &flake.profile {
-                    None => {
-                        // Ignore all nodes but the one we're evaluating
-                        c.arg(format!(
-                            r#"
-                              deploy:
-                              (deploy // {{
-                                nodes = {{
-                                  inherit (deploy.nodes) "{}";
-                                }};
-                              }})
-                            "#,
-                            node
-                        ))
-                    }
-                    Some(profile) => {
-                        // Ignore all nodes and all profiles but the one we're evaluating
-                        c.arg(format!(
-                            r#"
-                              deploy:
-                              (deploy // {{
-                                nodes = {{
-                                  "{0}" = deploy.nodes."{0}" // {{
-                                    profiles = {{
-                                      inherit (deploy.nodes."{0}".profiles) "{1}";
-                                    }};
-                                  }};
-                                }};
-                              }})
-                            "#,
-                            node, profile
-                        ))
-                    }
-                }
+            .arg(format!("{}#deploy", flake.repo))
+            // We use --apply instead of --expr so that we don't have to deal with builtins.getFlake
+            .arg("--apply");
+        match (&flake.node, &flake.profile) {
+            (Some(node), Some(profile)) => {
+                // Ignore all nodes and all profiles but the one we're evaluating
+                c.arg(format!(
+                    r#"
+                      deploy:
+                      (deploy // {{
+                        nodes = {{
+                          "{0}" = deploy.nodes."{0}" // {{
+                            profiles = {{
+                              inherit (deploy.nodes."{0}".profiles) "{1}";
+                            }};
+                          }};
+                        }};
+                      }})
+                     "#,
+                    node, profile
+                ))
             }
-            (_, _) => {
+            (Some(node), None) => {
+                // Ignore all nodes but the one we're evaluating
+                c.arg(format!(
+                    r#"
+                      deploy:
+                      (deploy // {{
+                        nodes = {{
+                          inherit (deploy.nodes) "{}";
+                        }};
+                      }})
+                    "#,
+                    node
+                ))
+            }
+            (None, None) => {
                 // We need to evaluate all profiles of all nodes anyway, so just do it strictly
-                &c
+                c.arg(format!("deploy: deploy"))
             }
+            (None, Some(_)) => return Err(GetDeploymentDataError::ProfileNoNode),
         }
     } else {
         c
@@ -573,7 +565,7 @@ async fn run() -> Result<(), RunError> {
         check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
     }
 
-    let data = get_deployment_data(supports_flakes, opts.strict_eval, &deploy_flake, &opts.extra_build_args).await?;
+    let data = get_deployment_data(supports_flakes, &deploy_flake, &opts.extra_build_args).await?;
 
     let result_path = opts.result_path.as_deref();
 
