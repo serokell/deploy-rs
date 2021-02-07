@@ -299,15 +299,17 @@ pub async fn deploy_profile(
         tokio::spawn(async move {
             let o = ssh_activate.wait_with_output().await;
 
-            // Don't event unless somethis is bad
-            // TODO: maybe replace the structure with our own
-            match o {
+            let maybe_err = match o {
+                Err(x) => Some(DeployProfileError::SSHActivateError(x)),
                 Ok(ref x) => match x.status.code() {
-                    Some(0) => (),
-                    _ => send_activate.send(o).unwrap(),
+                    Some(0) => None,
+                    a => Some(DeployProfileError::SSHActivateExitError(a)),
                 },
-                _ => send_activate.send(o).unwrap(),
             };
+
+            if let Some(err) = maybe_err {
+                send_activate.send(err).unwrap();
+            }
 
             send_activated.send(()).unwrap();
         });
@@ -321,11 +323,7 @@ pub async fn deploy_profile(
                 };
             },
             x = recv_activate => {
-                debug!("Activate command exited with an error");
-                match x.unwrap().map_err(DeployProfileError::SSHActivateError)?.status.code() {
-                    Some(0) => unreachable!(), // We know it is an error, see a comment above
-                    a => return Err(DeployProfileError::SSHActivateExitError(a)),
-                };
+                return Err(x.unwrap());
             },
         }
 
