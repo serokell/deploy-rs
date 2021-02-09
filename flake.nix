@@ -87,6 +87,9 @@
             };
 
             nixos = base: custom base.config.system.build.toplevel ''
+              # work around https://github.com/NixOS/nixpkgs/issues/73404
+              cd /tmp
+
               $PROFILE/bin/switch-to-configuration switch
 
               # https://github.com/serokell/deploy-rs/issues/31
