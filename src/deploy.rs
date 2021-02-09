@@ -3,10 +3,10 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use log::{debug, info};
 use std::borrow::Cow;
-use tokio::process::Command;
-
 use thiserror::Error;
+use tokio::process::Command;
 
 struct ActivateCommandData<'a> {
     sudo: &'a Option<String>,

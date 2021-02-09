@@ -20,10 +20,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 use thiserror::Error;
 
-#[macro_use]
-extern crate log;
-
-extern crate serde_derive;
+use log::{debug, error, info, warn};
 
 /// Remote activation utility for deploy-rs
 #[derive(Clap, Debug)]
