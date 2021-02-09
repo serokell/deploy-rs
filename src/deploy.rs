@@ -138,6 +138,57 @@ fn test_wait_command_builder() {
 }
 
 #[derive(Error, Debug)]
+pub enum ConfirmProfileError {
+    #[error("Failed to run confirmation command over SSH (the server should roll back): {0}")]
+    SSHConfirmError(std::io::Error),
+    #[error(
+        "Confirming activation over SSH resulted in a bad exit code (the server should roll back): {0:?}"
+    )]
+    SSHConfirmExitError(Option<i32>),
+}
+
+pub async fn confirm_profile(
+    deploy_data: &super::DeployData<'_>,
+    deploy_defs: &super::DeployDefs,
+    hostname: &str,
+    temp_path: Cow<'_, str>,
+) -> Result<(), ConfirmProfileError> {
+    let mut c = Command::new("ssh");
+    let mut ssh_confirm_command = c.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
+
+    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
+        ssh_confirm_command = ssh_confirm_command.arg(ssh_opt);
+    }
+
+    let lock_path = super::make_lock_path(&temp_path, &deploy_data.profile.profile_settings.path);
+
+    let mut confirm_command = format!("rm {}", lock_path);
+    if let Some(sudo_cmd) = &deploy_defs.sudo {
+        confirm_command = format!("{} {}", sudo_cmd, confirm_command);
+    }
+
+    debug!(
+        "Attempting to run command to confirm deployment: {}",
+        confirm_command
+    );
+
+    let ssh_confirm_exit_status = ssh_confirm_command
+        .arg(confirm_command)
+        .status()
+        .await
+        .map_err(ConfirmProfileError::SSHConfirmError)?;
+
+    match ssh_confirm_exit_status.code() {
+        Some(0) => (),
+        a => return Err(ConfirmProfileError::SSHConfirmExitError(a)),
+    };
+
+    info!("Deployment confirmed.");
+
+    Ok(())
+}
+
+#[derive(Error, Debug)]
 pub enum DeployProfileError {
     #[error("Failed to spawn activation command over SSH: {0}")]
     SSHSpawnActivateError(std::io::Error),
@@ -152,12 +203,8 @@ pub enum DeployProfileError {
     #[error("Waiting over SSH resulted in a bad exit code: {0:?}")]
     SSHWaitExitError(Option<i32>),
 
-    #[error("Failed to run confirmation command over SSH (the server should roll back): {0}")]
-    SSHConfirmError(std::io::Error),
-    #[error(
-        "Confirming activation over SSH resulted in a bad exit code (the server should roll back): {0:?}"
-    )]
-    SSHConfirmExitError(Option<i32>),
+    #[error("Error confirming deployment: {0}")]
+    ConfirmError(#[from] ConfirmProfileError),
 }
 
 pub async fn deploy_profile(
@@ -246,51 +293,46 @@ pub async fn deploy_profile(
             ssh_wait_command.arg(ssh_opt);
         }
 
-        let ssh_wait_exit_status = ssh_wait_command
-            .arg(self_wait_command)
-            .status()
-            .await
-            .map_err(DeployProfileError::SSHWaitError)?;
+        let (send_activate, recv_activate) = tokio::sync::oneshot::channel();
+        let (send_activated, recv_activated) = tokio::sync::oneshot::channel();
 
-        match ssh_wait_exit_status.code() {
-            Some(0) => (),
-            a => return Err(DeployProfileError::SSHWaitExitError(a)),
-        };
+        tokio::spawn(async move {
+            let o = ssh_activate.wait_with_output().await;
+
+            let maybe_err = match o {
+                Err(x) => Some(DeployProfileError::SSHActivateError(x)),
+                Ok(ref x) => match x.status.code() {
+                    Some(0) => None,
+                    a => Some(DeployProfileError::SSHActivateExitError(a)),
+                },
+            };
+
+            if let Some(err) = maybe_err {
+                send_activate.send(err).unwrap();
+            }
+
+            send_activated.send(()).unwrap();
+        });
+
+        tokio::select! {
+            x = ssh_wait_command.arg(self_wait_command).status() => {
+                debug!("Wait command ended");
+                match x.map_err(DeployProfileError::SSHWaitError)?.code() {
+                    Some(0) => (),
+                    a => return Err(DeployProfileError::SSHWaitExitError(a)),
+                };
+            },
+            x = recv_activate => {
+                debug!("Activate command exited with an error");
+                return Err(x.unwrap());
+            },
+        }
 
         info!("Success activating, attempting to confirm activation");
 
-        let mut c = Command::new("ssh");
-        let mut ssh_confirm_command = c.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
-
-        for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-            ssh_confirm_command = ssh_confirm_command.arg(ssh_opt);
-        }
-
-        let lock_path =
-            super::make_lock_path(&temp_path, &deploy_data.profile.profile_settings.path);
-
-        let mut confirm_command = format!("rm {}", lock_path);
-        if let Some(sudo_cmd) = &deploy_defs.sudo {
-            confirm_command = format!("{} {}", sudo_cmd, confirm_command);
-        }
-
-        debug!(
-            "Attempting to run command to confirm deployment: {}",
-            confirm_command
-        );
-
-        let ssh_exit_status = ssh_confirm_command
-            .arg(confirm_command)
-            .status()
-            .await
-            .map_err(DeployProfileError::SSHConfirmError)?;
-
-        match ssh_exit_status.code() {
-            Some(0) => (),
-            a => return Err(DeployProfileError::SSHConfirmExitError(a)),
-        };
-
-        info!("Deployment confirmed.");
+        let c = confirm_profile(deploy_data, deploy_defs, hostname, temp_path).await;
+        recv_activated.await.unwrap();
+        c?;
     }
 
     Ok(())
