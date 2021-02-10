@@ -107,26 +107,24 @@ async fn check_deployment(
 ) -> Result<(), CheckDeploymentError> {
     info!("Running checks for flake in {}", repo);
 
-    let mut c = match supports_flakes {
+    let mut check_command = match supports_flakes {
         true => Command::new("nix"),
         false => Command::new("nix-build"),
     };
 
-    let mut check_command = match supports_flakes {
+    match supports_flakes {
         true => {
-            c.arg("flake")
-                .arg("check")
-                .arg(repo)
+            check_command.arg("flake").arg("check").arg(repo);
         }
         false => {
-            c.arg("-E")
+            check_command.arg("-E")
                 .arg("--no-out-link")
-                .arg(format!("let r = import {}/.; x = (if builtins.isFunction r then (r {{}}) else r); in if x ? checks then x.checks.${{builtins.currentSystem}} else {{}}", repo))
+                .arg(format!("let r = import {}/.; x = (if builtins.isFunction r then (r {{}}) else r); in if x ? checks then x.checks.${{builtins.currentSystem}} else {{}}", repo));
         }
     };
 
     for extra_arg in extra_build_args {
-        check_command = check_command.arg(extra_arg);
+        check_command.arg(extra_arg);
     }
 
     let check_status = check_command.status().await?;
