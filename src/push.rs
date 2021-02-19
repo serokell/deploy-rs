@@ -49,25 +49,25 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         data.deploy_data.profile_name, data.deploy_data.node_name
     );
 
-    let mut build_c = if data.supports_flakes {
+    let mut build_command = if data.supports_flakes {
         Command::new("nix")
     } else {
         Command::new("nix-build")
     };
 
-    let mut build_command = if data.supports_flakes {
-        build_c.arg("build").arg(format!(
+    if data.supports_flakes {
+        build_command.arg("build").arg(format!(
             "{}#deploy.nodes.\"{}\".profiles.\"{}\".path",
             data.repo, data.deploy_data.node_name, data.deploy_data.profile_name
         ))
     } else {
-        build_c.arg(&data.repo).arg("-A").arg(format!(
+        build_command.arg(&data.repo).arg("-A").arg(format!(
             "deploy.nodes.\"{}\".profiles.\"{}\".path",
             data.deploy_data.node_name, data.deploy_data.profile_name
         ))
     };
 
-    build_command = match (data.keep_result, data.supports_flakes) {
+    match (data.keep_result, data.supports_flakes) {
         (true, _) => {
             let result_path = data.result_path.unwrap_or("./.deploy-gc");
 
@@ -81,7 +81,7 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
     };
 
     for extra_arg in data.extra_build_args {
-        build_command = build_command.arg(extra_arg);
+        build_command.arg(extra_arg);
     }
 
     let build_exit_status = build_command
@@ -147,15 +147,15 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         data.deploy_data.profile_name, data.deploy_data.node_name
     );
 
-    let mut copy_command_ = Command::new("nix");
-    let mut copy_command = copy_command_.arg("copy");
+    let mut copy_command = Command::new("nix");
+    copy_command.arg("copy");
 
     if data.deploy_data.merged_settings.fast_connection != Some(true) {
-        copy_command = copy_command.arg("--substitute-on-destination");
+        copy_command.arg("--substitute-on-destination");
     }
 
     if !data.check_sigs {
-        copy_command = copy_command.arg("--no-check-sigs");
+        copy_command.arg("--no-check-sigs");
     }
 
     let ssh_opts_str = data

@@ -153,11 +153,11 @@ pub async fn confirm_profile(
     hostname: &str,
     temp_path: Cow<'_, str>,
 ) -> Result<(), ConfirmProfileError> {
-    let mut c = Command::new("ssh");
-    let mut ssh_confirm_command = c.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
+    let mut ssh_confirm_command = Command::new("ssh");
+    ssh_confirm_command.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_confirm_command = ssh_confirm_command.arg(ssh_opt);
+        ssh_confirm_command.arg(ssh_opt);
     }
 
     let lock_path = super::make_lock_path(&temp_path, &deploy_data.profile.profile_settings.path);
@@ -248,8 +248,8 @@ pub async fn deploy_profile(
 
     let ssh_addr = format!("ssh://{}@{}", deploy_defs.ssh_user, hostname);
 
-    let mut ssh_activate_command_ = Command::new("ssh");
-    let ssh_activate_command = ssh_activate_command_.arg(&ssh_addr);
+    let mut ssh_activate_command = Command::new("ssh");
+    ssh_activate_command.arg(&ssh_addr);
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
         ssh_activate_command.arg(&ssh_opt);
@@ -286,8 +286,8 @@ pub async fn deploy_profile(
 
         info!("Creating activation waiter");
 
-        let mut ssh_wait_command_ = Command::new("ssh");
-        let ssh_wait_command = ssh_wait_command_.arg(&ssh_addr);
+        let mut ssh_wait_command = Command::new("ssh");
+        ssh_wait_command.arg(&ssh_addr);
 
         for ssh_opt in &deploy_data.merged_settings.ssh_opts {
             ssh_wait_command.arg(ssh_opt);
