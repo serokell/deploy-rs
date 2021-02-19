@@ -208,7 +208,7 @@ async fn get_deployment_data(
             }
             (None, None) => {
                 // We need to evaluate all profiles of all nodes anyway, so just do it strictly
-                c.arg(format!("deploy: deploy"))
+                c.arg("deploy: deploy")
             }
             (None, Some(_)) => return Err(GetDeploymentDataError::ProfileNoNode),
         }
