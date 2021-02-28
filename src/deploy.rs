@@ -246,7 +246,7 @@ pub async fn deploy_profile(
         None => &deploy_data.node.node_settings.hostname,
     };
 
-    let ssh_addr = format!("ssh://{}@{}", deploy_defs.ssh_user, hostname);
+    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
 
     let mut ssh_activate_command = Command::new("ssh");
     ssh_activate_command.arg(&ssh_addr);
