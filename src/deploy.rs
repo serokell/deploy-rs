@@ -150,11 +150,11 @@ pub enum ConfirmProfileError {
 pub async fn confirm_profile(
     deploy_data: &super::DeployData<'_>,
     deploy_defs: &super::DeployDefs,
-    hostname: &str,
     temp_path: Cow<'_, str>,
+    ssh_addr: &str,
 ) -> Result<(), ConfirmProfileError> {
     let mut ssh_confirm_command = Command::new("ssh");
-    ssh_confirm_command.arg(format!("ssh://{}@{}", deploy_defs.ssh_user, hostname));
+    ssh_confirm_command.arg(ssh_addr);
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
         ssh_confirm_command.arg(ssh_opt);
@@ -246,7 +246,7 @@ pub async fn deploy_profile(
         None => &deploy_data.node.node_settings.hostname,
     };
 
-    let ssh_addr = format!("ssh://{}@{}", deploy_defs.ssh_user, hostname);
+    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
 
     let mut ssh_activate_command = Command::new("ssh");
     ssh_activate_command.arg(&ssh_addr);
@@ -330,7 +330,7 @@ pub async fn deploy_profile(
 
         info!("Success activating, attempting to confirm activation");
 
-        let c = confirm_profile(deploy_data, deploy_defs, hostname, temp_path).await;
+        let c = confirm_profile(deploy_data, deploy_defs, temp_path, &ssh_addr).await;
         recv_activated.await.unwrap();
         c?;
     }
