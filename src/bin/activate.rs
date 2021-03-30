@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
 // SPDX-FileCopyrightText: 2020 Andreas Fuchs <asf@boinkor.net>
+// SPDX-FileCopyrightText: 2021 Yannik Sander <contact@ysndr.de>
 //
 // SPDX-License-Identifier: MPL-2.0
 
@@ -33,10 +34,6 @@ struct Opts {
     #[clap(long)]
     log_dir: Option<String>,
 
-    /// Path for any temporary files that may be needed during activation
-    #[clap(long)]
-    temp_path: String,
-
     #[clap(subcommand)]
     subcmd: SubCommand,
 }
@@ -45,6 +42,7 @@ struct Opts {
 enum SubCommand {
     Activate(ActivateOpts),
     Wait(WaitOpts),
+    Revoke(RevokeOpts),
 }
 
 /// Activate a profile
@@ -70,6 +68,10 @@ struct ActivateOpts {
     /// Show what will be activated on the machines
     #[clap(long)]
     dry_activate: bool,
+
+    /// Path for any temporary files that may be needed during activation
+    #[clap(long)]
+    temp_path: String,
 }
 
 /// Activate a profile
@@ -77,6 +79,17 @@ struct ActivateOpts {
 struct WaitOpts {
     /// The closure to wait for
     closure: String,
+
+    /// Path for any temporary files that may be needed during activation
+    #[clap(long)]
+    temp_path: String,
+}
+
+/// Activate a profile
+#[derive(Clap, Debug)]
+struct RevokeOpts {
+    /// The profile path to revoke
+    profile_path: String,
 }
 
 #[derive(Error, Debug)]
@@ -429,6 +442,16 @@ pub async fn activate(
     Ok(())
 }
 
+#[derive(Error, Debug)]
+pub enum RevokeError {
+    #[error("There was an error de-activating after an error was encountered: {0}")]
+    DeactivateError(#[from] DeactivateError),
+}
+async fn revoke(profile_path: String) -> Result<(), RevokeError> {
+    deactivate(profile_path.as_str()).await?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Ensure that this process stays alive after the SSH connection dies
@@ -447,6 +470,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match opts.subcmd {
             SubCommand::Activate(_) => deploy::LoggerType::Activate,
             SubCommand::Wait(_) => deploy::LoggerType::Wait,
+            SubCommand::Revoke(_) => deploy::LoggerType::Revoke,
         },
     )?;
 
@@ -455,7 +479,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             activate_opts.profile_path,
             activate_opts.closure,
             activate_opts.auto_rollback,
-            opts.temp_path,
+            activate_opts.temp_path,
             activate_opts.confirm_timeout,
             activate_opts.magic_rollback,
             activate_opts.dry_activate,
@@ -463,7 +487,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
 
-        SubCommand::Wait(wait_opts) => wait(opts.temp_path, wait_opts.closure)
+        SubCommand::Wait(wait_opts) => wait(wait_opts.temp_path, wait_opts.closure)
+            .await
+            .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
+
+        SubCommand::Revoke(revoke_opts) => revoke(revoke_opts.profile_path)
             .await
             .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
     };

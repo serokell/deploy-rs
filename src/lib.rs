@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
 // SPDX-FileCopyrightText: 2020 Andreas Fuchs <asf@boinkor.net>
+// SPDX-FileCopyrightText: 2021 Yannik Sander <contact@ysndr.de>
 //
 // SPDX-License-Identifier: MPL-2.0
 
@@ -59,6 +60,22 @@ pub fn logger_formatter_wait(
     )
 }
 
+pub fn logger_formatter_revoke(
+    w: &mut dyn std::io::Write,
+    _now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    let level = record.level();
+
+    write!(
+        w,
+        "↩️ {} [revoke] [{}] {}",
+        make_emoji(level),
+        style(level, level.to_string()),
+        record.args()
+    )
+}
+
 pub fn logger_formatter_deploy(
     w: &mut dyn std::io::Write,
     _now: &mut DeferredNow,
@@ -79,6 +96,7 @@ pub enum LoggerType {
     Deploy,
     Activate,
     Wait,
+    Revoke,
 }
 
 pub fn init_logger(
@@ -90,6 +108,7 @@ pub fn init_logger(
         LoggerType::Deploy => logger_formatter_deploy,
         LoggerType::Activate => logger_formatter_activate,
         LoggerType::Wait => logger_formatter_wait,
+        LoggerType::Revoke => logger_formatter_revoke,
     };
 
     if let Some(log_dir) = log_dir {
@@ -107,6 +126,7 @@ pub fn init_logger(
         match logger_type {
             LoggerType::Activate => logger = logger.discriminant("activate"),
             LoggerType::Wait => logger = logger.discriminant("wait"),
+            LoggerType::Revoke => logger = logger.discriminant("revoke"),
             LoggerType::Deploy => (),
         }
 
@@ -324,29 +344,9 @@ impl<'a> DeployData<'a> {
             None => whoami::username(),
         };
 
-        let profile_user = match self.merged_settings.user {
-            Some(ref x) => x.clone(),
-            None => match self.merged_settings.ssh_user {
-                Some(ref x) => x.clone(),
-                None => {
-                    return Err(DeployDataDefsError::NoProfileUser(
-                        self.profile_name.to_owned(),
-                        self.node_name.to_owned(),
-                    ))
-                }
-            },
-        };
+        let profile_user = self.get_profile_user()?;
 
-        let profile_path = match self.profile.profile_settings.profile_path {
-            None => match &profile_user[..] {
-                "root" => format!("/nix/var/nix/profiles/{}", self.profile_name),
-                _ => format!(
-                    "/nix/var/nix/profiles/per-user/{}/{}",
-                    profile_user, self.profile_name
-                ),
-            },
-            Some(ref x) => x.clone(),
-        };
+        let profile_path = self.get_profile_path()?;
 
         let sudo: Option<String> = match self.merged_settings.user {
             Some(ref user) if user != &ssh_user => Some(format!("sudo -u {}", user)),
@@ -359,6 +359,37 @@ impl<'a> DeployData<'a> {
             profile_path,
             sudo,
         })
+    }
+
+    fn get_profile_path(&'a self) -> Result<String, DeployDataDefsError> {
+        let profile_user = self.get_profile_user()?;
+        let profile_path = match self.profile.profile_settings.profile_path {
+            None => match &profile_user[..] {
+                "root" => format!("/nix/var/nix/profiles/{}", self.profile_name),
+                _ => format!(
+                    "/nix/var/nix/profiles/per-user/{}/{}",
+                    profile_user, self.profile_name
+                ),
+            },
+            Some(ref x) => x.clone(),
+        };
+        Ok(profile_path)
+    }
+
+    fn get_profile_user(&'a self) -> Result<String, DeployDataDefsError> {
+        let profile_user = match self.merged_settings.user {
+            Some(ref x) => x.clone(),
+            None => match self.merged_settings.ssh_user {
+                Some(ref x) => x.clone(),
+                None => {
+                    return Err(DeployDataDefsError::NoProfileUser(
+                        self.profile_name.to_owned(),
+                        self.node_name.to_owned(),
+                    ))
+                }
+            },
+        };
+        Ok(profile_user)
     }
 }
 
@@ -396,15 +427,12 @@ pub fn make_deploy_data<'a, 's>(
     }
 
     DeployData {
-        profile,
-        profile_name,
-        node,
         node_name,
-
+        node,
+        profile_name,
+        profile,
         cmd_overrides,
-
         merged_settings,
-
         debug_logs,
         log_dir,
     }

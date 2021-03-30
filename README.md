@@ -1,5 +1,6 @@
 <!--
 SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+SPDX-FileCopyrightText: 2021 Yannik Sander <contact@ysndr.de>
 
 SPDX-License-Identifier: MPL-2.0
 -->
@@ -16,18 +17,26 @@ Questions? Need help? Join us on Matrix: [`#deploy-rs:matrix.org`](https://matri
 
 Basic usage: `deploy [options] <flake>`.
 
-The given flake can be just a source `my-flake`, or optionally specify the node to deploy `my-flake#my-node`, or specify a profile too `my-flake#my-node.my-profile`. If your profile or node name has a `.` in it, simply wrap it in quotes, and the flake path in quotes (to avoid shell escaping), for example `'my-flake."myserver.com".system'`.
+Using this method all profiles specified in the given `<flake>` will be deployed (taking into account the [`profilesOrder`](#node)).
+
+ Optionally the flake can be constrained to deploy just a single node (`my-flake#my-node`) or a profile (`my-flake#my-node.my-profile`).
+
+If your profile or node name has a . in it, simply wrap it in quotes, and the flake path in quotes (to avoid shell escaping), for example 'my-flake."myserver.com".system'.
+
+Any "extra" arguments will be passed into the Nix calls, so for instance to deploy an impure profile, you may use `deploy . -- --impure` (note the explicit flake path is necessary for doing this).
 
 You can try out this tool easily with `nix run`:
 - `nix run github:serokell/deploy-rs your-flake`
 
-Any "extra" arguments will be passed into the Nix calls, so for instance to deploy an impure profile, you may use `deploy . -- --impure` (note the explicit flake path is necessary for doing this).
+In you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `deploy <flake>` you can issue `deploy --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
+
+Running in this mode, if any of the deploys fails, the deploy will be aborted and all successful deploys rolled back. `--rollback-succeeded false` can be used to override this behavior, otherwise the `auto-rollback` argument takes precedent.
 
 If you require a signing key to push closures to your server, specify the path to it in the `LOCAL_KEY` environment variable.
 
 Check out `deploy --help` for CLI flags! Remember to check there before making one-time changes to things like hostnames.
 
-There is also an `activate` binary though this should be ignored, it is only used internally and for testing/hacking purposes.
+There is also an `activate` binary though this should be ignored, it is only used internally (on the deployed system) and for testing/hacking purposes.
 
 ## Ideas
 
@@ -79,7 +88,7 @@ A basic example of a flake that works with `deploy-rs` and deploys a simple NixO
 
 ### Profile
 
-This is the core of how `deploy-rs` was designed, any number of these can run on a node, as any user (see further down for specifying user information). If you want to mimick the behaviour of traditional tools like NixOps or Morph, try just defining one `profile` called `system`, as root, containing a nixosSystem, and you can even similarly use [home-manager](https://github.com/nix-community/home-manager) on any non-privileged user.
+This is the core of how `deploy-rs` was designed, any number of these can run on a node, as any user (see further down for specifying user information). If you want to mimic the behaviour of traditional tools like NixOps or Morph, try just defining one `profile` called `system`, as root, containing a nixosSystem, and you can even similarly use [home-manager](https://github.com/nix-community/home-manager) on any non-privileged user.
 
 ```nix
 {
@@ -128,7 +137,7 @@ This is the top level attribute containing all of the options for this tool
 {
   nodes = {
     # Definition format shown above
-    my-node = {}; 
+    my-node = {};
     another-node = {};
   };
 

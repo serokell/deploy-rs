@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
 // SPDX-FileCopyrightText: 2020 Andreas Fuchs <asf@boinkor.net>
+// SPDX-FileCopyrightText: 2021 Yannik Sander <contact@ysndr.de>
 //
 // SPDX-License-Identifier: MPL-2.0
 
@@ -7,6 +8,8 @@ use log::{debug, info};
 use std::borrow::Cow;
 use thiserror::Error;
 use tokio::process::Command;
+
+use crate::DeployDataDefsError;
 
 struct ActivateCommandData<'a> {
     sudo: &'a Option<String>,
@@ -33,8 +36,8 @@ fn build_activate_command(data: ActivateCommandData) -> String {
     }
 
     self_activate_command = format!(
-        "{} --temp-path '{}' activate '{}' '{}'",
-        self_activate_command, data.temp_path, data.closure, data.profile_path
+        "{} activate '{}' '{}' --temp-path '{}'",
+        self_activate_command, data.closure, data.profile_path, data.temp_path
     );
 
     self_activate_command = format!(
@@ -87,7 +90,7 @@ fn test_activation_command_builder() {
             log_dir,
             dry_activate
         }),
-        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt --temp-path '/tmp' activate '/nix/store/blah/etc' '/blah/profiles/test' --confirm-timeout 30 --magic-rollback --auto-rollback"
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt activate '/nix/store/blah/etc' '/blah/profiles/test' --temp-path '/tmp' --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
     );
 }
@@ -112,8 +115,8 @@ fn build_wait_command(data: WaitCommandData) -> String {
     }
 
     self_activate_command = format!(
-        "{} --temp-path '{}' wait '{}'",
-        self_activate_command, data.temp_path, data.closure
+        "{} wait '{}' --temp-path '{}'",
+        self_activate_command, data.closure, data.temp_path,
     );
 
     if let Some(sudo_cmd) = &data.sudo {
@@ -139,7 +142,56 @@ fn test_wait_command_builder() {
             debug_logs,
             log_dir
         }),
-        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt --temp-path '/tmp' wait '/nix/store/blah/etc'"
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt wait '/nix/store/blah/etc' --temp-path '/tmp'"
+            .to_string(),
+    );
+}
+
+struct RevokeCommandData<'a> {
+    sudo: &'a Option<String>,
+    closure: &'a str,
+    profile_path: &'a str,
+    debug_logs: bool,
+    log_dir: Option<&'a str>,
+}
+
+fn build_revoke_command(data: RevokeCommandData) -> String {
+    let mut self_activate_command = format!("{}/activate-rs", data.closure);
+
+    if data.debug_logs {
+        self_activate_command = format!("{} --debug-logs", self_activate_command);
+    }
+
+    if let Some(log_dir) = data.log_dir {
+        self_activate_command = format!("{} --log-dir {}", self_activate_command, log_dir);
+    }
+
+    self_activate_command = format!("{} revoke '{}'", self_activate_command, data.profile_path);
+
+    if let Some(sudo_cmd) = &data.sudo {
+        self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
+    }
+
+    self_activate_command
+}
+
+#[test]
+fn test_revoke_command_builder() {
+    let sudo = Some("sudo -u test".to_string());
+    let closure = "/nix/store/blah/etc";
+    let profile_path = "/nix/var/nix/per-user/user/profile";
+    let debug_logs = true;
+    let log_dir = Some("/tmp/something.txt");
+
+    assert_eq!(
+        build_revoke_command(RevokeCommandData {
+            sudo: &sudo,
+            closure,
+            profile_path,
+            debug_logs,
+            log_dir
+        }),
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt revoke '/nix/var/nix/per-user/user/profile'"
             .to_string(),
     );
 }
@@ -328,7 +380,6 @@ pub async fn deploy_profile(
 
             send_activated.send(()).unwrap();
         });
-
         tokio::select! {
             x = ssh_wait_command.arg(self_wait_command).status() => {
                 debug!("Wait command ended");
@@ -351,4 +402,61 @@ pub async fn deploy_profile(
     }
 
     Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum RevokeProfileError {
+    #[error("Failed to spawn revocation command over SSH: {0}")]
+    SSHSpawnRevokeError(std::io::Error),
+
+    #[error("Error revoking deployment: {0}")]
+    SSHRevokeError(std::io::Error),
+    #[error("Revoking over SSH resulted in a bad exit code: {0:?}")]
+    SSHRevokeExitError(Option<i32>),
+
+    #[error("Deployment data invalid: {0}")]
+    InvalidDeployDataDefsError(#[from] DeployDataDefsError),
+}
+pub async fn revoke(
+    deploy_data: &crate::DeployData<'_>,
+    deploy_defs: &crate::DeployDefs,
+) -> Result<(), RevokeProfileError> {
+    let self_revoke_command = build_revoke_command(RevokeCommandData {
+        sudo: &deploy_defs.sudo,
+        closure: &deploy_data.profile.profile_settings.path,
+        profile_path: &deploy_data.get_profile_path()?,
+        debug_logs: deploy_data.debug_logs,
+        log_dir: deploy_data.log_dir,
+    });
+
+    debug!("Constructed revoke command: {}", self_revoke_command);
+
+    let hostname = match deploy_data.cmd_overrides.hostname {
+        Some(ref x) => x,
+        None => &deploy_data.node.node_settings.hostname,
+    };
+
+    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
+
+    let mut ssh_activate_command = Command::new("ssh");
+    ssh_activate_command.arg(&ssh_addr);
+
+    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
+        ssh_activate_command.arg(&ssh_opt);
+    }
+
+    let ssh_revoke = ssh_activate_command
+        .arg(self_revoke_command)
+        .spawn()
+        .map_err(RevokeProfileError::SSHSpawnRevokeError)?;
+
+    let result = ssh_revoke.wait_with_output().await;
+
+    match result {
+        Err(x) => Err(RevokeProfileError::SSHRevokeError(x)),
+        Ok(ref x) => match x.status.code() {
+            Some(0) => Ok(()),
+            a => Err(RevokeProfileError::SSHRevokeExitError(a)),
+        },
+    }
 }
