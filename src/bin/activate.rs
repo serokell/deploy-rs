@@ -66,6 +66,10 @@ struct ActivateOpts {
     /// Auto rollback if failure
     #[clap(long)]
     auto_rollback: bool,
+
+    /// Show what will be activated on the machines
+    #[clap(long)]
+    dry_activate: bool,
 }
 
 /// Activate a profile
@@ -348,70 +352,76 @@ pub async fn activate(
     temp_path: String,
     confirm_timeout: u16,
     magic_rollback: bool,
+    dry_activate: bool,
 ) -> Result<(), ActivateError> {
-    info!("Activating profile");
-
-    let nix_env_set_exit_status = Command::new("nix-env")
-        .arg("-p")
-        .arg(&profile_path)
-        .arg("--set")
-        .arg(&closure)
-        .status()
-        .await
-        .map_err(ActivateError::SetProfileError)?;
-
-    match nix_env_set_exit_status.code() {
-        Some(0) => (),
-        a => {
-            if auto_rollback {
-                deactivate(&profile_path).await?;
+    if !dry_activate {
+        info!("Activating profile");
+        let nix_env_set_exit_status = Command::new("nix-env")
+            .arg("-p")
+            .arg(&profile_path)
+            .arg("--set")
+            .arg(&closure)
+            .status()
+            .await
+            .map_err(ActivateError::SetProfileError)?;
+        match nix_env_set_exit_status.code() {
+            Some(0) => (),
+            a => {
+                if auto_rollback && !dry_activate {
+                    deactivate(&profile_path).await?;
+                }
+                return Err(ActivateError::SetProfileExitError(a));
             }
-            return Err(ActivateError::SetProfileExitError(a));
-        }
-    };
+        };
+    }
 
     debug!("Running activation script");
 
     let activate_status = match Command::new(format!("{}/deploy-rs-activate", profile_path))
-        .env("PROFILE", &profile_path)
-        .current_dir(&profile_path)
+        .env("PROFILE", &closure)
+        .env("DRY_ACTIVATE", if dry_activate { "1" } else { "0" })
+        .current_dir(&closure)
         .status()
         .await
         .map_err(ActivateError::RunActivateError)
     {
         Ok(x) => x,
         Err(e) => {
-            if auto_rollback {
+            if auto_rollback && !dry_activate {
                 deactivate(&profile_path).await?;
             }
             return Err(e);
         }
     };
 
-    match activate_status.code() {
-        Some(0) => (),
-        a => {
-            if auto_rollback {
-                deactivate(&profile_path).await?;
-            }
-            return Err(ActivateError::RunActivateExitError(a));
-        }
-    };
-
-    info!("Activation succeeded!");
-
-    if magic_rollback {
-        info!("Magic rollback is enabled, setting up confirmation hook...");
-
-        match activation_confirmation(profile_path.clone(), temp_path, confirm_timeout, closure)
-            .await
-        {
-            Ok(()) => {}
-            Err(err) => {
-                deactivate(&profile_path).await?;
-                return Err(ActivateError::ActivationConfirmationError(err));
+    if !dry_activate {
+        match activate_status.code() {
+            Some(0) => (),
+            a => {
+                if auto_rollback {
+                    deactivate(&profile_path).await?;
+                }
+                return Err(ActivateError::RunActivateExitError(a));
             }
         };
+
+        if !dry_activate {
+            info!("Activation succeeded!");
+        }
+
+        if magic_rollback {
+            info!("Magic rollback is enabled, setting up confirmation hook...");
+
+            match activation_confirmation(profile_path.clone(), temp_path, confirm_timeout, closure)
+                .await
+            {
+                Ok(()) => {}
+                Err(err) => {
+                    deactivate(&profile_path).await?;
+                    return Err(ActivateError::ActivationConfirmationError(err));
+                }
+            };
+        }
     }
 
     Ok(())
@@ -446,6 +456,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             opts.temp_path,
             activate_opts.confirm_timeout,
             activate_opts.magic_rollback,
+            activate_opts.dry_activate,
         )
         .await
         .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),

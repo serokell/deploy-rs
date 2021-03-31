@@ -18,6 +18,7 @@ struct ActivateCommandData<'a> {
     magic_rollback: bool,
     debug_logs: bool,
     log_dir: Option<&'a str>,
+    dry_activate: bool,
 }
 
 fn build_activate_command(data: ActivateCommandData) -> String {
@@ -49,6 +50,10 @@ fn build_activate_command(data: ActivateCommandData) -> String {
         self_activate_command = format!("{} --auto-rollback", self_activate_command);
     }
 
+    if data.dry_activate {
+        self_activate_command = format!("{} --dry-activate", self_activate_command);
+    }
+
     if let Some(sudo_cmd) = &data.sudo {
         self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
     }
@@ -62,6 +67,7 @@ fn test_activation_command_builder() {
     let profile_path = "/blah/profiles/test";
     let closure = "/nix/store/blah/etc";
     let auto_rollback = true;
+    let dry_activate = false;
     let temp_path = "/tmp";
     let confirm_timeout = 30;
     let magic_rollback = true;
@@ -78,7 +84,8 @@ fn test_activation_command_builder() {
             confirm_timeout,
             magic_rollback,
             debug_logs,
-            log_dir
+            log_dir,
+            dry_activate
         }),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt --temp-path '/tmp' activate '/nix/store/blah/etc' '/blah/profiles/test' --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
@@ -210,11 +217,14 @@ pub enum DeployProfileError {
 pub async fn deploy_profile(
     deploy_data: &super::DeployData<'_>,
     deploy_defs: &super::DeployDefs,
+    dry_activate: bool,
 ) -> Result<(), DeployProfileError> {
-    info!(
-        "Activating profile `{}` for node `{}`",
-        deploy_data.profile_name, deploy_data.node_name
-    );
+    if !dry_activate {
+        info!(
+            "Activating profile `{}` for node `{}`",
+            deploy_data.profile_name, deploy_data.node_name
+        );
+    }
 
     let temp_path: Cow<str> = match &deploy_data.merged_settings.temp_path {
         Some(x) => x.into(),
@@ -227,6 +237,8 @@ pub async fn deploy_profile(
 
     let auto_rollback = deploy_data.merged_settings.auto_rollback.unwrap_or(true);
 
+    let dry_activate = dry_activate;
+
     let self_activate_command = build_activate_command(ActivateCommandData {
         sudo: &deploy_defs.sudo,
         profile_path: &deploy_defs.profile_path,
@@ -237,6 +249,7 @@ pub async fn deploy_profile(
         magic_rollback,
         debug_logs: deploy_data.debug_logs,
         log_dir: deploy_data.log_dir,
+        dry_activate,
     });
 
     debug!("Constructed activation command: {}", self_activate_command);
@@ -255,7 +268,7 @@ pub async fn deploy_profile(
         ssh_activate_command.arg(&ssh_opt);
     }
 
-    if !magic_rollback {
+    if !magic_rollback || dry_activate {
         let ssh_activate_exit_status = ssh_activate_command
             .arg(self_activate_command)
             .status()
@@ -267,7 +280,9 @@ pub async fn deploy_profile(
             a => return Err(DeployProfileError::SSHActivateExitError(a)),
         };
 
-        info!("Success activating, done!");
+        if !dry_activate {
+            info!("Success activating, done!");
+        }
     } else {
         let self_wait_command = build_wait_command(WaitCommandData {
             sudo: &deploy_defs.sudo,

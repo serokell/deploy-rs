@@ -90,7 +90,11 @@
               # work around https://github.com/NixOS/nixpkgs/issues/73404
               cd /tmp
 
-              $PROFILE/bin/switch-to-configuration switch
+              if [[ $DRY_ACTIVATE == "1" ]]; then
+                $PROFILE/bin/switch-to-configuration dry-activate
+              else
+                $PROFILE/bin/switch-to-configuration switch
+              fi
 
               # https://github.com/serokell/deploy-rs/issues/31
               ${with base.config.boot.loader;
