@@ -59,42 +59,56 @@
             activate.custom;
 
           activate = rec {
-            custom = base: activate: pkgs.buildEnv {
-              name = ("activatable-" + base.name);
-              paths = [
-                base
-                (pkgs.writeTextFile {
-                  name = base.name + "-activate-path";
-                  text = ''
-                    #!${pkgs.runtimeShell}
-                    set -euo pipefail
+            custom =
+              {
+                __toString = customSelf: "TODO: dryActivate";
+                __functor = customSelf: base: activate:
+                  pkgs.buildEnv {
+                    name = ("activatable-" + base.name);
+                    paths =
+                      let
+                        hasDryActivate = builtins.hasAttr "dryActivate" customSelf;
+                      in [
+                        base
+                        (pkgs.writeTextFile {
+                          name = base.name + "-activate-path";
+                          text = ''
+                            #!${pkgs.runtimeShell}
+                            set -euo pipefail
 
-                    ${activate}
-                  '';
-                  executable = true;
-                  destination = "/deploy-rs-activate";
-                })
-                (pkgs.writeTextFile {
-                  name = base.name + "-activate-rs";
-                  text = ''
-                    #!${pkgs.runtimeShell}
-                    exec ${self.defaultPackage."${system}"}/bin/activate "$@"
-                  '';
-                  executable = true;
-                  destination = "/activate-rs";
-                })
-              ];
-            };
+                            if [[ $DRY_ACTIVATE == "1" ]]
+                            then
+                                if ${pkgs.lib.boolToString hasDryActivate}
+                                then
+                                    ${if hasDryActivate then customSelf.dryActivate else ":"}
+                                else
+                                    echo ${pkgs.writeScript "activate" activate}
+                                fi
+                            else
+                                ${activate}
+                            fi
+                          '';
+                          executable = true;
+                          destination = "/deploy-rs-activate";
+                        })
+                        (pkgs.writeTextFile {
+                            name = base.name + "-activate-rs";
+                            text = ''
+                            #!${pkgs.runtimeShell}
+                            exec ${self.defaultPackage."${system}"}/bin/activate "$@"
+                          '';
+                          executable = true;
+                          destination = "/activate-rs";
+                        })
+                      ];
+                  };
+              };
 
-            nixos = base: custom base.config.system.build.toplevel ''
+            nixos = base: (custom // { dryActivate = "$PROFILE/bin/switch-to-configuration dry-activate"; }) base.config.system.build.toplevel ''
               # work around https://github.com/NixOS/nixpkgs/issues/73404
               cd /tmp
 
-              if [[ $DRY_ACTIVATE == "1" ]]; then
-                $PROFILE/bin/switch-to-configuration dry-activate
-              else
-                $PROFILE/bin/switch-to-configuration switch
-              fi
+              $PROFILE/bin/switch-to-configuration switch
 
               # https://github.com/serokell/deploy-rs/issues/31
               ${with base.config.boot.loader;
