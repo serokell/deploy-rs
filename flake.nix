@@ -61,14 +61,11 @@
           activate = rec {
             custom =
               {
-                __toString = customSelf: "TODO: dryActivate";
                 __functor = customSelf: base: activate:
                   pkgs.buildEnv {
                     name = ("activatable-" + base.name);
                     paths =
-                      let
-                        hasDryActivate = builtins.hasAttr "dryActivate" customSelf;
-                      in [
+                      [
                         base
                         (pkgs.writeTextFile {
                           name = base.name + "-activate-path";
@@ -78,12 +75,11 @@
 
                             if [[ $DRY_ACTIVATE == "1" ]]
                             then
-                                if ${pkgs.lib.boolToString hasDryActivate}
-                                then
-                                    ${if hasDryActivate then customSelf.dryActivate else ":"}
-                                else
-                                    echo ${pkgs.writeScript "activate" activate}
-                                fi
+                                ${if builtins.hasAttr "dryActivate" customSelf
+                                  then
+                                    customSelf.dryActivate
+                                  else
+                                    "echo ${pkgs.writeScript "activate" activate}"}
                             else
                                 ${activate}
                             fi

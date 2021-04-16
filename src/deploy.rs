@@ -237,8 +237,6 @@ pub async fn deploy_profile(
 
     let auto_rollback = deploy_data.merged_settings.auto_rollback.unwrap_or(true);
 
-    let dry_activate = dry_activate;
-
     let self_activate_command = build_activate_command(ActivateCommandData {
         sudo: &deploy_defs.sudo,
         profile_path: &deploy_defs.profile_path,
@@ -280,7 +278,9 @@ pub async fn deploy_profile(
             a => return Err(DeployProfileError::SSHActivateExitError(a)),
         };
 
-        if !dry_activate {
+        if dry_activate {
+            info!("Completed dry-activate!");
+        } else {
             info!("Success activating, done!");
         }
     } else {

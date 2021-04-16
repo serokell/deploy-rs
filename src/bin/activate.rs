@@ -378,9 +378,9 @@ pub async fn activate(
     debug!("Running activation script");
 
     let activate_status = match Command::new(format!("{}/deploy-rs-activate", profile_path))
-        .env("PROFILE", &closure)
+        .env("PROFILE", if dry_activate { &closure } else { &profile_path })
         .env("DRY_ACTIVATE", if dry_activate { "1" } else { "0" })
-        .current_dir(&closure)
+        .current_dir(if dry_activate { &closure } else { &profile_path })
         .status()
         .await
         .map_err(ActivateError::RunActivateError)
