@@ -74,6 +74,9 @@ struct Opts {
     /// Where to store temporary files (only used by magic-rollback)
     #[clap(long)]
     temp_path: Option<String>,
+    /// Show what will be activated on the machines
+    #[clap(long)]
+    dry_activate: bool,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -379,6 +382,7 @@ async fn run_deploy(
     extra_build_args: &[String],
     debug_logs: bool,
     log_dir: Option<String>,
+    dry_activate: bool,
 ) -> Result<(), RunDeployError> {
     let to_deploy: ToDeploy = match (&deploy_flake.node, &deploy_flake.profile) {
         (Some(node_name), Some(profile_name)) => {
@@ -499,7 +503,7 @@ async fn run_deploy(
     }
 
     for (deploy_data, deploy_defs) in &parts {
-        deploy::deploy::deploy_profile(&deploy_data, &deploy_defs).await?;
+        deploy::deploy::deploy_profile(&deploy_data, &deploy_defs, dry_activate).await?;
     }
 
     Ok(())
@@ -546,6 +550,7 @@ async fn run() -> Result<(), RunError> {
         magic_rollback: opts.magic_rollback,
         temp_path: opts.temp_path,
         confirm_timeout: opts.confirm_timeout,
+        dry_activate: opts.dry_activate,
     };
 
     let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;
@@ -574,6 +579,7 @@ async fn run() -> Result<(), RunError> {
         &opts.extra_build_args,
         opts.debug_logs,
         opts.log_dir,
+        opts.dry_activate,
     )
     .await?;
 

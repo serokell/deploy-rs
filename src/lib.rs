@@ -140,6 +140,7 @@ pub struct CmdOverrides {
     pub magic_rollback: Option<bool>,
     pub temp_path: Option<String>,
     pub confirm_timeout: Option<u16>,
+    pub dry_activate: bool,
 }
 
 #[derive(PartialEq, Debug)]

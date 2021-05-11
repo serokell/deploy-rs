@@ -59,34 +59,48 @@
             activate.custom;
 
           activate = rec {
-            custom = base: activate: pkgs.buildEnv {
-              name = ("activatable-" + base.name);
-              paths = [
-                base
-                (pkgs.writeTextFile {
-                  name = base.name + "-activate-path";
-                  text = ''
-                    #!${pkgs.runtimeShell}
-                    set -euo pipefail
+            custom =
+              {
+                __functor = customSelf: base: activate:
+                  pkgs.buildEnv {
+                    name = ("activatable-" + base.name);
+                    paths =
+                      [
+                        base
+                        (pkgs.writeTextFile {
+                          name = base.name + "-activate-path";
+                          text = ''
+                            #!${pkgs.runtimeShell}
+                            set -euo pipefail
 
-                    ${activate}
-                  '';
-                  executable = true;
-                  destination = "/deploy-rs-activate";
-                })
-                (pkgs.writeTextFile {
-                  name = base.name + "-activate-rs";
-                  text = ''
-                    #!${pkgs.runtimeShell}
-                    exec ${self.defaultPackage."${system}"}/bin/activate "$@"
-                  '';
-                  executable = true;
-                  destination = "/activate-rs";
-                })
-              ];
-            };
+                            if [[ $DRY_ACTIVATE == "1" ]]
+                            then
+                                ${if builtins.hasAttr "dryActivate" customSelf
+                                  then
+                                    customSelf.dryActivate
+                                  else
+                                    "echo ${pkgs.writeScript "activate" activate}"}
+                            else
+                                ${activate}
+                            fi
+                          '';
+                          executable = true;
+                          destination = "/deploy-rs-activate";
+                        })
+                        (pkgs.writeTextFile {
+                            name = base.name + "-activate-rs";
+                            text = ''
+                            #!${pkgs.runtimeShell}
+                            exec ${self.defaultPackage."${system}"}/bin/activate "$@"
+                          '';
+                          executable = true;
+                          destination = "/activate-rs";
+                        })
+                      ];
+                  };
+              };
 
-            nixos = base: custom base.config.system.build.toplevel ''
+            nixos = base: (custom // { dryActivate = "$PROFILE/bin/switch-to-configuration dry-activate"; }) base.config.system.build.toplevel ''
               # work around https://github.com/NixOS/nixpkgs/issues/73404
               cd /tmp
 
