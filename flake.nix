@@ -73,13 +73,9 @@
                             #!${pkgs.runtimeShell}
                             set -euo pipefail
 
-                            if [[ "x''${DRY_ACTIVATE:-}" == "x1" ]]
+                            if [[ "''${DRY_ACTIVATE:-}" == "1" ]]
                             then
-                                ${if builtins.hasAttr "dryActivate" customSelf
-                                  then
-                                    customSelf.dryActivate
-                                  else
-                                    "echo ${pkgs.writeScript "activate" activate}"}
+                                ${customSelf.dryActivate or "echo ${pkgs.writeScript "activate" activate}"}
                             else
                                 ${activate}
                             fi
@@ -91,7 +87,7 @@
                             name = base.name + "-activate-rs";
                             text = ''
                             #!${pkgs.runtimeShell}
-                            exec ${self.defaultPackage."${system}"}/bin/activate "$@"
+                            exec ${self.defaultPackage.${system}}/bin/activate "$@"
                           '';
                           executable = true;
                           destination = "/activate-rs";
