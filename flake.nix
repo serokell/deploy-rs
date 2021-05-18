@@ -73,7 +73,7 @@
                             #!${pkgs.runtimeShell}
                             set -euo pipefail
 
-                            if [[ $DRY_ACTIVATE == "1" ]]
+                            if [[ "x''${DRY_ACTIVATE:-}" == "x1" ]]
                             then
                                 ${if builtins.hasAttr "dryActivate" customSelf
                                   then
