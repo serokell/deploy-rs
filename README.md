@@ -10,6 +10,8 @@ SPDX-License-Identifier: MPL-2.0
 
 A Simple, multi-profile Nix-flake deploy tool.
 
+Questions? Need help? Join us on Matrix: [`#deploy-rs:matrix.org`](https://matrix.to/#/#deploy-rs:matrix.org)
+
 ## Usage
 
 Basic usage: `deploy [options] <flake>`.
