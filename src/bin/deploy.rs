@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+// SPDX-FileCopyrightText: 2021 Yannik Sander <contact@ysndr.de>
 //
 // SPDX-License-Identifier: MPL-2.0
 
@@ -7,6 +8,8 @@ use std::io::{stdin, stdout, Write};
 
 use clap::Clap;
 
+use deploy::{DeployFlake, ParseFlakeError};
+use futures_util::stream::{StreamExt, TryStreamExt};
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use std::process::Stdio;
@@ -14,12 +17,16 @@ use thiserror::Error;
 use tokio::process::Command;
 
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
-#[derive(Clap, Debug)]
+#[derive(Clap, Debug, Clone)]
 #[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
 struct Opts {
     /// The flake to deploy
-    #[clap(default_value = ".")]
-    flake: String,
+    #[clap(group = "deploy")]
+    target: Option<String>,
+
+    /// A list of flakes to deploy alternatively
+    #[clap(long, group = "deploy")]
+    targets: Option<Vec<String>>,
     /// Check signatures when using `nix copy`
     #[clap(short, long)]
     checksigs: bool,
@@ -77,6 +84,9 @@ struct Opts {
     /// Show what will be activated on the machines
     #[clap(long)]
     dry_activate: bool,
+    /// Revoke all previously succeeded deploys when deploying multiple profiles
+    #[clap(long)]
+    rollback_succeeded: Option<bool>,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -159,9 +169,11 @@ enum GetDeploymentDataError {
 /// Evaluates the Nix in the given `repo` and return the processed Data from it
 async fn get_deployment_data(
     supports_flakes: bool,
-    flake: &deploy::DeployFlake<'_>,
+    flakes: &[deploy::DeployFlake<'_>],
     extra_build_args: &[String],
-) -> Result<deploy::data::Data, GetDeploymentDataError> {
+) -> Result<Vec<deploy::data::Data>, GetDeploymentDataError> {
+    futures_util::stream::iter(flakes).then(|flake| async move {
+
     info!("Evaluating flake in {}", flake.repo);
 
     let mut c = if supports_flakes {
@@ -247,6 +259,7 @@ async fn get_deployment_data(
     let data_json = String::from_utf8(build_output.stdout)?;
 
     Ok(serde_json::from_str(&data_json)?)
+}).try_collect().await
 }
 
 #[derive(Serialize)]
@@ -259,11 +272,15 @@ struct PromptPart<'a> {
 }
 
 fn print_deployment(
-    parts: &[(deploy::DeployData, deploy::DeployDefs)],
+    parts: &[(
+        &deploy::DeployFlake<'_>,
+        deploy::DeployData,
+        deploy::DeployDefs,
+    )],
 ) -> Result<(), toml::ser::Error> {
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
 
-    for (data, defs) in parts {
+    for (_, data, defs) in parts {
         part_map
             .entry(data.node_name.to_string())
             .or_insert_with(HashMap::new)
@@ -298,7 +315,11 @@ enum PromptDeploymentError {
 }
 
 fn prompt_deployment(
-    parts: &[(deploy::DeployData, deploy::DeployDefs)],
+    parts: &[(
+        &deploy::DeployFlake<'_>,
+        deploy::DeployData,
+        deploy::DeployDefs,
+    )],
 ) -> Result<(), PromptDeploymentError> {
     print_deployment(parts)?;
 
@@ -363,109 +384,139 @@ enum RunDeployError {
     TomlFormat(#[from] toml::ser::Error),
     #[error("{0}")]
     PromptDeployment(#[from] PromptDeploymentError),
+    #[error("Failed to revoke profile: {0}")]
+    RevokeProfile(#[from] deploy::deploy::RevokeProfileError),
 }
 
 type ToDeploy<'a> = Vec<(
+    &'a deploy::DeployFlake<'a>,
+    &'a deploy::data::Data,
     (&'a str, &'a deploy::data::Node),
     (&'a str, &'a deploy::data::Profile),
 )>;
 
 async fn run_deploy(
-    deploy_flake: deploy::DeployFlake<'_>,
-    data: deploy::data::Data,
+    deploy_flakes: Vec<deploy::DeployFlake<'_>>,
+    data: Vec<deploy::data::Data>,
     supports_flakes: bool,
     check_sigs: bool,
     interactive: bool,
-    cmd_overrides: deploy::CmdOverrides,
+    cmd_overrides: &deploy::CmdOverrides,
     keep_result: bool,
     result_path: Option<&str>,
     extra_build_args: &[String],
     debug_logs: bool,
-    log_dir: Option<String>,
     dry_activate: bool,
+    log_dir: &Option<String>,
+    rollback_succeeded: bool,
 ) -> Result<(), RunDeployError> {
-    let to_deploy: ToDeploy = match (&deploy_flake.node, &deploy_flake.profile) {
-        (Some(node_name), Some(profile_name)) => {
-            let node = match data.nodes.get(node_name) {
-                Some(x) => x,
-                None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
-            };
-            let profile = match node.node_settings.profiles.get(profile_name) {
-                Some(x) => x,
-                None => return Err(RunDeployError::ProfileNotFound(profile_name.to_owned())),
-            };
-
-            vec![((node_name, node), (profile_name, profile))]
-        }
-        (Some(node_name), None) => {
-            let node = match data.nodes.get(node_name) {
-                Some(x) => x,
-                None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
-            };
-
-            let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
-
-            for profile_name in [
-                node.node_settings.profiles_order.iter().collect(),
-                node.node_settings.profiles.keys().collect::<Vec<&String>>(),
-            ]
-            .concat()
-            {
-                let profile = match node.node_settings.profiles.get(profile_name) {
-                    Some(x) => x,
-                    None => return Err(RunDeployError::ProfileNotFound(profile_name.to_owned())),
-                };
-
-                if !profiles_list.iter().any(|(n, _)| n == profile_name) {
-                    profiles_list.push((&profile_name, profile));
-                }
-            }
-
-            profiles_list
-                .into_iter()
-                .map(|x| ((node_name.as_str(), node), x))
-                .collect()
-        }
-        (None, None) => {
-            let mut l = Vec::new();
-
-            for (node_name, node) in &data.nodes {
-                let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
-
-                for profile_name in [
-                    node.node_settings.profiles_order.iter().collect(),
-                    node.node_settings.profiles.keys().collect::<Vec<&String>>(),
-                ]
-                .concat()
-                {
+    let to_deploy: ToDeploy = deploy_flakes
+        .iter()
+        .zip(&data)
+        .map(|(deploy_flake, data)| {
+            let to_deploys: ToDeploy = match (&deploy_flake.node, &deploy_flake.profile) {
+                (Some(node_name), Some(profile_name)) => {
+                    let node = match data.nodes.get(node_name) {
+                        Some(x) => x,
+                        None => Err(RunDeployError::NodeNotFound(node_name.to_owned()))?,
+                    };
                     let profile = match node.node_settings.profiles.get(profile_name) {
                         Some(x) => x,
-                        None => {
-                            return Err(RunDeployError::ProfileNotFound(profile_name.to_owned()))
-                        }
+                        None => Err(RunDeployError::ProfileNotFound(profile_name.to_owned()))?,
                     };
 
-                    if !profiles_list.iter().any(|(n, _)| n == profile_name) {
-                        profiles_list.push((&profile_name, profile));
-                    }
+                    vec![(
+                        &deploy_flake,
+                        &data,
+                        (node_name.as_str(), node),
+                        (profile_name.as_str(), profile),
+                    )]
                 }
+                (Some(node_name), None) => {
+                    let node = match data.nodes.get(node_name) {
+                        Some(x) => x,
+                        None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
+                    };
 
-                let ll: ToDeploy = profiles_list
-                    .into_iter()
-                    .map(|x| ((node_name.as_str(), node), x))
-                    .collect();
+                    let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
 
-                l.extend(ll);
-            }
+                    for profile_name in [
+                        node.node_settings.profiles_order.iter().collect(),
+                        node.node_settings.profiles.keys().collect::<Vec<&String>>(),
+                    ]
+                    .concat()
+                    {
+                        let profile = match node.node_settings.profiles.get(profile_name) {
+                            Some(x) => x,
+                            None => {
+                                return Err(RunDeployError::ProfileNotFound(
+                                    profile_name.to_owned(),
+                                ))
+                            }
+                        };
 
-            l
-        }
-        (None, Some(_)) => return Err(RunDeployError::ProfileWithoutNode),
-    };
+                        if !profiles_list.iter().any(|(n, _)| n == profile_name) {
+                            profiles_list.push((&profile_name, profile));
+                        }
+                    }
 
-    let mut parts: Vec<(deploy::DeployData, deploy::DeployDefs)> = Vec::new();
+                    profiles_list
+                        .into_iter()
+                        .map(|x| (deploy_flake, data, (node_name.as_str(), node), x))
+                        .collect()
+                }
+                (None, None) => {
+                    let mut l = Vec::new();
 
-    for ((node_name, node), (profile_name, profile)) in to_deploy {
+                    for (node_name, node) in &data.nodes {
+                        let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
+
+                        for profile_name in [
+                            node.node_settings.profiles_order.iter().collect(),
+                            node.node_settings.profiles.keys().collect::<Vec<&String>>(),
+                        ]
+                        .concat()
+                        {
+                            let profile = match node.node_settings.profiles.get(profile_name) {
+                                Some(x) => x,
+                                None => {
+                                    return Err(RunDeployError::ProfileNotFound(
+                                        profile_name.to_owned(),
+                                    ))
+                                }
+                            };
+
+                            if !profiles_list.iter().any(|(n, _)| n == profile_name) {
+                                profiles_list.push((&profile_name, profile));
+                            }
+                        }
+
+                        let ll: ToDeploy = profiles_list
+                            .into_iter()
+                            .map(|x| (deploy_flake, data, (node_name.as_str(), node), x))
+                            .collect();
+
+                        l.extend(ll);
+                    }
+
+                    l
+                }
+                (None, Some(_)) => return Err(RunDeployError::ProfileWithoutNode),
+            };
+            Ok(to_deploys)
+        })
+        .collect::<Result<Vec<ToDeploy>, RunDeployError>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+
+    let mut parts: Vec<(
+        &deploy::DeployFlake<'_>,
+        deploy::DeployData,
+        deploy::DeployDefs,
+    )> = Vec::new();
+
+    for (deploy_flake, data, (node_name, node), (profile_name, profile)) in to_deploy {
         let deploy_data = deploy::make_deploy_data(
             &data.generic_settings,
             node,
@@ -479,7 +530,7 @@ async fn run_deploy(
 
         let deploy_defs = deploy_data.defs()?;
 
-        parts.push((deploy_data, deploy_defs));
+        parts.push((deploy_flake, deploy_data, deploy_defs));
     }
 
     if interactive {
@@ -488,7 +539,7 @@ async fn run_deploy(
         print_deployment(&parts[..])?;
     }
 
-    for (deploy_data, deploy_defs) in &parts {
+    for (deploy_flake, deploy_data, deploy_defs) in &parts {
         deploy::push::push_profile(deploy::push::PushProfileData {
             supports_flakes,
             check_sigs,
@@ -502,8 +553,33 @@ async fn run_deploy(
         .await?;
     }
 
-    for (deploy_data, deploy_defs) in &parts {
-        deploy::deploy::deploy_profile(&deploy_data, &deploy_defs, dry_activate).await?;
+    let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
+
+    // Run all deployments
+    // In case of an error rollback any previoulsy made deployment.
+    // Rollbacks adhere to the global seeting to auto_rollback and secondary
+    // the profile's configuration
+    for (_, deploy_data, deploy_defs) in &parts {
+        if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, dry_activate).await
+        {
+            error!("{}", e);
+            if dry_activate {
+                info!("dry run, not rolling back");
+            }
+            info!("Revoking previous deploys");
+            if rollback_succeeded && cmd_overrides.auto_rollback.unwrap_or(true) {
+                // revoking all previous deploys
+                // (adheres to profile configuration if not set explicitely by
+                //  the command line)
+                for (deploy_data, deploy_defs) in &succeeded {
+                    if deploy_data.merged_settings.auto_rollback.unwrap_or(true) {
+                        deploy::deploy::revoke(*deploy_data, *deploy_defs).await?;
+                    }
+                }
+            }
+            break;
+        }
+        succeeded.push((deploy_data, deploy_defs))
     }
 
     Ok(())
@@ -538,7 +614,15 @@ async fn run() -> Result<(), RunError> {
         deploy::LoggerType::Deploy,
     )?;
 
-    let deploy_flake = deploy::parse_flake(opts.flake.as_str())?;
+    let deploys = opts
+        .clone()
+        .targets
+        .unwrap_or_else(|| vec![opts.clone().target.unwrap_or(".".to_string())]);
+
+    let deploy_flakes: Vec<DeployFlake> = deploys
+        .iter()
+        .map(|f| deploy::parse_flake(f.as_str()))
+        .collect::<Result<Vec<DeployFlake>, ParseFlakeError>>()?;
 
     let cmd_overrides = deploy::CmdOverrides {
         ssh_user: opts.ssh_user,
@@ -560,26 +644,26 @@ async fn run() -> Result<(), RunError> {
     }
 
     if !opts.skip_checks {
-        check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
+        for deploy_flake in deploy_flakes.iter() {
+            check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
+        }
     }
-
-    let data = get_deployment_data(supports_flakes, &deploy_flake, &opts.extra_build_args).await?;
-
     let result_path = opts.result_path.as_deref();
-
+    let data = get_deployment_data(supports_flakes, &deploy_flakes, &opts.extra_build_args).await?;
     run_deploy(
-        deploy_flake,
+        deploy_flakes,
         data,
         supports_flakes,
         opts.checksigs,
         opts.interactive,
-        cmd_overrides,
+        &cmd_overrides,
         opts.keep_result,
         result_path,
         &opts.extra_build_args,
         opts.debug_logs,
-        opts.log_dir,
         opts.dry_activate,
+        &opts.log_dir,
+        opts.rollback_succeeded.unwrap_or(true),
     )
     .await?;
 
