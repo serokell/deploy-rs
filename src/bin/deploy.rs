@@ -560,7 +560,8 @@ async fn run_deploy(
     // Rollbacks adhere to the global seeting to auto_rollback and secondary
     // the profile's configuration
     for (_, deploy_data, deploy_defs) in &parts {
-        if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, dry_activate).await {
+        if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, dry_activate).await
+        {
             error!("{}", e);
             if dry_activate {
                 info!("dry run, not rolling back");
@@ -613,11 +614,10 @@ async fn run() -> Result<(), RunError> {
         deploy::LoggerType::Deploy,
     )?;
 
-    let deploys = opts.clone().targets.unwrap_or_else(|| {
-        opts.clone()
-            .target
-            .unwrap_or(Some(vec![".".to_string()]))
-    });
+    let deploys = opts
+        .clone()
+        .targets
+        .unwrap_or_else(|| vec![opts.clone().target.unwrap_or(".".to_string())]);
 
     let deploy_flakes: Vec<DeployFlake> = deploys
         .iter()
