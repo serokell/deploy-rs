@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use log::{debug, info};
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 use thiserror::Error;
@@ -10,6 +11,16 @@ use tokio::process::Command;
 
 #[derive(Error, Debug)]
 pub enum PushProfileError {
+    #[error("Failed to run Nix show-derivation command: {0}")]
+    ShowDerivationError(std::io::Error),
+    #[error("Nix show-derivation command resulted in a bad exit code: {0:?}")]
+    ShowDerivationExitError(Option<i32>),
+    #[error("Nix show-derivation command output contained an invalid UTF-8 sequence: {0}")]
+    ShowDerivationUtf8Error(std::str::Utf8Error),
+    #[error("Failed to parse the output of nix show-derivation: {0}")]
+    ShowDerivationParseError(serde_json::Error),
+    #[error("Nix show-derivation output is empty")]
+    ShowDerivationEmpty,
     #[error("Failed to run Nix build command: {0}")]
     BuildError(std::io::Error),
     #[error("Nix build command resulted in a bad exit code: {0:?}")]
@@ -44,6 +55,39 @@ pub struct PushProfileData<'a> {
 }
 
 pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
+    debug!(
+        "Finding the deriver of store path for {}",
+        &data.deploy_data.profile.profile_settings.path
+    );
+
+    // `nix-store --query --deriver` doesn't work on invalid paths, so we parse output of show-derivation :(
+    let mut show_derivation_command = Command::new("nix");
+
+    show_derivation_command
+        .arg("show-derivation")
+        .arg(&data.deploy_data.profile.profile_settings.path);
+
+    let show_derivation_output = show_derivation_command
+        .output()
+        .await
+        .map_err(PushProfileError::ShowDerivationError)?;
+
+    match show_derivation_output.status.code() {
+        Some(0) => (),
+        a => return Err(PushProfileError::ShowDerivationExitError(a)),
+    };
+
+    let derivation_info: HashMap<&str, serde_json::value::Value> = serde_json::from_str(
+        std::str::from_utf8(&show_derivation_output.stdout)
+            .map_err(PushProfileError::ShowDerivationUtf8Error)?,
+    )
+    .map_err(PushProfileError::ShowDerivationParseError)?;
+
+    let derivation_name = derivation_info
+        .keys()
+        .next()
+        .ok_or(PushProfileError::ShowDerivationEmpty)?;
+
     info!(
         "Building profile `{}` for node `{}`",
         data.deploy_data.profile_name, data.deploy_data.node_name
@@ -56,15 +100,9 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
     };
 
     if data.supports_flakes {
-        build_command.arg("build").arg(format!(
-            "{}#deploy.nodes.\"{}\".profiles.\"{}\".path",
-            data.repo, data.deploy_data.node_name, data.deploy_data.profile_name
-        ))
+        build_command.arg("build").arg(derivation_name)
     } else {
-        build_command.arg(&data.repo).arg("-A").arg(format!(
-            "deploy.nodes.\"{}\".profiles.\"{}\".path",
-            data.deploy_data.node_name, data.deploy_data.profile_name
-        ))
+        build_command.arg(derivation_name)
     };
 
     match (data.keep_result, data.supports_flakes) {
@@ -142,7 +180,7 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         };
     }
 
-    debug!(
+    info!(
         "Copying profile `{}` to node `{}`",
         data.deploy_data.profile_name, data.deploy_data.node_name
     );
