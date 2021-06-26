@@ -37,7 +37,7 @@
 
         deploy-rs = naersk-lib.buildPackage (darwinOptions // {
           root = ./.;
-        });
+        }) // { meta.description = "A Simple multi-profile Nix-flake deploy tool"; };
 
         lib = rec {
 
