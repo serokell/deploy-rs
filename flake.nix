@@ -143,7 +143,7 @@
 
         devShell = pkgs.mkShell {
           inputsFrom = [ self.packages.${system}.deploy-rs ];
-          buildInputs = [ pkgs.nixUnstable ];
+          buildInputs = [ pkgs.nixUnstable pkgs.rust-analyzer pkgs.rustfmt ];
         };
 
         checks = {
