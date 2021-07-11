@@ -50,9 +50,13 @@ struct Opts {
     #[clap(short, long)]
     result_path: Option<String>,
 
-    /// Skip the automatic pre-build checks
+    /// Skip the automatic pre-build checks (DEPRECATED)
     #[clap(short, long)]
     skip_checks: bool,
+
+    /// Run nix flake check before doing anything
+    #[clap(short, long)]
+    check: bool,
 
     /// Override the SSH user with the given value
     #[clap(long)]
@@ -644,10 +648,17 @@ async fn run() -> Result<(), RunError> {
     }
 
     if !opts.skip_checks {
+        info!("deploy-rs does not perform checks automatically anymore; use --check to get the old behavior");
+    } else {
+        warn!("--skip-checks is DEPRECATED since not it is the default behavior; use --check to run checks");
+    }
+
+    if opts.check {
         for deploy_flake in deploy_flakes.iter() {
             check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
         }
     }
+
     let result_path = opts.result_path.as_deref();
     let data = get_deployment_data(supports_flakes, &deploy_flakes, &opts.extra_build_args).await?;
     run_deploy(
