@@ -27,6 +27,9 @@
                 "magicRollback": {
                     "type": "boolean"
                 },
+                "checks": {
+                    "type": "boolean"
+                },
                 "confirmTimeout": {
                     "type": "integer"
                 },
