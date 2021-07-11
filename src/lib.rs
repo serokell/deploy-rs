@@ -161,6 +161,7 @@ pub struct CmdOverrides {
     pub temp_path: Option<String>,
     pub confirm_timeout: Option<u16>,
     pub dry_activate: bool,
+    pub check: bool,
 }
 
 #[derive(PartialEq, Debug)]

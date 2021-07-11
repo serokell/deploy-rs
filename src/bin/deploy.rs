@@ -55,7 +55,7 @@ struct Opts {
     skip_checks: bool,
 
     /// Run nix flake check before doing anything
-    #[clap(short, long)]
+    #[clap(long)]
     check: bool,
 
     /// Override the SSH user with the given value
@@ -639,6 +639,7 @@ async fn run() -> Result<(), RunError> {
         temp_path: opts.temp_path,
         confirm_timeout: opts.confirm_timeout,
         dry_activate: opts.dry_activate,
+        check: opts.check,
     };
 
     let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;
@@ -650,10 +651,10 @@ async fn run() -> Result<(), RunError> {
     if !opts.skip_checks {
         info!("deploy-rs does not perform checks automatically anymore; use --check to get the old behavior");
     } else {
-        warn!("--skip-checks is DEPRECATED since not it is the default behavior; use --check to run checks");
+        warn!("--skip-checks is DEPRECATED since now it is the default behavior; use --check to run checks");
     }
 
-    if opts.check {
+    if cmd_overrides.check {
         for deploy_flake in deploy_flakes.iter() {
             check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
         }
