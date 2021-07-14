@@ -21,7 +21,7 @@ use tokio::process::Command;
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
 #[derive(Clap, Debug, Clone)]
 #[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
-struct Opts {
+pub struct Opts {
     /// The flake to deploy
     #[clap(group = "deploy")]
     target: Option<String>,
