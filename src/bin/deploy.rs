@@ -8,7 +8,7 @@ use log::error;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    match cli::run().await {
+    match cli::run(None).await {
         Ok(()) => (),
         Err(err) => {
             error!("{}", err);

@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
-use clap::Clap;
+use clap::{Clap, ArgMatches, FromArgMatches};
 
 use crate as deploy;
 
@@ -607,8 +607,11 @@ pub enum RunError {
     RunDeploy(#[from] RunDeployError),
 }
 
-pub async fn run() -> Result<(), RunError> {
-    let opts: Opts = Opts::parse();
+pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
+    let opts = match args {
+        Some(o) => <Opts as FromArgMatches>::from_arg_matches(o),
+        None => Opts::parse(),
+    };
 
     deploy::init_logger(
         opts.debug_logs,
