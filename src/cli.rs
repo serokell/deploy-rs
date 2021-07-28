@@ -10,7 +10,7 @@ use clap::{Clap, ArgMatches, FromArgMatches};
 
 use crate as deploy;
 
-use deploy::{DeployFlake, ParseFlakeError};
+use self::deploy::{DeployFlake, ParseFlakeError};
 use futures_util::stream::{StreamExt, TryStreamExt};
 use log::{debug, error, info, warn};
 use serde::Serialize;
