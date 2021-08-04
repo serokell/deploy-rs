@@ -5,17 +5,17 @@
 {
   description = "Deploy GNU hello to localhost";
 
-  inputs.deploy-rs.url = "github:serokell/deploy-rs";
+  inputs.yeet.url = "github:serokell/yeet";
 
-  outputs = { self, nixpkgs, deploy-rs }: {
+  outputs = { self, nixpkgs, yeet }: {
     deploy.nodes.example = {
       hostname = "localhost";
       profiles.hello = {
         user = "balsoft";
-        path = deploy-rs.lib.x86_64-linux.setActivate nixpkgs.legacyPackages.x86_64-linux.hello "./bin/hello";
+        path = yeet.lib.x86_64-linux.setActivate nixpkgs.legacyPackages.x86_64-linux.hello "./bin/hello";
       };
     };
 
-    checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
+    checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) yeet.lib;
   };
 }

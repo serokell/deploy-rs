@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: deploy-rs
+Upstream-Name: yeet
 Upstream-Contact: Serokell <https://serokell.io/>
-Source: https://github.com/serokell/deploy-rs
+Source: https://github.com/serokell/yeet
 
 # Sample paragraph, commented out:
 #

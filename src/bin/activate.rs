@@ -23,7 +23,7 @@ use thiserror::Error;
 
 use log::{debug, error, info, warn};
 
-/// Remote activation utility for deploy-rs
+/// Remote activation utility for yeet
 #[derive(Clap, Debug)]
 #[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
 struct Opts {
@@ -176,7 +176,7 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
 
     info!("Attempting to re-activate the last generation");
 
-    let re_activate_exit_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
+    let re_activate_exit_status = Command::new(format!("{}/yeet-activate", profile_path))
         .env("PROFILE", &profile_path)
         .current_dir(&profile_path)
         .status()
@@ -396,7 +396,7 @@ pub async fn activate(
         &profile_path
     };
 
-    let activate_status = match Command::new(format!("{}/deploy-rs-activate", activation_location))
+    let activate_status = match Command::new(format!("{}/yeet-activate", activation_location))
         .env("PROFILE", activation_location)
         .env("DRY_ACTIVATE", if dry_activate { "1" } else { "0" })
         .current_dir(activation_location)
