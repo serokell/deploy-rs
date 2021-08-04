@@ -8,9 +8,9 @@ use std::io::{stdin, stdout, Write};
 
 use clap::{ArgMatches, Clap, FromArgMatches};
 
-use crate as deploy;
+use crate as yeet;
 
-use self::deploy::{DeployFlake, ParseFlakeError};
+use self::yeet::{DeployFlake, ParseFlakeError};
 use futures_util::stream::{StreamExt, TryStreamExt};
 use log::{debug, error, info, warn};
 use serde::Serialize;
@@ -18,7 +18,7 @@ use std::process::Stdio;
 use thiserror::Error;
 use tokio::process::Command;
 
-/// Simple Rust rewrite of a simple Nix Flake deployment tool
+/// A simple multi-profile Nix-flake deploy tool.
 #[derive(Clap, Debug, Clone)]
 #[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
 pub struct Opts {
@@ -168,9 +168,9 @@ pub enum GetDeploymentDataError {
 /// Evaluates the Nix in the given `repo` and return the processed Data from it
 async fn get_deployment_data(
     supports_flakes: bool,
-    flakes: &[deploy::DeployFlake<'_>],
+    flakes: &[yeet::DeployFlake<'_>],
     extra_build_args: &[String],
-) -> Result<Vec<deploy::data::Data>, GetDeploymentDataError> {
+) -> Result<Vec<yeet::data::Data>, GetDeploymentDataError> {
     futures_util::stream::iter(flakes).then(|flake| async move {
 
     info!("Evaluating flake in {}", flake.repo);
@@ -271,11 +271,7 @@ struct PromptPart<'a> {
 }
 
 fn print_deployment(
-    parts: &[(
-        &deploy::DeployFlake<'_>,
-        deploy::DeployData,
-        deploy::DeployDefs,
-    )],
+    parts: &[(&yeet::DeployFlake<'_>, yeet::DeployData, yeet::DeployDefs)],
 ) -> Result<(), toml::ser::Error> {
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
 
@@ -314,11 +310,7 @@ pub enum PromptDeploymentError {
 }
 
 fn prompt_deployment(
-    parts: &[(
-        &deploy::DeployFlake<'_>,
-        deploy::DeployData,
-        deploy::DeployDefs,
-    )],
+    parts: &[(&yeet::DeployFlake<'_>, yeet::DeployData, yeet::DeployDefs)],
 ) -> Result<(), PromptDeploymentError> {
     print_deployment(parts)?;
 
@@ -368,9 +360,9 @@ fn prompt_deployment(
 #[derive(Error, Debug)]
 pub enum RunDeployError {
     #[error("Failed to deploy profile: {0}")]
-    DeployProfile(#[from] deploy::deploy::DeployProfileError),
+    DeployProfile(#[from] yeet::deploy::DeployProfileError),
     #[error("Failed to push profile: {0}")]
-    PushProfile(#[from] deploy::push::PushProfileError),
+    PushProfile(#[from] yeet::push::PushProfileError),
     #[error("No profile named `{0}` was found")]
     ProfileNotFound(String),
     #[error("No node named `{0}` was found")]
@@ -378,29 +370,29 @@ pub enum RunDeployError {
     #[error("Profile was provided without a node name")]
     ProfileWithoutNode,
     #[error("Error processing deployment definitions: {0}")]
-    DeployDataDefs(#[from] deploy::DeployDataDefsError),
+    DeployDataDefs(#[from] yeet::DeployDataDefsError),
     #[error("Failed to make printable TOML of deployment: {0}")]
     TomlFormat(#[from] toml::ser::Error),
     #[error("{0}")]
     PromptDeployment(#[from] PromptDeploymentError),
     #[error("Failed to revoke profile: {0}")]
-    RevokeProfile(#[from] deploy::deploy::RevokeProfileError),
+    RevokeProfile(#[from] yeet::deploy::RevokeProfileError),
 }
 
 type ToDeploy<'a> = Vec<(
-    &'a deploy::DeployFlake<'a>,
-    &'a deploy::data::Data,
-    (&'a str, &'a deploy::data::Node),
-    (&'a str, &'a deploy::data::Profile),
+    &'a yeet::DeployFlake<'a>,
+    &'a yeet::data::Data,
+    (&'a str, &'a yeet::data::Node),
+    (&'a str, &'a yeet::data::Profile),
 )>;
 
 async fn run_deploy(
-    deploy_flakes: Vec<deploy::DeployFlake<'_>>,
-    data: Vec<deploy::data::Data>,
+    deploy_flakes: Vec<yeet::DeployFlake<'_>>,
+    data: Vec<yeet::data::Data>,
     supports_flakes: bool,
     check_sigs: bool,
     interactive: bool,
-    cmd_overrides: &deploy::CmdOverrides,
+    cmd_overrides: &yeet::CmdOverrides,
     keep_result: bool,
     result_path: Option<&str>,
     extra_build_args: &[String],
@@ -437,7 +429,7 @@ async fn run_deploy(
                         None => return Err(RunDeployError::NodeNotFound(node_name.clone())),
                     };
 
-                    let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
+                    let mut profiles_list: Vec<(&str, &yeet::data::Profile)> = Vec::new();
 
                     for profile_name in [
                         node.node_settings.profiles_order.iter().collect(),
@@ -466,7 +458,7 @@ async fn run_deploy(
                     let mut l = Vec::new();
 
                     for (node_name, node) in &data.nodes {
-                        let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
+                        let mut profiles_list: Vec<(&str, &yeet::data::Profile)> = Vec::new();
 
                         for profile_name in [
                             node.node_settings.profiles_order.iter().collect(),
@@ -507,14 +499,10 @@ async fn run_deploy(
         .flatten()
         .collect();
 
-    let mut parts: Vec<(
-        &deploy::DeployFlake<'_>,
-        deploy::DeployData,
-        deploy::DeployDefs,
-    )> = Vec::new();
+    let mut parts: Vec<(&yeet::DeployFlake<'_>, yeet::DeployData, yeet::DeployDefs)> = Vec::new();
 
     for (deploy_flake, data, (node_name, node), (profile_name, profile)) in to_deploy {
-        let deploy_data = deploy::make_deploy_data(
+        let deploy_data = yeet::make_deploy_data(
             &data.generic_settings,
             node,
             node_name,
@@ -537,7 +525,7 @@ async fn run_deploy(
     }
 
     for (deploy_flake, deploy_data, deploy_defs) in &parts {
-        deploy::push::push_profile(deploy::push::PushProfileData {
+        yeet::push::push_profile(yeet::push::PushProfileData {
             supports_flakes,
             check_sigs,
             repo: deploy_flake.repo,
@@ -550,15 +538,14 @@ async fn run_deploy(
         .await?;
     }
 
-    let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
+    let mut succeeded: Vec<(&yeet::DeployData, &yeet::DeployDefs)> = vec![];
 
     // Run all deployments
     // In case of an error rollback any previoulsy made deployment.
     // Rollbacks adhere to the global seeting to auto_rollback and secondary
     // the profile's configuration
     for (_, deploy_data, deploy_defs) in &parts {
-        if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, dry_activate).await
-        {
+        if let Err(e) = yeet::deploy::deploy_profile(deploy_data, deploy_defs, dry_activate).await {
             error!("{}", e);
             if dry_activate {
                 info!("dry run, not rolling back");
@@ -570,7 +557,7 @@ async fn run_deploy(
                 //  the command line)
                 for (deploy_data, deploy_defs) in &succeeded {
                     if deploy_data.merged_settings.auto_rollback.unwrap_or(true) {
-                        deploy::deploy::revoke(*deploy_data, *deploy_defs).await?;
+                        yeet::deploy::revoke(*deploy_data, *deploy_defs).await?;
                     }
                 }
             }
@@ -585,9 +572,9 @@ async fn run_deploy(
 #[derive(Error, Debug)]
 pub enum RunError {
     #[error("Failed to deploy profile: {0}")]
-    DeployProfile(#[from] deploy::deploy::DeployProfileError),
+    DeployProfile(#[from] yeet::deploy::DeployProfileError),
     #[error("Failed to push profile: {0}")]
-    PushProfile(#[from] deploy::push::PushProfileError),
+    PushProfile(#[from] yeet::push::PushProfileError),
     #[error("Failed to test for flake support: {0}")]
     FlakeTest(std::io::Error),
     #[error("Failed to check deployment: {0}")]
@@ -595,7 +582,7 @@ pub enum RunError {
     #[error("Failed to evaluate deployment data: {0}")]
     GetDeploymentData(#[from] GetDeploymentDataError),
     #[error("Error parsing flake: {0}")]
-    ParseFlake(#[from] deploy::ParseFlakeError),
+    ParseFlake(#[from] yeet::ParseFlakeError),
     #[error("Error initiating logger: {0}")]
     Logger(#[from] flexi_logger::FlexiLoggerError),
     #[error("{0}")]
@@ -608,10 +595,10 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         None => Opts::parse(),
     };
 
-    deploy::init_logger(
+    yeet::init_logger(
         opts.debug_logs,
         opts.log_dir.as_deref(),
-        &deploy::LoggerType::Deploy,
+        &yeet::LoggerType::Deploy,
     )?;
 
     let deploys = opts
@@ -621,10 +608,10 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
 
     let deploy_flakes: Vec<DeployFlake> = deploys
         .iter()
-        .map(|f| deploy::parse_flake(f.as_str()))
+        .map(|f| yeet::parse_flake(f.as_str()))
         .collect::<Result<Vec<DeployFlake>, ParseFlakeError>>()?;
 
-    let cmd_overrides = deploy::CmdOverrides {
+    let cmd_overrides = yeet::CmdOverrides {
         ssh_user: opts.ssh_user,
         profile_user: opts.profile_user,
         ssh_opts: opts.ssh_opts,
