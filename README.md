@@ -5,13 +5,13 @@ SPDX-FileCopyrightText: 2021 Yannik Sander <contact@ysndr.de>
 SPDX-License-Identifier: MPL-2.0
 -->
 
-![deploy-rs logo](./docs/logo.svg "deploy-rs")
+![yeet logo](./docs/logo.svg "yeet")
 
 ---
 
 A Simple, multi-profile Nix-flake deploy tool.
 
-Questions? Need help? Join us on Matrix: [`#deploy-rs:matrix.org`](https://matrix.to/#/#deploy-rs:matrix.org)
+Questions? Need help? Join us on Matrix: [`#yeet:matrix.org`](https://matrix.to/#/#yeet:matrix.org)
 
 ## Usage
 
@@ -26,7 +26,7 @@ If your profile or node name has a . in it, simply wrap it in quotes, and the fl
 Any "extra" arguments will be passed into the Nix calls, so for instance to deploy an impure profile, you may use `deploy . -- --impure` (note the explicit flake path is necessary for doing this).
 
 You can try out this tool easily with `nix run`:
-- `nix run github:serokell/deploy-rs your-flake`
+- `nix run github:serokell/yeet your-flake`
 
 In you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `deploy <flake>` you can issue `deploy --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
 
@@ -40,7 +40,7 @@ There is also an `activate` binary though this should be ignored, it is only use
 
 ## Ideas
 
-`deploy-rs` is a simple Rust program that will take a Nix flake and use it to deploy any of your defined profiles to your nodes. This is _strongly_ based off of [serokell/deploy](https://github.com/serokell/deploy), designed to replace it and expand upon it.
+`yeet` is a simple Rust program that will take a Nix flake and use it to deploy any of your defined profiles to your nodes. This is _strongly_ based off of [serokell/deploy](https://github.com/serokell/deploy), designed to replace it and expand upon it.
 
 ### Multi-profile
 
@@ -54,22 +54,22 @@ There is a built-in feature to prevent you making changes that might render your
 
 ### Overall usage
 
-`deploy-rs` is designed to be used with Nix flakes (this currently requires an unstable version of Nix to work with). There is a Flake-less mode of operation which will automatically be used if your available Nix version does not support flakes, however you will likely want to use a flake anyway, just with `flake-compat` (see [this wiki page](https://nixos.wiki/wiki/Flakes) for usage).
+`yeet` is designed to be used with Nix flakes (this currently requires an unstable version of Nix to work with). There is a Flake-less mode of operation which will automatically be used if your available Nix version does not support flakes, however you will likely want to use a flake anyway, just with `flake-compat` (see [this wiki page](https://nixos.wiki/wiki/Flakes) for usage).
 
-`deploy-rs` also outputs a `lib` attribute, with tools used to make your definitions simpler and safer, including `deploy-rs.lib.${system}.activate` (see later section "Profile"), and `deploy-rs.lib.${system}.deployChecks` which will let `nix flake check` ensure your deployment is defined correctly.
+`yeet` also outputs a `lib` attribute, with tools used to make your definitions simpler and safer, including `yeet.lib.${system}.activate` (see later section "Profile"), and `yeet.lib.${system}.deployChecks` which will let `nix flake check` ensure your deployment is defined correctly.
 
-There are full working deploy-rs Nix expressions in the [examples folder](./examples), and there is a JSON schema [here](./interface.json) which is used internally by the `deployChecks` mentioned above to validate your expressions.
+There are full working yeet Nix expressions in the [examples folder](./examples), and there is a JSON schema [here](./interface.json) which is used internally by the `deployChecks` mentioned above to validate your expressions.
 
-A basic example of a flake that works with `deploy-rs` and deploys a simple NixOS configuration could look like this
+A basic example of a flake that works with `yeet` and deploys a simple NixOS configuration could look like this
 
 ```nix
 {
   description = "Deployment for my server cluster";
 
-  # For accessing `deploy-rs`'s utility Nix functions
-  inputs.deploy-rs.url = "github:serokell/deploy-rs";
+  # For accessing `yeet`'s utility Nix functions
+  inputs.yeet.url = "github:serokell/yeet";
 
-  outputs = { self, nixpkgs, deploy-rs }: {
+  outputs = { self, nixpkgs, yeet }: {
     nixosConfigurations.some-random-system = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [ ./some-random-system/configuration.nix ];
@@ -77,25 +77,25 @@ A basic example of a flake that works with `deploy-rs` and deploys a simple NixO
 
     deploy.nodes.some-random-system.profiles.system = {
         user = "root";
-        path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.some-random-system;
+        path = yeet.lib.x86_64-linux.activate.nixos self.nixosConfigurations.some-random-system;
     };
 
     # This is highly advised, and will prevent many possible mistakes
-    checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
+    checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) yeet.lib;
   };
 }
 ```
 
 ### Profile
 
-This is the core of how `deploy-rs` was designed, any number of these can run on a node, as any user (see further down for specifying user information). If you want to mimic the behaviour of traditional tools like NixOps or Morph, try just defining one `profile` called `system`, as root, containing a nixosSystem, and you can even similarly use [home-manager](https://github.com/nix-community/home-manager) on any non-privileged user.
+This is the core of how `yeet` was designed, any number of these can run on a node, as any user (see further down for specifying user information). If you want to mimic the behaviour of traditional tools like NixOps or Morph, try just defining one `profile` called `system`, as root, containing a nixosSystem, and you can even similarly use [home-manager](https://github.com/nix-community/home-manager) on any non-privileged user.
 
 ```nix
 {
-  # A derivation containing your required software, and a script to activate it in `${path}/deploy-rs-activate`
-  # For ease of use, `deploy-rs` provides a function to easily add the required activation script to any derivation
+  # A derivation containing your required software, and a script to activate it in `${path}/yeet-activate`
+  # For ease of use, `yeet` provides a function to easily add the required activation script to any derivation
   # Both the working directory and `$PROFILE` will point to `profilePath`
-  path = deploy-rs.lib.x86_64-linux.activate.custom pkgs.hello "./bin/hello";
+  path = yeet.lib.x86_64-linux.activate.custom pkgs.hello "./bin/hello";
 
   # An optional path to where your profile should be installed to, this is useful if you want to use a common profile name across multiple users, but would have conflicts in your node's profile list.
   # This will default to `"/nix/var/nix/profiles/$PROFILE_NAME` if `user` is root (see: generic options), and `/nix/var/nix/profiles/per-user/$USER/$PROFILE_NAME` if it is not.
@@ -151,7 +151,7 @@ This is a set of options that can be put in any of the above definitions, with t
 
 ```nix
 {
-  # This is the user that deploy-rs will use when connecting.
+  # This is the user that yeet will use when connecting.
   # This will default to your own username if not specified anywhere
   sshUser = "admin";
 
@@ -174,16 +174,16 @@ This is a set of options that can be put in any of the above definitions, with t
   # This defaults to `true`
   magicRollback = true;
 
-  # The path which deploy-rs will use for temporary files, this is currently only used by `magicRollback` to create an inotify watcher in for confirmations
+  # The path which yeet will use for temporary files, this is currently only used by `magicRollback` to create an inotify watcher in for confirmations
   # If not specified, this will default to `/tmp`
   # (if `magicRollback` is in use, this _must_ be writable by `user`)
-  tempPath = "/home/someuser/.deploy-rs";
+  tempPath = "/home/someuser/.yeet";
 }
 ```
 
 ## About Serokell
 
-deploy-rs is maintained and funded with ❤️ by [Serokell](https://serokell.io/).
+yeet is maintained and funded with ❤️ by [Serokell](https://serokell.io/).
 The names and logo for Serokell are trademark of Serokell OÜ.
 
 We love open source software! See [our other projects](https://serokell.io/community?utm_source=github) or [hire us](https://serokell.io/hire-us?utm_source=github) to design, develop and grow your idea!

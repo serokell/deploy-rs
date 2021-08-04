@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
 [package]
-name = "deploy-rs"
+name = "yeet"
 version = "0.1.0"
 authors = ["notgne2 <gen2@gen2.space>", "Serokell <hi@serokell.io>"]
 edition = "2018"
@@ -30,7 +30,7 @@ yn = "0.1"
 
 # smol_str is required by rnix, but 0.1.17 doesn't build on rustc
 # 1.45.2 (shipped in nixos-20.09); it requires rustc 1.46.0. See
-# <https://github.com/serokell/deploy-rs/issues/27>:
+# <https://github.com/serokell/yeet/issues/27>:
 smol_str = "=0.1.16"
 
 

@@ -33,16 +33,16 @@
       };
     in
     {
-      deploy-rs = {
+      yeet = {
 
-        deploy-rs = naersk-lib.buildPackage (darwinOptions // {
+        yeet = naersk-lib.buildPackage (darwinOptions // {
           root = ./.;
         }) // { meta.description = "A Simple multi-profile Nix-flake deploy tool"; };
 
         lib = rec {
 
           setActivate = builtins.trace
-            "deploy-rs#lib.setActivate is deprecated, use activate.noop, activate.nixos or activate.custom instead"
+            "yeet#lib.setActivate is deprecated, use activate.noop, activate.nixos or activate.custom instead"
             activate.custom;
 
           activate = rec {
@@ -68,7 +68,7 @@
                             fi
                           '';
                           executable = true;
-                          destination = "/deploy-rs-activate";
+                          destination = "/yeet-activate";
                         })
                         (final.writeTextFile {
                             name = base.name + "-activate-rs";
@@ -89,7 +89,7 @@
 
               $PROFILE/bin/switch-to-configuration switch
 
-              # https://github.com/serokell/deploy-rs/issues/31
+              # https://github.com/serokell/yeet/issues/31
               ${with base.config.boot.loader;
               final.lib.optionalString systemd-boot.enable
               "sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
@@ -109,13 +109,13 @@
               let
                 profiles = builtins.concatLists (final.lib.mapAttrsToList (nodeName: node: final.lib.mapAttrsToList (profileName: profile: [ (toString profile.path) nodeName profileName ]) node.profiles) deploy.nodes);
               in
-              final.runCommandNoCC "deploy-rs-check-activate" { } ''
+              final.runCommandNoCC "yeet-check-activate" { } ''
                 for x in ${builtins.concatStringsSep " " (map (p: builtins.concatStringsSep ":" p) profiles)}; do
                   profile_path=$(echo $x | cut -f1 -d:)
                   node_name=$(echo $x | cut -f2 -d:)
                   profile_name=$(echo $x | cut -f3 -d:)
 
-                  test -f "$profile_path/deploy-rs-activate" || (echo "#$node_name.$profile_name is missing the deploy-rs-activate activation script" && exit 1);
+                  test -f "$profile_path/yeet-activate" || (echo "#$node_name.$profile_name is missing the yeet-activate activation script" && exit 1);
 
                   test -f "$profile_path/activate-rs" || (echo "#$node_name.$profile_name is missing the activate-rs activation script" && exit 1);
                 done
@@ -132,17 +132,17 @@
         pkgs = import nixpkgs { inherit system; overlays = [ self.overlay ]; };
       in
       {
-        defaultPackage = self.packages."${system}".deploy-rs;
-        packages.deploy-rs = pkgs.deploy-rs.deploy-rs;
+        defaultPackage = self.packages."${system}".yeet;
+        packages.yeet = pkgs.yeet.yeet;
 
-        defaultApp = self.apps."${system}".deploy-rs;
-        apps.deploy-rs = {
+        defaultApp = self.apps."${system}".yeet;
+        apps.yeet = {
           type = "app";
           program = "${self.defaultPackage."${system}"}/bin/deploy";
         };
 
         devShell = pkgs.mkShell {
-          inputsFrom = [ self.packages.${system}.deploy-rs ];
+          inputsFrom = [ self.packages.${system}.yeet ];
           RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
           buildInputs = with pkgs; [
             nixUnstable
@@ -157,9 +157,9 @@
         };
 
         checks = {
-          deploy-rs = self.defaultPackage.${system}.overrideAttrs (super: { doCheck = true; });
+          yeet = self.defaultPackage.${system}.overrideAttrs (super: { doCheck = true; });
         };
 
-        lib = pkgs.deploy-rs.lib;
+        lib = pkgs.yeet.lib;
       });
 }

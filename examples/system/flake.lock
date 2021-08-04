@@ -1,6 +1,6 @@
 {
   "nodes": {
-    "deploy-rs": {
+    "yeet": {
       "inputs": {
         "flake-compat": "flake-compat",
         "naersk": "naersk",
@@ -11,13 +11,13 @@
         "lastModified": 1603740297,
         "narHash": "sha256-yeTrA8AaLzDFICApX725gQhKoHNI2TCqWAeOl9axVZE=",
         "owner": "serokell",
-        "repo": "deploy-rs",
+        "repo": "yeet",
         "rev": "426fb3c489dcbb4ccbf98a3ab6a7fe25e71b95ca",
         "type": "github"
       },
       "original": {
         "owner": "serokell",
-        "repo": "deploy-rs",
+        "repo": "yeet",
         "type": "github"
       }
     },
@@ -90,7 +90,7 @@
     },
     "root": {
       "inputs": {
-        "deploy-rs": "deploy-rs",
+        "yeet": "yeet",
         "nixpkgs": "nixpkgs_2"
       }
     },
