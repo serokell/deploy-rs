@@ -35,5 +35,5 @@ smol_str = "=0.1.16"
 
 
 [lib]
-name = "deploy"
+name = "yeet"
 path = "src/lib.rs"
