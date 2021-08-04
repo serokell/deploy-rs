@@ -143,7 +143,17 @@
 
         devShell = pkgs.mkShell {
           inputsFrom = [ self.packages.${system}.deploy-rs ];
-          buildInputs = [ pkgs.nixUnstable pkgs.rust-analyzer pkgs.rustfmt ];
+          RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+          buildInputs = with pkgs; [
+            nixUnstable
+            cargo
+            rustc
+            rust-analyzer
+            rustfmt
+            clippy
+            reuse
+            rust.packages.stable.rustPlatform.rustLibSrc
+          ];
         };
 
         checks = {
