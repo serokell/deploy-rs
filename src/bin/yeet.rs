@@ -3,8 +3,8 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use deploy::cli;
 use log::error;
+use yeet::cli;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
