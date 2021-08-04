@@ -78,7 +78,7 @@ fn test_activation_command_builder() {
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_activate_command(ActivateCommandData {
+        build_activate_command(&ActivateCommandData {
             sudo: &sudo,
             profile_path,
             closure,
@@ -135,7 +135,7 @@ fn test_wait_command_builder() {
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_wait_command(WaitCommandData {
+        build_wait_command(&WaitCommandData {
             sudo: &sudo,
             closure,
             temp_path,
@@ -184,7 +184,7 @@ fn test_revoke_command_builder() {
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_revoke_command(RevokeCommandData {
+        build_revoke_command(&RevokeCommandData {
             sudo: &sudo,
             closure,
             profile_path,
