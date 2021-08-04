@@ -11,7 +11,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "3.0.0-beta.2"
+clap = { version = "3.0.0-beta.2", features = [ "wrap_help" ] }
 flexi_logger = "0.16"
 fork = "0.1"
 futures-util = "0.3.6"
@@ -23,7 +23,7 @@ serde = { version = "1.0.104", features = [ "derive" ] }
 serde_json = "1.0.48"
 signal-hook = "0.3"
 thiserror = "1.0"
-tokio = { version = "1.9.0", features = [ "full" ] }
+tokio = { version = "1.9.0", features = [ "process", "macros", "sync", "rt-multi-thread", "fs", "time" ] }
 toml = "0.5"
 whoami = "0.9.0"
 yn = "0.1"
@@ -37,3 +37,8 @@ smol_str = "=0.1.16"
 [lib]
 name = "deploy"
 path = "src/lib.rs"
+
+[profile.release]
+lto = true
+opt-level = "s"
+codegen-units = 1
