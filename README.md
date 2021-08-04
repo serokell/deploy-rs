@@ -11,11 +11,11 @@ SPDX-License-Identifier: MPL-2.0
 
 A Simple, multi-profile Nix-flake deploy tool.
 
-Questions? Need help? Join us on Matrix: [`#yeet:matrix.org`](https://matrix.to/#/#yeet:matrix.org)
+Questions? Need help? Join us on Matrix: [`#yeet:nixos.org`](https://matrix.to/#/#yeet:nixos.org)
 
 ## Usage
 
-Basic usage: `deploy [options] <flake>`.
+Basic usage: `yeet [options] <flake>`.
 
 Using this method all profiles specified in the given `<flake>` will be deployed (taking into account the [`profilesOrder`](#node)).
 
@@ -23,18 +23,18 @@ Using this method all profiles specified in the given `<flake>` will be deployed
 
 If your profile or node name has a . in it, simply wrap it in quotes, and the flake path in quotes (to avoid shell escaping), for example 'my-flake."myserver.com".system'.
 
-Any "extra" arguments will be passed into the Nix calls, so for instance to deploy an impure profile, you may use `deploy . -- --impure` (note the explicit flake path is necessary for doing this).
+Any "extra" arguments will be passed into the Nix calls, so for instance to deploy an impure profile, you may use `yeet . -- --impure` (note the explicit flake path is necessary for doing this).
 
 You can try out this tool easily with `nix run`:
 - `nix run github:serokell/yeet your-flake`
 
-In you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `deploy <flake>` you can issue `deploy --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
+In you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `yeet <flake>` you can issue `yeet --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
 
 Running in this mode, if any of the deploys fails, the deploy will be aborted and all successful deploys rolled back. `--rollback-succeeded false` can be used to override this behavior, otherwise the `auto-rollback` argument takes precedent.
 
 If you require a signing key to push closures to your server, specify the path to it in the `LOCAL_KEY` environment variable.
 
-Check out `deploy --help` for CLI flags! Remember to check there before making one-time changes to things like hostnames.
+Check out `yeet --help` for CLI flags! Remember to check there before making one-time changes to things like hostnames.
 
 There is also an `activate` binary though this should be ignored, it is only used internally (on the deployed system) and for testing/hacking purposes.
 
@@ -115,7 +115,7 @@ This defines a single node/server, and the profiles you intend it to run.
   hostname = "my.server.gov";
 
   # An optional list containing the order you want profiles to be deployed.
-  # This will take effect whenever you run `deploy` without specifying a profile, causing it to deploy every profile automatically.
+  # This will take effect whenever you run `yeet` without specifying a profile, causing it to deploy every profile automatically.
   # Any profiles not in this list will still be deployed (in an arbitrary order) after those which are listed
   profilesOrder = [ "something" "system" ];
 
