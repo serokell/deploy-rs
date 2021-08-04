@@ -12,19 +12,19 @@ use tokio::process::Command;
 #[derive(Error, Debug)]
 pub enum PushProfileError {
     #[error("Failed to run Nix show-derivation command: {0}")]
-    ShowDerivationError(std::io::Error),
+    ShowDerivation(std::io::Error),
     #[error("Nix show-derivation command resulted in a bad exit code: {0:?}")]
-    ShowDerivationExitError(Option<i32>),
+    ShowDerivationExit(Option<i32>),
     #[error("Nix show-derivation command output contained an invalid UTF-8 sequence: {0}")]
-    ShowDerivationUtf8Error(std::str::Utf8Error),
+    ShowDerivationUtf8(std::str::Utf8Error),
     #[error("Failed to parse the output of nix show-derivation: {0}")]
-    ShowDerivationParseError(serde_json::Error),
+    ShowDerivationParse(serde_json::Error),
     #[error("Nix show-derivation output is empty")]
     ShowDerivationEmpty,
     #[error("Failed to run Nix build command: {0}")]
-    BuildError(std::io::Error),
+    Build(std::io::Error),
     #[error("Nix build command resulted in a bad exit code: {0:?}")]
-    BuildExitError(Option<i32>),
+    BuildExit(Option<i32>),
     #[error(
         "Activation script deploy-rs-activate does not exist in profile.\n\
              Did you forget to use deploy-rs#lib.<...>.activate.<...> on your profile path?"
@@ -34,13 +34,13 @@ pub enum PushProfileError {
              Is there a mismatch in deploy-rs used in the flake you're deploying and deploy-rs command you're running?")]
     ActivateRsDoesntExist,
     #[error("Failed to run Nix sign command: {0}")]
-    SignError(std::io::Error),
+    Sign(std::io::Error),
     #[error("Nix sign command resulted in a bad exit code: {0:?}")]
-    SignExitError(Option<i32>),
+    SignExit(Option<i32>),
     #[error("Failed to run Nix copy command: {0}")]
-    CopyError(std::io::Error),
+    Copy(std::io::Error),
     #[error("Nix copy command resulted in a bad exit code: {0:?}")]
-    CopyExitError(Option<i32>),
+    CopyExit(Option<i32>),
 }
 
 pub struct PushProfileData<'a> {
@@ -70,18 +70,18 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
     let show_derivation_output = show_derivation_command
         .output()
         .await
-        .map_err(PushProfileError::ShowDerivationError)?;
+        .map_err(PushProfileError::ShowDerivation)?;
 
     match show_derivation_output.status.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::ShowDerivationExitError(a)),
+        a => return Err(PushProfileError::ShowDerivationExit(a)),
     };
 
     let derivation_info: HashMap<&str, serde_json::value::Value> = serde_json::from_str(
         std::str::from_utf8(&show_derivation_output.stdout)
-            .map_err(PushProfileError::ShowDerivationUtf8Error)?,
+            .map_err(PushProfileError::ShowDerivationUtf8)?,
     )
-    .map_err(PushProfileError::ShowDerivationParseError)?;
+    .map_err(PushProfileError::ShowDerivationParse)?;
 
     let derivation_name = derivation_info
         .keys()
@@ -127,11 +127,11 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         .stdout(Stdio::null())
         .status()
         .await
-        .map_err(PushProfileError::BuildError)?;
+        .map_err(PushProfileError::Build)?;
 
     match build_exit_status.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::BuildExitError(a)),
+        a => return Err(PushProfileError::BuildExit(a)),
     };
 
     if !Path::new(
@@ -172,11 +172,11 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
             .arg(&data.deploy_data.profile.profile_settings.path)
             .status()
             .await
-            .map_err(PushProfileError::SignError)?;
+            .map_err(PushProfileError::Sign)?;
 
         match sign_exit_status.code() {
             Some(0) => (),
-            a => return Err(PushProfileError::SignExitError(a)),
+            a => return Err(PushProfileError::SignExit(a)),
         };
     }
 
@@ -218,11 +218,11 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         .env("NIX_SSHOPTS", ssh_opts_str)
         .status()
         .await
-        .map_err(PushProfileError::CopyError)?;
+        .map_err(PushProfileError::Copy)?;
 
     match copy_exit_status.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::CopyExitError(a)),
+        a => return Err(PushProfileError::CopyExit(a)),
     };
 
     Ok(())

@@ -24,7 +24,7 @@ struct ActivateCommandData<'a> {
     dry_activate: bool,
 }
 
-fn build_activate_command(data: ActivateCommandData) -> String {
+fn build_activate_command(data: &ActivateCommandData) -> String {
     let mut self_activate_command = format!("{}/activate-rs", data.closure);
 
     if data.debug_logs {
@@ -78,7 +78,7 @@ fn test_activation_command_builder() {
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_activate_command(ActivateCommandData {
+        build_activate_command(&ActivateCommandData {
             sudo: &sudo,
             profile_path,
             closure,
@@ -103,7 +103,7 @@ struct WaitCommandData<'a> {
     log_dir: Option<&'a str>,
 }
 
-fn build_wait_command(data: WaitCommandData) -> String {
+fn build_wait_command(data: &WaitCommandData) -> String {
     let mut self_activate_command = format!("{}/activate-rs", data.closure);
 
     if data.debug_logs {
@@ -135,7 +135,7 @@ fn test_wait_command_builder() {
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_wait_command(WaitCommandData {
+        build_wait_command(&WaitCommandData {
             sudo: &sudo,
             closure,
             temp_path,
@@ -155,7 +155,7 @@ struct RevokeCommandData<'a> {
     log_dir: Option<&'a str>,
 }
 
-fn build_revoke_command(data: RevokeCommandData) -> String {
+fn build_revoke_command(data: &RevokeCommandData) -> String {
     let mut self_activate_command = format!("{}/activate-rs", data.closure);
 
     if data.debug_logs {
@@ -184,7 +184,7 @@ fn test_revoke_command_builder() {
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_revoke_command(RevokeCommandData {
+        build_revoke_command(&RevokeCommandData {
             sudo: &sudo,
             closure,
             profile_path,
@@ -199,11 +199,11 @@ fn test_revoke_command_builder() {
 #[derive(Error, Debug)]
 pub enum ConfirmProfileError {
     #[error("Failed to run confirmation command over SSH (the server should roll back): {0}")]
-    SSHConfirmError(std::io::Error),
+    SSHConfirm(std::io::Error),
     #[error(
         "Confirming activation over SSH resulted in a bad exit code (the server should roll back): {0:?}"
     )]
-    SSHConfirmExitError(Option<i32>),
+    SSHConfirmExit(Option<i32>),
 }
 
 pub async fn confirm_profile(
@@ -235,11 +235,11 @@ pub async fn confirm_profile(
         .arg(confirm_command)
         .status()
         .await
-        .map_err(ConfirmProfileError::SSHConfirmError)?;
+        .map_err(ConfirmProfileError::SSHConfirm)?;
 
     match ssh_confirm_exit_status.code() {
         Some(0) => (),
-        a => return Err(ConfirmProfileError::SSHConfirmExitError(a)),
+        a => return Err(ConfirmProfileError::SSHConfirmExit(a)),
     };
 
     info!("Deployment confirmed.");
@@ -250,20 +250,20 @@ pub async fn confirm_profile(
 #[derive(Error, Debug)]
 pub enum DeployProfileError {
     #[error("Failed to spawn activation command over SSH: {0}")]
-    SSHSpawnActivateError(std::io::Error),
+    SSHSpawnActivate(std::io::Error),
 
     #[error("Failed to run activation command over SSH: {0}")]
-    SSHActivateError(std::io::Error),
+    SSHActivate(std::io::Error),
     #[error("Activating over SSH resulted in a bad exit code: {0:?}")]
-    SSHActivateExitError(Option<i32>),
+    SSHActivateExit(Option<i32>),
 
     #[error("Failed to run wait command over SSH: {0}")]
-    SSHWaitError(std::io::Error),
+    SSHWait(std::io::Error),
     #[error("Waiting over SSH resulted in a bad exit code: {0:?}")]
-    SSHWaitExitError(Option<i32>),
+    SSHWaitExit(Option<i32>),
 
     #[error("Error confirming deployment: {0}")]
-    ConfirmError(#[from] ConfirmProfileError),
+    Confirm(#[from] ConfirmProfileError),
 }
 
 pub async fn deploy_profile(
@@ -289,7 +289,7 @@ pub async fn deploy_profile(
 
     let auto_rollback = deploy_data.merged_settings.auto_rollback.unwrap_or(true);
 
-    let self_activate_command = build_activate_command(ActivateCommandData {
+    let self_activate_command = build_activate_command(&ActivateCommandData {
         sudo: &deploy_defs.sudo,
         profile_path: &deploy_defs.profile_path,
         closure: &deploy_data.profile.profile_settings.path,
@@ -323,11 +323,11 @@ pub async fn deploy_profile(
             .arg(self_activate_command)
             .status()
             .await
-            .map_err(DeployProfileError::SSHActivateError)?;
+            .map_err(DeployProfileError::SSHActivate)?;
 
         match ssh_activate_exit_status.code() {
             Some(0) => (),
-            a => return Err(DeployProfileError::SSHActivateExitError(a)),
+            a => return Err(DeployProfileError::SSHActivateExit(a)),
         };
 
         if dry_activate {
@@ -336,7 +336,7 @@ pub async fn deploy_profile(
             info!("Success activating, done!");
         }
     } else {
-        let self_wait_command = build_wait_command(WaitCommandData {
+        let self_wait_command = build_wait_command(&WaitCommandData {
             sudo: &deploy_defs.sudo,
             closure: &deploy_data.profile.profile_settings.path,
             temp_path: &temp_path,
@@ -349,7 +349,7 @@ pub async fn deploy_profile(
         let ssh_activate = ssh_activate_command
             .arg(self_activate_command)
             .spawn()
-            .map_err(DeployProfileError::SSHSpawnActivateError)?;
+            .map_err(DeployProfileError::SSHSpawnActivate)?;
 
         info!("Creating activation waiter");
 
@@ -367,10 +367,10 @@ pub async fn deploy_profile(
             let o = ssh_activate.wait_with_output().await;
 
             let maybe_err = match o {
-                Err(x) => Some(DeployProfileError::SSHActivateError(x)),
+                Err(x) => Some(DeployProfileError::SSHActivate(x)),
                 Ok(ref x) => match x.status.code() {
                     Some(0) => None,
-                    a => Some(DeployProfileError::SSHActivateExitError(a)),
+                    a => Some(DeployProfileError::SSHActivateExit(a)),
                 },
             };
 
@@ -383,9 +383,9 @@ pub async fn deploy_profile(
         tokio::select! {
             x = ssh_wait_command.arg(self_wait_command).status() => {
                 debug!("Wait command ended");
-                match x.map_err(DeployProfileError::SSHWaitError)?.code() {
+                match x.map_err(DeployProfileError::SSHWait)?.code() {
                     Some(0) => (),
-                    a => return Err(DeployProfileError::SSHWaitExitError(a)),
+                    a => return Err(DeployProfileError::SSHWaitExit(a)),
                 };
             },
             x = recv_activate => {
@@ -407,21 +407,21 @@ pub async fn deploy_profile(
 #[derive(Error, Debug)]
 pub enum RevokeProfileError {
     #[error("Failed to spawn revocation command over SSH: {0}")]
-    SSHSpawnRevokeError(std::io::Error),
+    SSHSpawnRevoke(std::io::Error),
 
     #[error("Error revoking deployment: {0}")]
-    SSHRevokeError(std::io::Error),
+    SSHRevoke(std::io::Error),
     #[error("Revoking over SSH resulted in a bad exit code: {0:?}")]
-    SSHRevokeExitError(Option<i32>),
+    SSHRevokeExit(Option<i32>),
 
     #[error("Deployment data invalid: {0}")]
-    InvalidDeployDataDefsError(#[from] DeployDataDefsError),
+    InvalidDeployDataDefs(#[from] DeployDataDefsError),
 }
 pub async fn revoke(
     deploy_data: &crate::DeployData<'_>,
     deploy_defs: &crate::DeployDefs,
 ) -> Result<(), RevokeProfileError> {
-    let self_revoke_command = build_revoke_command(RevokeCommandData {
+    let self_revoke_command = build_revoke_command(&RevokeCommandData {
         sudo: &deploy_defs.sudo,
         closure: &deploy_data.profile.profile_settings.path,
         profile_path: &deploy_data.get_profile_path()?,
@@ -448,15 +448,15 @@ pub async fn revoke(
     let ssh_revoke = ssh_activate_command
         .arg(self_revoke_command)
         .spawn()
-        .map_err(RevokeProfileError::SSHSpawnRevokeError)?;
+        .map_err(RevokeProfileError::SSHSpawnRevoke)?;
 
     let result = ssh_revoke.wait_with_output().await;
 
     match result {
-        Err(x) => Err(RevokeProfileError::SSHRevokeError(x)),
+        Err(x) => Err(RevokeProfileError::SSHRevoke(x)),
         Ok(ref x) => match x.status.code() {
             Some(0) => Ok(()),
-            a => Err(RevokeProfileError::SSHRevokeExitError(a)),
+            a => Err(RevokeProfileError::SSHRevokeExit(a)),
         },
     }
 }

@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
-use clap::{Clap, ArgMatches, FromArgMatches};
+use clap::{ArgMatches, Clap, FromArgMatches};
 
 use crate as deploy;
 
@@ -127,16 +127,13 @@ async fn check_deployment(
         false => Command::new("nix-build"),
     };
 
-    match supports_flakes {
-        true => {
-            check_command.arg("flake").arg("check").arg(repo);
-        }
-        false => {
-            check_command.arg("-E")
+    if supports_flakes {
+        check_command.arg("flake").arg("check").arg(repo);
+    } else {
+        check_command.arg("-E")
                 .arg("--no-out-link")
                 .arg(format!("let r = import {}/.; x = (if builtins.isFunction r then (r {{}}) else r); in if x ? checks then x.checks.${{builtins.currentSystem}} else {{}}", repo));
-        }
-    };
+    }
 
     for extra_arg in extra_build_args {
         check_command.arg(extra_arg);
@@ -420,16 +417,16 @@ async fn run_deploy(
                 (Some(node_name), Some(profile_name)) => {
                     let node = match data.nodes.get(node_name) {
                         Some(x) => x,
-                        None => Err(RunDeployError::NodeNotFound(node_name.to_owned()))?,
+                        None => return Err(RunDeployError::NodeNotFound(node_name.clone())),
                     };
                     let profile = match node.node_settings.profiles.get(profile_name) {
                         Some(x) => x,
-                        None => Err(RunDeployError::ProfileNotFound(profile_name.to_owned()))?,
+                        None => return Err(RunDeployError::ProfileNotFound(profile_name.clone())),
                     };
 
                     vec![(
-                        &deploy_flake,
-                        &data,
+                        deploy_flake,
+                        data,
                         (node_name.as_str(), node),
                         (profile_name.as_str(), profile),
                     )]
@@ -437,7 +434,7 @@ async fn run_deploy(
                 (Some(node_name), None) => {
                     let node = match data.nodes.get(node_name) {
                         Some(x) => x,
-                        None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
+                        None => return Err(RunDeployError::NodeNotFound(node_name.clone())),
                     };
 
                     let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
@@ -451,14 +448,12 @@ async fn run_deploy(
                         let profile = match node.node_settings.profiles.get(profile_name) {
                             Some(x) => x,
                             None => {
-                                return Err(RunDeployError::ProfileNotFound(
-                                    profile_name.to_owned(),
-                                ))
+                                return Err(RunDeployError::ProfileNotFound(profile_name.clone()))
                             }
                         };
 
                         if !profiles_list.iter().any(|(n, _)| n == profile_name) {
-                            profiles_list.push((&profile_name, profile));
+                            profiles_list.push((profile_name, profile));
                         }
                     }
 
@@ -483,13 +478,13 @@ async fn run_deploy(
                                 Some(x) => x,
                                 None => {
                                     return Err(RunDeployError::ProfileNotFound(
-                                        profile_name.to_owned(),
+                                        profile_name.clone(),
                                     ))
                                 }
                             };
 
                             if !profiles_list.iter().any(|(n, _)| n == profile_name) {
-                                profiles_list.push((&profile_name, profile));
+                                profiles_list.push((profile_name, profile));
                             }
                         }
 
@@ -525,7 +520,7 @@ async fn run_deploy(
             node_name,
             profile,
             profile_name,
-            &cmd_overrides,
+            cmd_overrides,
             debug_logs,
             log_dir.as_deref(),
         );
@@ -546,8 +541,8 @@ async fn run_deploy(
             supports_flakes,
             check_sigs,
             repo: deploy_flake.repo,
-            deploy_data: &deploy_data,
-            deploy_defs: &deploy_defs,
+            deploy_data,
+            deploy_defs,
             keep_result,
             result_path,
             extra_build_args,
@@ -616,13 +611,13 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     deploy::init_logger(
         opts.debug_logs,
         opts.log_dir.as_deref(),
-        deploy::LoggerType::Deploy,
+        &deploy::LoggerType::Deploy,
     )?;
 
     let deploys = opts
         .clone()
         .targets
-        .unwrap_or_else(|| vec![opts.clone().target.unwrap_or(".".to_string())]);
+        .unwrap_or_else(|| vec![opts.clone().target.unwrap_or_else(|| ".".to_string())]);
 
     let deploy_flakes: Vec<DeployFlake> = deploys
         .iter()
@@ -649,7 +644,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     }
 
     if !opts.skip_checks {
-        for deploy_flake in deploy_flakes.iter() {
+        for deploy_flake in &deploy_flakes {
             check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
         }
     }

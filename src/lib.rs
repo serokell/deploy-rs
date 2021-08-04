@@ -18,7 +18,7 @@ pub fn make_lock_path(temp_path: &str, closure: &str) -> String {
     format!("{}/deploy-rs-canary-{}", temp_path, lock_hash)
 }
 
-fn make_emoji(level: log::Level) -> &'static str {
+const fn make_emoji(level: log::Level) -> &'static str {
     match level {
         log::Level::Error => "❌",
         log::Level::Warn => "⚠️",
@@ -102,9 +102,9 @@ pub enum LoggerType {
 pub fn init_logger(
     debug_logs: bool,
     log_dir: Option<&str>,
-    logger_type: LoggerType,
+    logger_type: &LoggerType,
 ) -> Result<(), FlexiLoggerError> {
-    let logger_formatter = match logger_type {
+    let logger_formatter = match &logger_type {
         LoggerType::Deploy => logger_formatter_deploy,
         LoggerType::Activate => logger_formatter_activate,
         LoggerType::Wait => logger_formatter_wait,
