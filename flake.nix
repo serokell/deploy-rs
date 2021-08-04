@@ -37,6 +37,7 @@
 
         yeet = naersk-lib.buildPackage (darwinOptions // {
           root = ./.;
+          overrideMain = super: super // { postInstall = "ln -s $out/bin/yeet $out/bin/deploy"; };
         }) // { meta.description = "A Simple multi-profile Nix-flake deploy tool"; };
 
         lib = rec {
@@ -135,11 +136,15 @@
         defaultPackage = self.packages."${system}".yeet;
         packages.yeet = pkgs.yeet.yeet;
 
+        packages.deploy-rs = builtins.trace "`packages.deploy-rs` has been renamed, please use `packages.yeet` instead" self.packages."${system}".yeet;
+
         defaultApp = self.apps."${system}".yeet;
         apps.yeet = {
           type = "app";
-          program = "${self.defaultPackage."${system}"}/bin/deploy";
+          program = "${self.defaultPackage."${system}"}/bin/yeet";
         };
+
+        apps.deploy-rs = builtins.trace "`apps.deploy-rs` has been renamed, please use `apps.yeet` instead" self.packages."${system}".yeet;
 
         devShell = pkgs.mkShell {
           inputsFrom = [ self.packages.${system}.yeet ];
