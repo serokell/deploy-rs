@@ -95,23 +95,23 @@ struct RevokeOpts {
 #[derive(Error, Debug)]
 pub enum DeactivateError {
     #[error("Failed to execute the rollback command: {0}")]
-    RollbackError(std::io::Error),
+    Rollback(std::io::Error),
     #[error("The rollback resulted in a bad exit code: {0:?}")]
-    RollbackExitError(Option<i32>),
+    RollbackExit(Option<i32>),
     #[error("Failed to run command for listing generations: {0}")]
-    ListGenError(std::io::Error),
+    ListGen(std::io::Error),
     #[error("Command for listing generations resulted in a bad exit code: {0:?}")]
-    ListGenExitError(Option<i32>),
+    ListGenExit(Option<i32>),
     #[error("Error converting generation list output to utf8: {0}")]
-    DecodeListGenUtf8Error(#[from] std::string::FromUtf8Error),
+    DecodeListGenUtf8(std::string::FromUtf8Error),
     #[error("Failed to run command for deleting generation: {0}")]
-    DeleteGenError(std::io::Error),
+    DeleteGen(std::io::Error),
     #[error("Command for deleting generations resulted in a bad exit code: {0:?}")]
-    DeleteGenExitError(Option<i32>),
+    DeleteGenExit(Option<i32>),
     #[error("Failed to run command for re-activating the last generation: {0}")]
-    ReactivateError(std::io::Error),
+    Reactivate(std::io::Error),
     #[error("Command for re-activating the last generation resulted in a bad exit code: {0:?}")]
-    ReactivateExitError(Option<i32>),
+    ReactivateExit(Option<i32>),
 }
 
 pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
@@ -123,11 +123,11 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
         .arg("--rollback")
         .status()
         .await
-        .map_err(DeactivateError::RollbackError)?;
+        .map_err(DeactivateError::Rollback)?;
 
     match nix_env_rollback_exit_status.code() {
         Some(0) => (),
-        a => return Err(DeactivateError::RollbackExitError(a)),
+        a => return Err(DeactivateError::RollbackExit(a)),
     };
 
     debug!("Listing generations");
@@ -138,14 +138,15 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
         .arg("--list-generations")
         .output()
         .await
-        .map_err(DeactivateError::ListGenError)?;
+        .map_err(DeactivateError::ListGen)?;
 
     match nix_env_list_generations_out.status.code() {
         Some(0) => (),
-        a => return Err(DeactivateError::ListGenExitError(a)),
+        a => return Err(DeactivateError::ListGenExit(a)),
     };
 
-    let generations_list = String::from_utf8(nix_env_list_generations_out.stdout)?;
+    let generations_list = String::from_utf8(nix_env_list_generations_out.stdout)
+        .map_err(DeactivateError::DecodeListGenUtf8)?;
 
     let last_generation_line = generations_list
         .lines()
@@ -167,11 +168,11 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
         .arg(last_generation_id)
         .status()
         .await
-        .map_err(DeactivateError::DeleteGenError)?;
+        .map_err(DeactivateError::DeleteGen)?;
 
     match nix_env_delete_generation_exit_status.code() {
         Some(0) => (),
-        a => return Err(DeactivateError::DeleteGenExitError(a)),
+        a => return Err(DeactivateError::DeleteGenExit(a)),
     };
 
     info!("Attempting to re-activate the last generation");
@@ -181,11 +182,11 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
         .current_dir(&profile_path)
         .status()
         .await
-        .map_err(DeactivateError::ReactivateError)?;
+        .map_err(DeactivateError::Reactivate)?;
 
     match re_activate_exit_status.code() {
         Some(0) => (),
-        a => return Err(DeactivateError::ReactivateExitError(a)),
+        a => return Err(DeactivateError::ReactivateExit(a)),
     };
 
     Ok(())
@@ -194,15 +195,11 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
 #[derive(Error, Debug)]
 pub enum ActivationConfirmationError {
     #[error("Failed to create activation confirmation directory: {0}")]
-    CreateConfirmDirError(std::io::Error),
+    CreateConfirmDir(std::io::Error),
     #[error("Failed to create activation confirmation file: {0}")]
-    CreateConfirmFileError(std::io::Error),
-    #[error("Failed to create file system watcher instance: {0}")]
-    CreateWatcherError(notify::Error),
-    #[error("Error forking process: {0}")]
-    ForkError(i32),
+    CreateConfirmFile(std::io::Error),
     #[error("Could not watch for activation sentinel: {0}")]
-    WatcherError(#[from] notify::Error),
+    Watcher(#[from] notify::Error),
 }
 
 #[derive(Error, Debug)]
@@ -212,7 +209,7 @@ pub enum DangerZoneError {
     #[error("inotify stream ended without activation confirmation")]
     NoConfirmation,
     #[error("inotify encountered an error: {0}")]
-    WatchError(notify::Error),
+    Watch(notify::Error),
 }
 
 async fn danger_zone(
@@ -223,7 +220,7 @@ async fn danger_zone(
 
     match timeout(Duration::from_secs(confirm_timeout as u64), events.recv()).await {
         Ok(Some(Ok(()))) => Ok(()),
-        Ok(Some(Err(e))) => Err(DangerZoneError::WatchError(e)),
+        Ok(Some(Err(e))) => Err(DangerZoneError::Watch(e)),
         Ok(None) => Err(DangerZoneError::NoConfirmation),
         Err(_) => Err(DangerZoneError::TimesUp),
     }
@@ -242,14 +239,14 @@ pub async fn activation_confirmation(
     if let Some(parent) = Path::new(&lock_path).parent() {
         fs::create_dir_all(parent)
             .await
-            .map_err(ActivationConfirmationError::CreateConfirmDirError)?;
+            .map_err(ActivationConfirmationError::CreateConfirmDir)?;
     }
 
     debug!("Creating canary file");
 
     fs::File::create(&lock_path)
         .await
-        .map_err(ActivationConfirmationError::CreateConfirmFileError)?;
+        .map_err(ActivationConfirmationError::CreateConfirmFile)?;
 
     debug!("Creating notify watcher");
 
@@ -342,20 +339,20 @@ pub async fn wait(temp_path: String, closure: String) -> Result<(), WaitError> {
 #[derive(Error, Debug)]
 pub enum ActivateError {
     #[error("Failed to execute the command for setting profile: {0}")]
-    SetProfileError(std::io::Error),
+    SetProfile(std::io::Error),
     #[error("The command for setting profile resulted in a bad exit code: {0:?}")]
-    SetProfileExitError(Option<i32>),
+    SetProfileExit(Option<i32>),
 
     #[error("Failed to execute the activation script: {0}")]
-    RunActivateError(std::io::Error),
+    RunActivate(std::io::Error),
     #[error("The activation script resulted in a bad exit code: {0:?}")]
-    RunActivateExitError(Option<i32>),
+    RunActivateExit(Option<i32>),
 
     #[error("There was an error de-activating after an error was encountered: {0}")]
-    DeactivateError(#[from] DeactivateError),
+    Deactivate(#[from] DeactivateError),
 
     #[error("Failed to get activation confirmation: {0}")]
-    ActivationConfirmationError(#[from] ActivationConfirmationError),
+    ActivationConfirmation(#[from] ActivationConfirmationError),
 }
 
 pub async fn activate(
@@ -376,14 +373,14 @@ pub async fn activate(
             .arg(&closure)
             .status()
             .await
-            .map_err(ActivateError::SetProfileError)?;
+            .map_err(ActivateError::SetProfile)?;
         match nix_env_set_exit_status.code() {
             Some(0) => (),
             a => {
                 if auto_rollback && !dry_activate {
                     deactivate(&profile_path).await?;
                 }
-                return Err(ActivateError::SetProfileExitError(a));
+                return Err(ActivateError::SetProfileExit(a));
             }
         };
     }
@@ -402,7 +399,7 @@ pub async fn activate(
         .current_dir(activation_location)
         .status()
         .await
-        .map_err(ActivateError::RunActivateError)
+        .map_err(ActivateError::RunActivate)
     {
         Ok(x) => x,
         Err(e) => {
@@ -420,7 +417,7 @@ pub async fn activate(
                 if auto_rollback {
                     deactivate(&profile_path).await?;
                 }
-                return Err(ActivateError::RunActivateExitError(a));
+                return Err(ActivateError::RunActivateExit(a));
             }
         };
 
@@ -437,7 +434,7 @@ pub async fn activate(
                 Ok(()) => {}
                 Err(err) => {
                     deactivate(&profile_path).await?;
-                    return Err(ActivateError::ActivationConfirmationError(err));
+                    return Err(ActivateError::ActivationConfirmation(err));
                 }
             };
         }
@@ -446,12 +443,7 @@ pub async fn activate(
     Ok(())
 }
 
-#[derive(Error, Debug)]
-pub enum RevokeError {
-    #[error("There was an error de-activating after an error was encountered: {0}")]
-    DeactivateError(#[from] DeactivateError),
-}
-async fn revoke(profile_path: String) -> Result<(), RevokeError> {
+async fn revoke(profile_path: String) -> Result<(), DeactivateError> {
     deactivate(profile_path.as_str()).await?;
     Ok(())
 }
@@ -462,7 +454,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut signals = Signals::new(&[SIGHUP])?;
     std::thread::spawn(move || {
         for _ in signals.forever() {
-            println!("Received NOHUP - ignoring...");
+            println!("Received SIGHUP - ignoring...");
         }
     });
 
@@ -471,7 +463,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     deploy::init_logger(
         opts.debug_logs,
         opts.log_dir.as_deref(),
-        match opts.subcmd {
+        &match opts.subcmd {
             SubCommand::Activate(_) => deploy::LoggerType::Activate,
             SubCommand::Wait(_) => deploy::LoggerType::Wait,
             SubCommand::Revoke(_) => deploy::LoggerType::Revoke,
