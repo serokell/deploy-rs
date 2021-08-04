@@ -148,6 +148,7 @@ pub fn init_logger(
 pub mod data;
 pub mod deploy;
 pub mod push;
+pub mod cli;
 
 #[derive(Debug)]
 pub struct CmdOverrides {
