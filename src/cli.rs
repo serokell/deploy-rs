@@ -619,10 +619,25 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         deploy::LoggerType::Deploy,
     )?;
 
+    fn maybe_default_target(target: Option<String>) -> Vec<String> {
+        match (target, std::env::var("DEPLOY_RS_DEFAULT_FLAKE_ROOT"), std::env::var("DEPLOY_RS_DEFAULT_NODE")) {
+            (None, _, _) => vec![".".to_string()],
+            (Some(target), Err(_), _) => vec![target],
+            (Some(target), Ok(flake_root), Ok(node)) => {
+                info!("Default node configured: `{}#{}`", &flake_root, &node);
+                vec![format!("{}#{}.{}", flake_root, node, target)]
+            },
+            (Some(target), Ok(flake_root), Err(_)) => {
+                info!("Default flake configured: `{}`", &flake_root);
+                vec![format!("{}#{}", flake_root, target)]
+            },
+        }
+    }
+
     let deploys = opts
         .clone()
         .targets
-        .unwrap_or_else(|| vec![opts.clone().target.unwrap_or(".".to_string())]);
+        .unwrap_or_else(|| maybe_default_target(opts.target.clone()));
 
     let deploy_flakes: Vec<DeployFlake> = deploys
         .iter()
