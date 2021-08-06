@@ -322,6 +322,7 @@ pub struct DeployData<'a> {
 
     pub debug_logs: bool,
     pub log_dir: Option<&'a str>,
+    pub store_root: Option<&'a str>,
 }
 
 #[derive(Debug)]
@@ -403,6 +404,7 @@ pub fn make_deploy_data<'a, 's>(
     cmd_overrides: &'a CmdOverrides,
     debug_logs: bool,
     log_dir: Option<&'a str>,
+    store_root: Option<&'a str>,
 ) -> DeployData<'a> {
     let mut merged_settings = profile.generic_settings.clone();
     merged_settings.merge(node.generic_settings.clone());
@@ -436,5 +438,6 @@ pub fn make_deploy_data<'a, 's>(
         merged_settings,
         debug_logs,
         log_dir,
+        store_root,
     }
 }

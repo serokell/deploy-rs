@@ -6,7 +6,9 @@
 use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
-use clap::{Clap, ArgMatches, FromArgMatches};
+use clap::{App, ArgEnum, Clap, IntoApp, ValueHint, ArgMatches, FromArgMatches};
+use clap_generate::generators::{Bash, Elvish, Fish, PowerShell, Zsh};
+use clap_generate::{generate, Generator};
 
 use crate as deploy;
 
@@ -18,16 +20,31 @@ use std::process::Stdio;
 use thiserror::Error;
 use tokio::process::Command;
 
+
+#[derive(ArgEnum, Debug, Clone, PartialEq)]
+pub enum GeneratorChoice {
+    Bash,
+    Elvish,
+    Fish,
+    #[clap(name = "powershell")]
+    PowerShell,
+    Zsh,
+}
+
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
 #[derive(Clap, Debug, Clone)]
-#[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
+#[clap(name = "deploy", version = "1.0", author = "Serokell <https://serokell.io/>")]
 pub struct Opts {
+    /// If provided, outputs the completion file for given shell
+    #[clap(long = "generate", arg_enum)]
+    generator: Option<GeneratorChoice>,
+
     /// The flake to deploy
-    #[clap(group = "deploy")]
+    #[clap(group = "deploy", value_hint = ValueHint::DirPath)]
     target: Option<String>,
 
     /// A list of flakes to deploy alternatively
-    #[clap(long, group = "deploy")]
+    #[clap(long, group = "deploy", value_hint = ValueHint::DirPath)]
     targets: Option<Vec<String>>,
     /// Check signatures when using `nix copy`
     #[clap(short, long)]
@@ -44,6 +61,10 @@ pub struct Opts {
     /// Directory to print logs to (including the background activation process)
     #[clap(long)]
     log_dir: Option<String>,
+
+    /// Activate into a mounted store root (e.g. /mnt)
+    #[clap(long)]
+    store_root: Option<String>,
 
     /// Keep the build outputs of each built profile
     #[clap(short, long)]
@@ -89,6 +110,10 @@ pub struct Opts {
     /// Revoke all previously succeeded deploys when deploying multiple profiles
     #[clap(long)]
     rollback_succeeded: Option<bool>,
+}
+
+fn print_completions<G: Generator>(app: &mut App) {
+    generate::<G, _>(app, app.get_name().to_string(), &mut stdout());
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -408,6 +433,7 @@ async fn run_deploy(
     result_path: Option<&str>,
     extra_build_args: &[String],
     debug_logs: bool,
+    store_root: Option<String>,
     dry_activate: bool,
     log_dir: &Option<String>,
     rollback_succeeded: bool,
@@ -528,6 +554,7 @@ async fn run_deploy(
             &cmd_overrides,
             debug_logs,
             log_dir.as_deref(),
+            store_root.as_deref(),
         );
 
         let deploy_defs = deploy_data.defs()?;
@@ -619,10 +646,38 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         deploy::LoggerType::Deploy,
     )?;
 
+    if let Some(generator) = opts.generator {
+        let mut app = Opts::into_app();
+        info!("Generating completion file for {:?}...", generator);
+        match generator {
+            GeneratorChoice::Bash => print_completions::<Bash>(&mut app),
+            GeneratorChoice::Elvish => print_completions::<Elvish>(&mut app),
+            GeneratorChoice::Fish => print_completions::<Fish>(&mut app),
+            GeneratorChoice::PowerShell => print_completions::<PowerShell>(&mut app),
+            GeneratorChoice::Zsh => print_completions::<Zsh>(&mut app),
+        };
+        return Ok(())
+    }
+
+    fn maybe_default_target(target: Option<String>) -> Vec<String> {
+        match (target, std::env::var("DEPLOY_RS_DEFAULT_FLAKE_ROOT"), std::env::var("DEPLOY_RS_DEFAULT_NODE")) {
+            (None, _, _) => vec![".".to_string()],
+            (Some(target), Err(_), _) => vec![target],
+            (Some(target), Ok(flake_root), Ok(node)) => {
+                info!("Default node configured: `{}#{}`", &flake_root, &node);
+                vec![format!("{}#{}.{}", flake_root, node, target)]
+            },
+            (Some(target), Ok(flake_root), Err(_)) => {
+                info!("Default flake configured: `{}`", &flake_root);
+                vec![format!("{}#{}", flake_root, target)]
+            },
+        }
+    }
+
     let deploys = opts
         .clone()
         .targets
-        .unwrap_or_else(|| vec![opts.clone().target.unwrap_or(".".to_string())]);
+        .unwrap_or_else(|| maybe_default_target(opts.target.clone()));
 
     let deploy_flakes: Vec<DeployFlake> = deploys
         .iter()
@@ -666,6 +721,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         result_path,
         &opts.extra_build_args,
         opts.debug_logs,
+        opts.store_root,
         opts.dry_activate,
         &opts.log_dir,
         opts.rollback_succeeded.unwrap_or(true),
