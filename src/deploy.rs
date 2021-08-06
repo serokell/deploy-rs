@@ -13,6 +13,7 @@ use crate::DeployDataDefsError;
 
 struct ActivateCommandData<'a> {
     sudo: &'a Option<String>,
+    store_root: Option<&'a str>,
     profile_path: &'a str,
     closure: &'a str,
     auto_rollback: bool,
@@ -39,6 +40,10 @@ fn build_activate_command(data: ActivateCommandData) -> String {
         "{} activate '{}' '{}' --temp-path '{}'",
         self_activate_command, data.closure, data.profile_path, data.temp_path
     );
+
+    if let Some(store_root) = data.store_root {
+        self_activate_command = format!("{} --store-root '{}'", self_activate_command, store_root);
+    }
 
     self_activate_command = format!(
         "{} --confirm-timeout {}",
@@ -68,6 +73,7 @@ fn build_activate_command(data: ActivateCommandData) -> String {
 fn test_activation_command_builder() {
     let sudo = Some("sudo -u test".to_string());
     let profile_path = "/blah/profiles/test";
+    let store_root = Some("/mnt");
     let closure = "/nix/store/blah/etc";
     let auto_rollback = true;
     let dry_activate = false;
@@ -81,6 +87,7 @@ fn test_activation_command_builder() {
         build_activate_command(ActivateCommandData {
             sudo: &sudo,
             profile_path,
+            store_root,
             closure,
             auto_rollback,
             temp_path,
@@ -90,7 +97,7 @@ fn test_activation_command_builder() {
             log_dir,
             dry_activate
         }),
-        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt activate '/nix/store/blah/etc' '/blah/profiles/test' --temp-path '/tmp' --confirm-timeout 30 --magic-rollback --auto-rollback"
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt activate '/nix/store/blah/etc' '/blah/profiles/test' --temp-path '/tmp' --store-root '/mnt' --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
     );
 }
@@ -150,6 +157,7 @@ fn test_wait_command_builder() {
 struct RevokeCommandData<'a> {
     sudo: &'a Option<String>,
     closure: &'a str,
+    store_root: Option<&'a str>,
     profile_path: &'a str,
     debug_logs: bool,
     log_dir: Option<&'a str>,
@@ -168,6 +176,10 @@ fn build_revoke_command(data: RevokeCommandData) -> String {
 
     self_activate_command = format!("{} revoke '{}'", self_activate_command, data.profile_path);
 
+    if let Some(store_root) = data.store_root {
+        self_activate_command = format!("{} --store-root '{}'", self_activate_command, store_root);
+    }
+
     if let Some(sudo_cmd) = &data.sudo {
         self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
     }
@@ -180,6 +192,7 @@ fn test_revoke_command_builder() {
     let sudo = Some("sudo -u test".to_string());
     let closure = "/nix/store/blah/etc";
     let profile_path = "/nix/var/nix/per-user/user/profile";
+    let store_root = Some("/mnt");
     let debug_logs = true;
     let log_dir = Some("/tmp/something.txt");
 
@@ -188,10 +201,11 @@ fn test_revoke_command_builder() {
             sudo: &sudo,
             closure,
             profile_path,
+            store_root,
             debug_logs,
             log_dir
         }),
-        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt revoke '/nix/var/nix/per-user/user/profile'"
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt revoke '/nix/var/nix/per-user/user/profile' --store-root '/mnt'"
             .to_string(),
     );
 }
@@ -292,6 +306,7 @@ pub async fn deploy_profile(
     let self_activate_command = build_activate_command(ActivateCommandData {
         sudo: &deploy_defs.sudo,
         profile_path: &deploy_defs.profile_path,
+        store_root: deploy_data.store_root,
         closure: &deploy_data.profile.profile_settings.path,
         auto_rollback,
         temp_path: &temp_path,
@@ -425,6 +440,7 @@ pub async fn revoke(
         sudo: &deploy_defs.sudo,
         closure: &deploy_data.profile.profile_settings.path,
         profile_path: &deploy_data.get_profile_path()?,
+        store_root: deploy_data.store_root,
         debug_logs: deploy_data.debug_logs,
         log_dir: deploy_data.log_dir,
     });

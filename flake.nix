@@ -87,12 +87,22 @@
               # work around https://github.com/NixOS/nixpkgs/issues/73404
               cd /tmp
 
-              $PROFILE/bin/switch-to-configuration switch
+              if [[ ! -f "$STORE_ROOT/etc/NIXOS" ]]
+              then
+                  nix-env --store "$STORE_ROOT" -p "$STORE_ROOT"/nix/var/nix/profiles/system --set "$PROFILE"
+                  mkdir -m 0755 -p "$STORE_ROOT"/etc
+                  touch "$STORE_ROOT"/etc/NIXOS
+                  # Grub needs an mtab.
+                  ln -sfn /proc/mounts "$STORE_ROOT"/etc/mtab
+                  NIXOS_INSTALL_BOOTLOADER=1 nixos-enter --root "$STORE_ROOT" -- /run/current-system/bin/switch-to-configuration boot
+              else
+                  $STORE_ROOT/$PROFILE/bin/switch-to-configuration switch
+              done
 
               # https://github.com/serokell/deploy-rs/issues/31
               ${with base.config.boot.loader;
               final.lib.optionalString systemd-boot.enable
-              "sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
+              "sed -i '/^default /d' $STORE_ROOT/${efi.efiSysMountPoint}/loader/loader.conf"}
             '';
 
             home-manager = base: custom base.activationPackage "$PROFILE/activate";

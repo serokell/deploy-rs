@@ -69,6 +69,10 @@ struct ActivateOpts {
     #[clap(long)]
     dry_activate: bool,
 
+    /// Can activate on a mounted store root on the machines that is different from '/'
+    #[clap(long, default_value = "/")]
+    store_root: String,
+
     /// Path for any temporary files that may be needed during activation
     #[clap(long)]
     temp_path: String,
@@ -90,6 +94,10 @@ struct WaitOpts {
 struct RevokeOpts {
     /// The profile path to revoke
     profile_path: String,
+
+    /// Can de-activate on a mounted store root on the machines that is different from '/'
+    #[clap(long, default_value = "/")]
+    store_root: String,
 }
 
 #[derive(Error, Debug)]
@@ -114,12 +122,17 @@ pub enum DeactivateError {
     ReactivateExitError(Option<i32>),
 }
 
-pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
+pub async fn deactivate(
+    profile_path: &str,
+    store_root: &str,
+) -> Result<(), DeactivateError> {
     warn!("De-activating due to error");
 
     let nix_env_rollback_exit_status = Command::new("nix-env")
+        .arg("--store")
+        .arg(&store_root)
         .arg("-p")
-        .arg(&profile_path)
+        .arg(format!("{}/{}", &store_root, &profile_path))
         .arg("--rollback")
         .status()
         .await
@@ -133,8 +146,10 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
     debug!("Listing generations");
 
     let nix_env_list_generations_out = Command::new("nix-env")
+        .arg("--store")
+        .arg(&store_root)
         .arg("-p")
-        .arg(&profile_path)
+        .arg(format!("{}/{}", &store_root, &profile_path))
         .arg("--list-generations")
         .output()
         .await
@@ -161,8 +176,10 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
     warn!("Removing generation by ID {}", last_generation_id);
 
     let nix_env_delete_generation_exit_status = Command::new("nix-env")
+        .arg("--store")
+        .arg(&store_root)
         .arg("-p")
-        .arg(&profile_path)
+        .arg(format!("{}/{}", &store_root, &profile_path))
         .arg("--delete-generations")
         .arg(last_generation_id)
         .status()
@@ -177,6 +194,7 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
     info!("Attempting to re-activate the last generation");
 
     let re_activate_exit_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
+        .env("STORE_ROOT", &store_root)
         .env("PROFILE", &profile_path)
         .current_dir(&profile_path)
         .status()
@@ -231,6 +249,7 @@ async fn danger_zone(
 
 pub async fn activation_confirmation(
     profile_path: String,
+    store_root: String,
     temp_path: String,
     confirm_timeout: u16,
     closure: String,
@@ -279,7 +298,7 @@ pub async fn activation_confirmation(
     if let Err(err) = danger_zone(done, confirm_timeout).await {
         error!("Error waiting for confirmation event: {}", err);
 
-        if let Err(err) = deactivate(&profile_path).await {
+        if let Err(err) = deactivate(&profile_path, &store_root).await {
             error!(
                 "Error de-activating due to another error waiting for confirmation, oh no...: {}",
                 err
@@ -360,6 +379,7 @@ pub enum ActivateError {
 
 pub async fn activate(
     profile_path: String,
+    store_root: String,
     closure: String,
     auto_rollback: bool,
     temp_path: String,
@@ -370,8 +390,12 @@ pub async fn activate(
     if !dry_activate {
         info!("Activating profile");
         let nix_env_set_exit_status = Command::new("nix-env")
+            .arg("--store")
+            .arg(&store_root)
+            .arg("--extra-substituters")
+            .arg("auto?trusted=1")
             .arg("-p")
-            .arg(&profile_path)
+            .arg(format!("{}/{}", &store_root, &profile_path))
             .arg("--set")
             .arg(&closure)
             .status()
@@ -381,7 +405,7 @@ pub async fn activate(
             Some(0) => (),
             a => {
                 if auto_rollback && !dry_activate {
-                    deactivate(&profile_path).await?;
+                    deactivate(&profile_path, &store_root).await?;
                 }
                 return Err(ActivateError::SetProfileExitError(a));
             }
@@ -397,6 +421,7 @@ pub async fn activate(
     };
 
     let activate_status = match Command::new(format!("{}/deploy-rs-activate", activation_location))
+        .env("STORE_ROOT", &store_root)
         .env("PROFILE", activation_location)
         .env("DRY_ACTIVATE", if dry_activate { "1" } else { "0" })
         .current_dir(activation_location)
@@ -407,7 +432,7 @@ pub async fn activate(
         Ok(x) => x,
         Err(e) => {
             if auto_rollback && !dry_activate {
-                deactivate(&profile_path).await?;
+                deactivate(&profile_path, &store_root).await?;
             }
             return Err(e);
         }
@@ -418,7 +443,7 @@ pub async fn activate(
             Some(0) => (),
             a => {
                 if auto_rollback {
-                    deactivate(&profile_path).await?;
+                    deactivate(&profile_path, &store_root).await?;
                 }
                 return Err(ActivateError::RunActivateExitError(a));
             }
@@ -431,12 +456,12 @@ pub async fn activate(
         if magic_rollback {
             info!("Magic rollback is enabled, setting up confirmation hook...");
 
-            match activation_confirmation(profile_path.clone(), temp_path, confirm_timeout, closure)
+            match activation_confirmation(profile_path.clone(), store_root.clone(), temp_path, confirm_timeout, closure)
                 .await
             {
                 Ok(()) => {}
                 Err(err) => {
-                    deactivate(&profile_path).await?;
+                    deactivate(&profile_path, &store_root).await?;
                     return Err(ActivateError::ActivationConfirmationError(err));
                 }
             };
@@ -451,8 +476,11 @@ pub enum RevokeError {
     #[error("There was an error de-activating after an error was encountered: {0}")]
     DeactivateError(#[from] DeactivateError),
 }
-async fn revoke(profile_path: String) -> Result<(), RevokeError> {
-    deactivate(profile_path.as_str()).await?;
+async fn revoke(
+    profile_path: String,
+    store_root: String,
+) -> Result<(), RevokeError> {
+    deactivate(profile_path.as_str(), store_root.as_str()).await?;
     Ok(())
 }
 
@@ -481,6 +509,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let r = match opts.subcmd {
         SubCommand::Activate(activate_opts) => activate(
             activate_opts.profile_path,
+            activate_opts.store_root,
             activate_opts.closure,
             activate_opts.auto_rollback,
             activate_opts.temp_path,
@@ -495,7 +524,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
 
-        SubCommand::Revoke(revoke_opts) => revoke(revoke_opts.profile_path)
+        SubCommand::Revoke(revoke_opts) => revoke(revoke_opts.profile_path, revoke_opts.store_root)
             .await
             .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
     };

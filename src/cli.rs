@@ -62,6 +62,10 @@ pub struct Opts {
     #[clap(long)]
     log_dir: Option<String>,
 
+    /// Activate into a mounted store root (e.g. /mnt)
+    #[clap(long)]
+    store_root: Option<String>,
+
     /// Keep the build outputs of each built profile
     #[clap(short, long)]
     keep_result: bool,
@@ -429,6 +433,7 @@ async fn run_deploy(
     result_path: Option<&str>,
     extra_build_args: &[String],
     debug_logs: bool,
+    store_root: Option<String>,
     dry_activate: bool,
     log_dir: &Option<String>,
     rollback_succeeded: bool,
@@ -549,6 +554,7 @@ async fn run_deploy(
             &cmd_overrides,
             debug_logs,
             log_dir.as_deref(),
+            store_root.as_deref(),
         );
 
         let deploy_defs = deploy_data.defs()?;
@@ -715,6 +721,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         result_path,
         &opts.extra_build_args,
         opts.debug_logs,
+        opts.store_root,
         opts.dry_activate,
         &opts.log_dir,
         opts.rollback_succeeded.unwrap_or(true),
