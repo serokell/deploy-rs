@@ -6,7 +6,9 @@
 use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
-use clap::{Clap, ArgMatches, FromArgMatches};
+use clap::{App, ArgEnum, Clap, IntoApp, ValueHint, ArgMatches, FromArgMatches};
+use clap_generate::generators::{Bash, Elvish, Fish, PowerShell, Zsh};
+use clap_generate::{generate, Generator};
 
 use crate as deploy;
 
@@ -18,16 +20,31 @@ use std::process::Stdio;
 use thiserror::Error;
 use tokio::process::Command;
 
+
+#[derive(ArgEnum, Debug, Clone, PartialEq)]
+pub enum GeneratorChoice {
+    Bash,
+    Elvish,
+    Fish,
+    #[clap(name = "powershell")]
+    PowerShell,
+    Zsh,
+}
+
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
 #[derive(Clap, Debug, Clone)]
-#[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
+#[clap(name = "deploy", version = "1.0", author = "Serokell <https://serokell.io/>")]
 pub struct Opts {
+    /// If provided, outputs the completion file for given shell
+    #[clap(long = "generate", arg_enum)]
+    generator: Option<GeneratorChoice>,
+
     /// The flake to deploy
-    #[clap(group = "deploy")]
+    #[clap(group = "deploy", value_hint = ValueHint::DirPath)]
     target: Option<String>,
 
     /// A list of flakes to deploy alternatively
-    #[clap(long, group = "deploy")]
+    #[clap(long, group = "deploy", value_hint = ValueHint::DirPath)]
     targets: Option<Vec<String>>,
     /// Check signatures when using `nix copy`
     #[clap(short, long)]
@@ -89,6 +106,10 @@ pub struct Opts {
     /// Revoke all previously succeeded deploys when deploying multiple profiles
     #[clap(long)]
     rollback_succeeded: Option<bool>,
+}
+
+fn print_completions<G: Generator>(app: &mut App) {
+    generate::<G, _>(app, app.get_name().to_string(), &mut stdout());
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -618,6 +639,19 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         opts.log_dir.as_deref(),
         deploy::LoggerType::Deploy,
     )?;
+
+    if let Some(generator) = opts.generator {
+        let mut app = Opts::into_app();
+        info!("Generating completion file for {:?}...", generator);
+        match generator {
+            GeneratorChoice::Bash => print_completions::<Bash>(&mut app),
+            GeneratorChoice::Elvish => print_completions::<Elvish>(&mut app),
+            GeneratorChoice::Fish => print_completions::<Fish>(&mut app),
+            GeneratorChoice::PowerShell => print_completions::<PowerShell>(&mut app),
+            GeneratorChoice::Zsh => print_completions::<Zsh>(&mut app),
+        };
+        return Ok(())
+    }
 
     let deploys = opts
         .clone()
