@@ -86,13 +86,54 @@
             nixos = base: (custom // { dryActivate = "$PROFILE/bin/switch-to-configuration dry-activate"; }) base.config.system.build.toplevel ''
               # work around https://github.com/NixOS/nixpkgs/issues/73404
               cd /tmp
+              MOUNT_POINT="''${MOUNT_POINT:-}"
 
-              $PROFILE/bin/switch-to-configuration switch
+              _SYSTEM="$MOUNT_POINT/nix/var/nix/profiles/system"
+              _PROFILE="$MOUNT_POINT$PROFILE"
+              _SWITCH_COMMAND="$PROFILE/bin/switch-to-configuration switch" # always relative to root
+              _NIXOS_ENTER_COMMAND="nixos-enter --root $MOUNT_POINT"
+
+              _already_on_nixos() { [[ -f "$MOUNT_POINT/etc/NIXOS" ]]; }
+              _set_system_profile() {
+                  if [[ "$MOUNT_POINT" == "" ]]
+                  then
+                      nix-env                        -p "$_SYSTEM" --set "$_PROFILE"
+                  else
+                      nix-env --store "$MOUNT_POINT" -p "$_SYSTEM" --set "$_PROFILE"
+                  fi
+              }
+              _ensure_fs_contract() { mkdir -m 0755 -p "$MOUNT_POINT"/etc; touch "$MOUNT_POINT"/etc/NIXOS; }
+              _insall_bootloader_and_switch() {
+                  ln -sfn /proc/mounts "$MOUNT_POINT"/etc/mtab # Grub needs an mtab.
+                  if [[ "$MOUNT_POINT" == "" ]]
+                  then
+                      NIXOS_INSTALL_BOOTLOADER=1                          $_SWITCH_COMMAND
+                  else
+                      NIXOS_INSTALL_BOOTLOADER=1 $_NIXOS_ENTER_COMMAND -- $_SWITCH_COMMAND
+                  fi
+              }
+              _switch_configuration() {
+                  if [[ "$MOUNT_POINT" == "" ]]
+                  then
+                                               $_SWITCH_COMMAND
+                  else
+                      $_NIXOS_ENTER_COMMAND -- $_SWITCH_COMMAND
+                  fi
+              }
+
+              if _already_on_nixos
+              then
+                  _switch_configuration
+              else
+                  _set_system_profile
+                  _ensure_fs_contract
+                  _insall_bootloader_and_switch
+              fi
 
               # https://github.com/serokell/deploy-rs/issues/31
               ${with base.config.boot.loader;
               final.lib.optionalString systemd-boot.enable
-              "sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
+              "sed -i '/^default /d' $MOUNT_POINT/${efi.efiSysMountPoint}/loader/loader.conf"}
             '';
 
             home-manager = base: custom base.activationPackage "$PROFILE/activate";

@@ -318,6 +318,9 @@ pub struct Flags {
     /// Revoke all previously succeeded deploys when deploying multiple profiles
     #[clap(long)]
      pub rollback_succeeded: bool,
+    /// Install profile onto a mounted disk (bootstrap NixOS)
+    #[clap(long)]
+     pub mount_point: Option<String>,
 }
 
 impl<'a> DeployData<'a> {

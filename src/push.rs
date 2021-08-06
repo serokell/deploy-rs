@@ -100,18 +100,27 @@ pub struct CopyCommand<'a> {
     closure: &'a str,
     fast_connection: bool,
     check_sigs: &'a bool,
-    ssh_uri: &'a str,
     ssh_opts: String,
+    target: String,
 }
 
 impl<'a> CopyCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Self {
+
+        let target = {
+            if let Some(ref mount_point) = d.flags.mount_point {
+                format!("{}:{}", &d.ssh_uri, mount_point)
+            } else {
+                d.ssh_uri.to_owned()
+            }
+        };
+
         CopyCommand {
             closure: d.profile.profile_settings.path.as_str(),
             fast_connection: d.merged_settings.fast_connection.unwrap_or(false),
             check_sigs: &d.flags.checksigs,
-            ssh_uri: d.ssh_uri.as_str(),
             ssh_opts: d.merged_settings.ssh_opts.iter().fold("".to_string(), |s, o| format!("{} {}", s, o)),
+            target,
         }
     }
 
@@ -129,7 +138,7 @@ impl<'a> CopyCommand<'a> {
         }
         cmd
             .arg("--to")
-            .arg(self.ssh_uri)
+            .arg(self.target)
             .arg(self.closure)
             .env("NIX_SSHOPTS", self.ssh_opts);
         //cmd.what_is_this;
@@ -261,7 +270,7 @@ pub async fn push_profile(
 
     info!("Copying profile `{}` to node `{}`", profile_name, node_name);
 
-    let mut copy_cmd = copy.build();
+   let mut copy_cmd = copy.build();
 
     let copy_exit_status = copy_cmd
         .status()

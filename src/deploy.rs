@@ -31,6 +31,7 @@ impl<'a> SshCommand<'a> {
 }
 
 pub struct ActivateCommand<'a> {
+    mount_point: Option<&'a str>,
     sudo: Option<&'a str>,
     profile_path: &'a str,
     temp_path: &'a str,
@@ -46,6 +47,7 @@ pub struct ActivateCommand<'a> {
 impl<'a> ActivateCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Self {
         ActivateCommand {
+            mount_point: d.flags.mount_point.as_deref(),
             sudo: d.sudo.as_deref(),
             profile_path: &d.profile_path,
             temp_path: &d.temp_path,
@@ -68,6 +70,10 @@ impl<'a> ActivateCommand<'a> {
 
         if let Some(log_dir) = self.log_dir {
             cmd = format!("{} --log-dir {}", cmd, log_dir);
+        }
+
+        if let Some(mount_point) = self.mount_point {
+            cmd = format!("{} --store-root '{}'", cmd, mount_point);
         }
 
         cmd = format!(
@@ -102,6 +108,7 @@ impl<'a> ActivateCommand<'a> {
 
 #[test]
 fn test_activation_command_builder() {
+    let mount_point = Some("/mnt");
     let sudo = Some("sudo -u test".to_string());
     let profile_path = "/blah/profiles/test";
     let closure = "/nix/store/blah/etc";
@@ -126,12 +133,13 @@ fn test_activation_command_builder() {
             log_dir,
             dry_activate
         }.build(),
-        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt activate '/nix/store/blah/etc' '/blah/profiles/test' --temp-path '/tmp' --confirm-timeout 30 --magic-rollback --auto-rollback"
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt --store-root '/mnt' activate '/nix/store/blah/etc' '/blah/profiles/test' --temp-path '/tmp' --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
     );
 }
 
 pub struct WaitCommand<'a> {
+    mount_point: Option<&'a str>,
     sudo: Option<&'a str>,
     closure: &'a str,
     temp_path: &'a str,
@@ -142,6 +150,7 @@ pub struct WaitCommand<'a> {
 impl<'a> WaitCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Self {
         WaitCommand {
+            mount_point: d.flags.mount_point.as_deref(),
             sudo: d.sudo.as_deref(),
             temp_path: &d.temp_path,
             closure: &d.profile.profile_settings.path,
@@ -161,6 +170,10 @@ impl<'a> WaitCommand<'a> {
             cmd = format!("{} --log-dir {}", cmd, log_dir);
         }
 
+        if let Some(mount_point) = self.mount_point {
+            cmd = format!("{} --store-root '{}'", cmd, mount_point);
+        }
+
         cmd = format!(
             "{} wait '{}' --temp-path '{}'",
             cmd, self.closure, self.temp_path,
@@ -176,6 +189,7 @@ impl<'a> WaitCommand<'a> {
 
 #[test]
 fn test_wait_command_builder() {
+    let mount_point = Some("/mnt");
     let sudo = Some("sudo -u test".to_string());
     let closure = "/nix/store/blah/etc";
     let temp_path = "/tmp";
@@ -190,12 +204,13 @@ fn test_wait_command_builder() {
             debug_logs,
             log_dir
         }.build(),
-        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt wait '/nix/store/blah/etc' --temp-path '/tmp'"
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt --store-root '/mnt' wait '/nix/store/blah/etc' --temp-path '/tmp'"
             .to_string(),
     );
 }
 
 pub struct RevokeCommand<'a> {
+    mount_point: Option<&'a str>,
     sudo: Option<&'a str>,
     closure: &'a str,
     profile_path: &'a str,
@@ -206,6 +221,7 @@ pub struct RevokeCommand<'a> {
 impl<'a> RevokeCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Self {
         RevokeCommand {
+            mount_point: d.flags.mount_point.as_deref(),
             sudo: d.sudo.as_deref(),
             profile_path: &d.profile_path,
             closure: &d.profile.profile_settings.path,
@@ -226,6 +242,10 @@ impl<'a> RevokeCommand<'a> {
             cmd = format!("{} --log-dir {}", cmd, log_dir);
         }
 
+        if let Some(mount_point) = self.mount_point {
+            cmd = format!("{} --store-root '{}'", cmd, mount_point);
+        }
+
         cmd = format!("{} revoke '{}'", cmd, self.profile_path);
 
         if let Some(sudo_cmd) = &self.sudo {
@@ -238,6 +258,7 @@ impl<'a> RevokeCommand<'a> {
 
 #[test]
 fn test_revoke_command_builder() {
+    let mount_point = Some("/mnt");
     let sudo = Some("sudo -u test".to_string());
     let closure = "/nix/store/blah/etc";
     let profile_path = "/nix/var/nix/per-user/user/profile";
@@ -252,7 +273,7 @@ fn test_revoke_command_builder() {
             debug_logs,
             log_dir
         }.build(),
-        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt revoke '/nix/var/nix/per-user/user/profile'"
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt --store-root '/mnt' revoke '/nix/var/nix/per-user/user/profile'"
             .to_string(),
     );
 }
