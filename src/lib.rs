@@ -145,7 +145,7 @@ pub fn init_logger(
     Ok(())
 }
 
-pub mod data;
+pub mod settings;
 pub mod deploy;
 pub mod push;
 pub mod cli;
@@ -312,13 +312,13 @@ fn test_parse_flake() {
 #[derive(Debug, Clone)]
 pub struct DeployData<'a> {
     pub node_name: &'a str,
-    pub node: &'a data::Node,
+    pub node: &'a settings::Node,
     pub profile_name: &'a str,
-    pub profile: &'a data::Profile,
+    pub profile: &'a settings::Profile,
 
     pub cmd_overrides: &'a CmdOverrides,
 
-    pub merged_settings: data::GenericSettings,
+    pub merged_settings: settings::GenericSettings,
 
     pub debug_logs: bool,
     pub log_dir: Option<&'a str>,
@@ -395,10 +395,10 @@ impl<'a> DeployData<'a> {
 }
 
 pub fn make_deploy_data<'a, 's>(
-    top_settings: &'s data::GenericSettings,
-    node: &'a data::Node,
+    top_settings: &'s settings::GenericSettings,
+    node: &'a settings::Node,
     node_name: &'a str,
-    profile: &'a data::Profile,
+    profile: &'a settings::Profile,
     profile_name: &'a str,
     cmd_overrides: &'a CmdOverrides,
     debug_logs: bool,
