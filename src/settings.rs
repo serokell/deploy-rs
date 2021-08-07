@@ -66,7 +66,7 @@ pub struct Node {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct Data {
+pub struct Root {
     #[serde(flatten)]
     pub generic_settings: GenericSettings,
     pub nodes: HashMap<String, Node>,
