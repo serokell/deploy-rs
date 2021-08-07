@@ -171,7 +171,7 @@ pub enum GetDeploymentDataError {
 /// Evaluates the Nix in the given `repo` and return the processed Data from it
 async fn get_deployment_data(
     supports_flakes: bool,
-    flakes: &[data::DeployFlake<'_>],
+    flakes: &[data::Target],
     extra_build_args: &[String],
 ) -> Result<Vec<settings::Root>, GetDeploymentDataError> {
     futures_util::stream::iter(flakes).then(|flake| async move {
@@ -275,7 +275,7 @@ struct PromptPart<'a> {
 
 fn print_deployment(
     parts: &[(
-        &data::DeployFlake<'_>,
+        &data::Target,
         data::DeployData,
         data::DeployDefs,
     )],
@@ -318,7 +318,7 @@ pub enum PromptDeploymentError {
 
 fn prompt_deployment(
     parts: &[(
-        &data::DeployFlake<'_>,
+        &data::Target,
         data::DeployData,
         data::DeployDefs,
     )],
@@ -391,14 +391,14 @@ pub enum RunDeployError {
 }
 
 type ToDeploy<'a> = Vec<(
-    &'a data::DeployFlake<'a>,
+    &'a data::Target,
     &'a settings::Root,
     (&'a str, &'a settings::Node),
     (&'a str, &'a settings::Profile),
 )>;
 
 async fn run_deploy(
-    deploy_flakes: Vec<data::DeployFlake<'_>>,
+    deploy_targets: Vec<data::Target>,
     data: Vec<settings::Root>,
     supports_flakes: bool,
     check_sigs: bool,
@@ -412,11 +412,11 @@ async fn run_deploy(
     log_dir: &Option<String>,
     rollback_succeeded: bool,
 ) -> Result<(), RunDeployError> {
-    let to_deploy: ToDeploy = deploy_flakes
+    let to_deploy: ToDeploy = deploy_targets
         .iter()
         .zip(&data)
-        .map(|(deploy_flake, data)| {
-            let to_deploys: ToDeploy = match (&deploy_flake.node, &deploy_flake.profile) {
+        .map(|(deploy_target, data)| {
+            let to_deploys: ToDeploy = match (&deploy_target.node, &deploy_target.profile) {
                 (Some(node_name), Some(profile_name)) => {
                     let node = match data.nodes.get(node_name) {
                         Some(x) => x,
@@ -428,7 +428,7 @@ async fn run_deploy(
                     };
 
                     vec![(
-                        &deploy_flake,
+                        &deploy_target,
                         &data,
                         (node_name.as_str(), node),
                         (profile_name.as_str(), profile),
@@ -464,7 +464,7 @@ async fn run_deploy(
 
                     profiles_list
                         .into_iter()
-                        .map(|x| (deploy_flake, data, (node_name.as_str(), node), x))
+                        .map(|x| (deploy_target, data, (node_name.as_str(), node), x))
                         .collect()
                 }
                 (None, None) => {
@@ -495,7 +495,7 @@ async fn run_deploy(
 
                         let ll: ToDeploy = profiles_list
                             .into_iter()
-                            .map(|x| (deploy_flake, data, (node_name.as_str(), node), x))
+                            .map(|x| (deploy_target, data, (node_name.as_str(), node), x))
                             .collect();
 
                         l.extend(ll);
@@ -513,12 +513,12 @@ async fn run_deploy(
         .collect();
 
     let mut parts: Vec<(
-        &data::DeployFlake<'_>,
+        &data::Target,
         data::DeployData,
         data::DeployDefs,
     )> = Vec::new();
 
-    for (deploy_flake, data, (node_name, node), (profile_name, profile)) in to_deploy {
+    for (deploy_target, data, (node_name, node), (profile_name, profile)) in to_deploy {
         let deploy_data = data::make_deploy_data(
             &data.generic_settings,
             node,
@@ -532,7 +532,7 @@ async fn run_deploy(
 
         let deploy_defs = deploy_data.defs()?;
 
-        parts.push((deploy_flake, deploy_data, deploy_defs));
+        parts.push((deploy_target, deploy_data, deploy_defs));
     }
 
     if interactive {
@@ -541,11 +541,11 @@ async fn run_deploy(
         print_deployment(&parts[..])?;
     }
 
-    for (deploy_flake, deploy_data, deploy_defs) in &parts {
+    for (deploy_target, deploy_data, deploy_defs) in &parts {
         deploy::push::push_profile(deploy::push::PushProfileData {
             supports_flakes,
             check_sigs,
-            repo: deploy_flake.repo,
+            repo: &deploy_target.repo,
             deploy_data: &deploy_data,
             deploy_defs: &deploy_defs,
             keep_result,
@@ -600,7 +600,7 @@ pub enum RunError {
     #[error("Failed to evaluate deployment data: {0}")]
     GetDeploymentData(#[from] GetDeploymentDataError),
     #[error("Error parsing flake: {0}")]
-    ParseFlake(#[from] data::ParseFlakeError),
+    ParseFlake(#[from] data::ParseTargetError),
     #[error("Error initiating logger: {0}")]
     Logger(#[from] flexi_logger::FlexiLoggerError),
     #[error("{0}")]
@@ -624,10 +624,10 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         .targets
         .unwrap_or_else(|| vec![opts.clone().target.unwrap_or(".".to_string())]);
 
-    let deploy_flakes: Vec<data::DeployFlake> = deploys
-        .iter()
-        .map(|f| data::parse_flake(f.as_str()))
-        .collect::<Result<Vec<data::DeployFlake>, data::ParseFlakeError>>()?;
+    let deploy_targets: Vec<data::Target> = deploys
+        .into_iter()
+        .map(|f| f.parse::<data::Target>())
+        .collect::<Result<Vec<data::Target>, data::ParseTargetError>>()?;
 
     let cmd_overrides = data::CmdOverrides {
         ssh_user: opts.ssh_user,
@@ -649,14 +649,14 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     }
 
     if !opts.skip_checks {
-        for deploy_flake in deploy_flakes.iter() {
-            check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
+        for deploy_target in deploy_targets.iter() {
+            check_deployment(supports_flakes, &deploy_target.repo, &opts.extra_build_args).await?;
         }
     }
     let result_path = opts.result_path.as_deref();
-    let data = get_deployment_data(supports_flakes, &deploy_flakes, &opts.extra_build_args).await?;
+    let data = get_deployment_data(supports_flakes, &deploy_targets, &opts.extra_build_args).await?;
     run_deploy(
-        deploy_flakes,
+        deploy_targets,
         data,
         supports_flakes,
         opts.checksigs,
