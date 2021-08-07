@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use thiserror::Error;
 use tokio::process::Command;
 
-use crate::DeployDataDefsError;
+use crate::data;
 
 struct ActivateCommandData<'a> {
     sudo: &'a Option<String>,
@@ -207,8 +207,8 @@ pub enum ConfirmProfileError {
 }
 
 pub async fn confirm_profile(
-    deploy_data: &super::DeployData<'_>,
-    deploy_defs: &super::DeployDefs,
+    deploy_data: &data::DeployData<'_>,
+    deploy_defs: &data::DeployDefs,
     temp_path: Cow<'_, str>,
     ssh_addr: &str,
 ) -> Result<(), ConfirmProfileError> {
@@ -267,8 +267,8 @@ pub enum DeployProfileError {
 }
 
 pub async fn deploy_profile(
-    deploy_data: &super::DeployData<'_>,
-    deploy_defs: &super::DeployDefs,
+    deploy_data: &data::DeployData<'_>,
+    deploy_defs: &data::DeployDefs,
     dry_activate: bool,
 ) -> Result<(), DeployProfileError> {
     if !dry_activate {
@@ -415,11 +415,11 @@ pub enum RevokeProfileError {
     SSHRevokeExitError(Option<i32>),
 
     #[error("Deployment data invalid: {0}")]
-    InvalidDeployDataDefsError(#[from] DeployDataDefsError),
+    InvalidDeployDataDefsError(#[from] data::DeployDataDefsError),
 }
 pub async fn revoke(
-    deploy_data: &crate::DeployData<'_>,
-    deploy_defs: &crate::DeployDefs,
+    deploy_data: &data::DeployData<'_>,
+    deploy_defs: &data::DeployDefs,
 ) -> Result<(), RevokeProfileError> {
     let self_revoke_command = build_revoke_command(RevokeCommandData {
         sudo: &deploy_defs.sudo,

@@ -10,7 +10,7 @@ use clap::{Clap, ArgMatches, FromArgMatches};
 
 use crate as deploy;
 
-use self::deploy::{DeployFlake, ParseFlakeError, settings};
+use self::deploy::{data, settings};
 use futures_util::stream::{StreamExt, TryStreamExt};
 use log::{debug, error, info, warn};
 use serde::Serialize;
@@ -171,7 +171,7 @@ pub enum GetDeploymentDataError {
 /// Evaluates the Nix in the given `repo` and return the processed Data from it
 async fn get_deployment_data(
     supports_flakes: bool,
-    flakes: &[deploy::DeployFlake<'_>],
+    flakes: &[data::DeployFlake<'_>],
     extra_build_args: &[String],
 ) -> Result<Vec<settings::Root>, GetDeploymentDataError> {
     futures_util::stream::iter(flakes).then(|flake| async move {
@@ -275,9 +275,9 @@ struct PromptPart<'a> {
 
 fn print_deployment(
     parts: &[(
-        &deploy::DeployFlake<'_>,
-        deploy::DeployData,
-        deploy::DeployDefs,
+        &data::DeployFlake<'_>,
+        data::DeployData,
+        data::DeployDefs,
     )],
 ) -> Result<(), toml::ser::Error> {
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
@@ -318,9 +318,9 @@ pub enum PromptDeploymentError {
 
 fn prompt_deployment(
     parts: &[(
-        &deploy::DeployFlake<'_>,
-        deploy::DeployData,
-        deploy::DeployDefs,
+        &data::DeployFlake<'_>,
+        data::DeployData,
+        data::DeployDefs,
     )],
 ) -> Result<(), PromptDeploymentError> {
     print_deployment(parts)?;
@@ -381,7 +381,7 @@ pub enum RunDeployError {
     #[error("Profile was provided without a node name")]
     ProfileWithoutNode,
     #[error("Error processing deployment definitions: {0}")]
-    DeployDataDefs(#[from] deploy::DeployDataDefsError),
+    DeployDataDefs(#[from] data::DeployDataDefsError),
     #[error("Failed to make printable TOML of deployment: {0}")]
     TomlFormat(#[from] toml::ser::Error),
     #[error("{0}")]
@@ -391,19 +391,19 @@ pub enum RunDeployError {
 }
 
 type ToDeploy<'a> = Vec<(
-    &'a deploy::DeployFlake<'a>,
+    &'a data::DeployFlake<'a>,
     &'a settings::Root,
     (&'a str, &'a settings::Node),
     (&'a str, &'a settings::Profile),
 )>;
 
 async fn run_deploy(
-    deploy_flakes: Vec<deploy::DeployFlake<'_>>,
+    deploy_flakes: Vec<data::DeployFlake<'_>>,
     data: Vec<settings::Root>,
     supports_flakes: bool,
     check_sigs: bool,
     interactive: bool,
-    cmd_overrides: &deploy::CmdOverrides,
+    cmd_overrides: &data::CmdOverrides,
     keep_result: bool,
     result_path: Option<&str>,
     extra_build_args: &[String],
@@ -513,13 +513,13 @@ async fn run_deploy(
         .collect();
 
     let mut parts: Vec<(
-        &deploy::DeployFlake<'_>,
-        deploy::DeployData,
-        deploy::DeployDefs,
+        &data::DeployFlake<'_>,
+        data::DeployData,
+        data::DeployDefs,
     )> = Vec::new();
 
     for (deploy_flake, data, (node_name, node), (profile_name, profile)) in to_deploy {
-        let deploy_data = deploy::make_deploy_data(
+        let deploy_data = data::make_deploy_data(
             &data.generic_settings,
             node,
             node_name,
@@ -555,7 +555,7 @@ async fn run_deploy(
         .await?;
     }
 
-    let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
+    let mut succeeded: Vec<(&data::DeployData, &data::DeployDefs)> = vec![];
 
     // Run all deployments
     // In case of an error rollback any previoulsy made deployment.
@@ -600,7 +600,7 @@ pub enum RunError {
     #[error("Failed to evaluate deployment data: {0}")]
     GetDeploymentData(#[from] GetDeploymentDataError),
     #[error("Error parsing flake: {0}")]
-    ParseFlake(#[from] deploy::ParseFlakeError),
+    ParseFlake(#[from] data::ParseFlakeError),
     #[error("Error initiating logger: {0}")]
     Logger(#[from] flexi_logger::FlexiLoggerError),
     #[error("{0}")]
@@ -624,12 +624,12 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         .targets
         .unwrap_or_else(|| vec![opts.clone().target.unwrap_or(".".to_string())]);
 
-    let deploy_flakes: Vec<DeployFlake> = deploys
+    let deploy_flakes: Vec<data::DeployFlake> = deploys
         .iter()
-        .map(|f| deploy::parse_flake(f.as_str()))
-        .collect::<Result<Vec<DeployFlake>, ParseFlakeError>>()?;
+        .map(|f| data::parse_flake(f.as_str()))
+        .collect::<Result<Vec<data::DeployFlake>, data::ParseFlakeError>>()?;
 
-    let cmd_overrides = deploy::CmdOverrides {
+    let cmd_overrides = data::CmdOverrides {
         ssh_user: opts.ssh_user,
         profile_user: opts.profile_user,
         ssh_opts: opts.ssh_opts,

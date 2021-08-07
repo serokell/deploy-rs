@@ -9,6 +9,8 @@ use std::process::Stdio;
 use thiserror::Error;
 use tokio::process::Command;
 
+use crate::data;
+
 #[derive(Error, Debug)]
 pub enum PushProfileError {
     #[error("Failed to run Nix show-derivation command: {0}")]
@@ -47,8 +49,8 @@ pub struct PushProfileData<'a> {
     pub supports_flakes: bool,
     pub check_sigs: bool,
     pub repo: &'a str,
-    pub deploy_data: &'a super::DeployData<'a>,
-    pub deploy_defs: &'a super::DeployDefs,
+    pub deploy_data: &'a data::DeployData<'a>,
+    pub deploy_defs: &'a data::DeployDefs,
     pub keep_result: bool,
     pub result_path: Option<&'a str>,
     pub extra_build_args: &'a [String],
