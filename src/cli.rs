@@ -10,7 +10,7 @@ use clap::{Clap, ArgMatches, FromArgMatches};
 
 use crate as deploy;
 
-use self::deploy::{DeployFlake, ParseFlakeError};
+use self::deploy::{DeployFlake, ParseFlakeError, settings};
 use futures_util::stream::{StreamExt, TryStreamExt};
 use log::{debug, error, info, warn};
 use serde::Serialize;
@@ -173,7 +173,7 @@ async fn get_deployment_data(
     supports_flakes: bool,
     flakes: &[deploy::DeployFlake<'_>],
     extra_build_args: &[String],
-) -> Result<Vec<deploy::data::Data>, GetDeploymentDataError> {
+) -> Result<Vec<settings::Root>, GetDeploymentDataError> {
     futures_util::stream::iter(flakes).then(|flake| async move {
 
     info!("Evaluating flake in {}", flake.repo);
@@ -392,14 +392,14 @@ pub enum RunDeployError {
 
 type ToDeploy<'a> = Vec<(
     &'a deploy::DeployFlake<'a>,
-    &'a deploy::data::Data,
-    (&'a str, &'a deploy::data::Node),
-    (&'a str, &'a deploy::data::Profile),
+    &'a settings::Root,
+    (&'a str, &'a settings::Node),
+    (&'a str, &'a settings::Profile),
 )>;
 
 async fn run_deploy(
     deploy_flakes: Vec<deploy::DeployFlake<'_>>,
-    data: Vec<deploy::data::Data>,
+    data: Vec<settings::Root>,
     supports_flakes: bool,
     check_sigs: bool,
     interactive: bool,
@@ -440,7 +440,7 @@ async fn run_deploy(
                         None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
                     };
 
-                    let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
+                    let mut profiles_list: Vec<(&str, &settings::Profile)> = Vec::new();
 
                     for profile_name in [
                         node.node_settings.profiles_order.iter().collect(),
@@ -471,7 +471,7 @@ async fn run_deploy(
                     let mut l = Vec::new();
 
                     for (node_name, node) in &data.nodes {
-                        let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
+                        let mut profiles_list: Vec<(&str, &settings::Profile)> = Vec::new();
 
                         for profile_name in [
                             node.node_settings.profiles_order.iter().collect(),
