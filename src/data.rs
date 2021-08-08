@@ -3,6 +3,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use linked_hash_set::LinkedHashSet;
 use rnix::{types::*, SyntaxKind::*};
 use merge::Merge;
 use thiserror::Error;
@@ -24,6 +25,98 @@ pub enum ParseTargetError {
     #[error("Unrecognized node or token encountered")]
     Unrecognized,
 }
+
+#[derive(Error, Debug)]
+pub enum ResolveTargetError {
+    #[error("No node named `{0}` was found in repo `{1}`")]
+    NodeNotFound(String, String),
+    #[error("No profile named `{0}` was on node `{1}` found in repo `{2}`")]
+    ProfileNotFound(String, String, String),
+    #[error("Profile was provided without a node name for repo `{0}`")]
+    ProfileWithoutNode(String),
+}
+
+impl<'a> Target {
+    pub fn resolve(
+        self,
+        r: &'a settings::Root,
+        cs: &'a settings::GenericSettings,
+        cf: &'a Flags,
+        hostname: Option<&'a str>,
+    ) -> Result<Vec<DeployData<'a>>, ResolveTargetError> {
+        match self {
+            Target{repo, node: Some(node), profile} => {
+                let node_ = match r.nodes.get(&node) {
+                    Some(x) => x,
+                    None => return Err(ResolveTargetError::NodeNotFound(
+                        node.to_owned(), repo.to_owned()
+                    )),
+                };
+                if let Some(profile) = profile {
+                    let profile_ = match node_.node_settings.profiles.get(&profile) {
+                        Some(x) => x,
+                        None => return Err(ResolveTargetError::ProfileNotFound(
+                            profile.to_owned(), node.to_owned(), repo.to_owned()
+                        )),
+                    };
+                    Ok({
+                        let d = DeployData::new(
+                            repo.to_owned(),
+                            node.to_owned(),
+                            profile.to_owned(),
+                            &r.generic_settings,
+                            cs,
+                            cf,
+                            node_,
+                            profile_,
+                            hostname,
+                        );
+                        vec![d]
+                    })
+                } else {
+                    let ordered_profile_names: LinkedHashSet::<String> = node_.node_settings.profiles_order.iter().cloned().collect();
+                    let profile_names: LinkedHashSet::<String> = node_.node_settings.profiles.keys().cloned().collect();
+                    let prioritized_profile_names: LinkedHashSet::<&String> = ordered_profile_names.union(&profile_names).collect();
+                    Ok(
+                        prioritized_profile_names
+                        .iter()
+                        .map(
+                            |p|
+                            Target{repo: repo.to_owned(), node: Some(node.to_owned()), profile: Some(p.to_string())}.resolve(
+                                r, cs, cf, hostname,
+                            )
+                        )
+                        .collect::<Result<Vec<Vec<DeployData<'_>>>, ResolveTargetError>>()?
+                        .into_iter().flatten().collect::<Vec<DeployData<'_>>>()
+                    )
+                }
+            },
+            Target{repo, node: None, profile: None} => {
+                if let Some(hostname) = hostname {
+                    todo!() // create issue to discuss:
+                    // if allowed, it would be really awkward
+                    // to override the hostname for a series of nodes at once
+                }
+                Ok(
+                    r.nodes
+                    .iter()
+                    .map(
+                        |(n, _)|
+                        Target{repo: repo.to_owned(), node: Some(n.to_string()), profile: None}.resolve(
+                            r, cs, cf, hostname,
+                        )
+                    )
+                    .collect::<Result<Vec<Vec<DeployData<'_>>>, ResolveTargetError>>()?
+                    .into_iter().flatten().collect::<Vec<DeployData<'_>>>()
+                )
+            },
+            Target{repo, node: None, profile: Some(_)} => return Err(ResolveTargetError::ProfileWithoutNode(
+                repo.to_owned()
+            ))
+        }
+    }
+}
+
 impl std::str::FromStr for Target {
     type Err = ParseTargetError;
 
@@ -44,7 +137,7 @@ impl std::str::FromStr for Target {
                 Some(x) => x,
                 None => {
                     return Ok(Target {
-                        repo,
+                        repo: repo.to_owned(),
                         node: None,
                         profile: None,
                     })
@@ -54,7 +147,7 @@ impl std::str::FromStr for Target {
             let mut node_over = false;
 
             for entry in first_child.children_with_tokens() {
-                let x: Option<String> = match (entry.kind(), node_over) {
+                let x = match (entry.kind(), node_over) {
                     (TOKEN_DOT, false) => {
                         node_over = true;
                         None
@@ -86,9 +179,9 @@ impl std::str::FromStr for Target {
         }
 
         Ok(Target {
-            repo,
-            node,
-            profile,
+            repo: repo.to_owned(),
+            node: node,
+            profile: profile,
         })
     }
 }
@@ -161,9 +254,10 @@ fn test_deploy_target_from_str() {
 
 #[derive(Debug, Clone)]
 pub struct DeployData<'a> {
-    pub node_name: &'a str,
+    pub repo: String,
+    pub node_name: String,
+    pub profile_name: String,
     pub node: &'a settings::Node,
-    pub profile_name: &'a str,
     pub profile: &'a settings::Profile,
     pub hostname: Option<&'a str>,
 
@@ -225,6 +319,39 @@ pub enum DeployDataDefsError {
 }
 
 impl<'a> DeployData<'a> {
+
+    fn new(
+        repo: String,
+        node_name: String,
+        profile_name: String,
+        top_settings: &'a settings::GenericSettings,
+        cmd_settings: &'a settings::GenericSettings,
+        flags: &'a Flags,
+        node: &'a settings::Node,
+        profile: &'a settings::Profile,
+        hostname: Option<&'a str>,
+    ) -> DeployData<'a> {
+        let mut merged_settings = cmd_settings.clone();
+        merged_settings.merge(profile.generic_settings.clone());
+        merged_settings.merge(node.generic_settings.clone());
+        merged_settings.merge(top_settings.clone());
+
+        // if let Some(ref ssh_opts) = cmd_overrides.ssh_opts {
+        //     merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
+        // }
+
+        DeployData {
+            repo,
+            node_name,
+            profile_name,
+            node,
+            profile,
+            hostname,
+            flags,
+            merged_settings,
+        }
+    }
+
     pub fn defs(&'a self) -> Result<DeployDefs, DeployDataDefsError> {
         let ssh_user = match self.merged_settings.ssh_user {
             Some(ref u) => u.clone(),
@@ -310,35 +437,5 @@ impl<'a> DeployData<'a> {
             },
         };
         Ok(profile_user)
-    }
-}
-
-pub fn make_deploy_data<'a>(
-    top_settings: &'a settings::GenericSettings,
-    cmd_settings: &'a settings::GenericSettings,
-    flags: &'a Flags,
-    node: &'a settings::Node,
-    node_name: &'a str,
-    profile: &'a settings::Profile,
-    profile_name: &'a str,
-    hostname: Option<&'a str>,
-) -> DeployData<'a> {
-    let mut merged_settings = cmd_settings.clone();
-    merged_settings.merge(profile.generic_settings.clone());
-    merged_settings.merge(node.generic_settings.clone());
-    merged_settings.merge(top_settings.clone());
-
-    // if let Some(ref ssh_opts) = cmd_overrides.ssh_opts {
-    //     merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
-    // }
-
-    DeployData {
-        node_name,
-        node,
-        profile_name,
-        profile,
-        hostname,
-        flags,
-        merged_settings,
     }
 }

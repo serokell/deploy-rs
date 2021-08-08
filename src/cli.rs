@@ -67,14 +67,13 @@ struct PromptPart<'a> {
 
 fn print_deployment(
     parts: &[(
-        &data::Target,
-        data::DeployData,
+        &data::DeployData,
         data::DeployDefs,
     )],
 ) -> Result<(), toml::ser::Error> {
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
 
-    for (_, data, defs) in parts {
+    for (data, defs) in parts {
         part_map
             .entry(data.node_name.to_string())
             .or_insert_with(HashMap::new)
@@ -110,8 +109,7 @@ pub enum PromptDeploymentError {
 
 fn prompt_deployment(
     parts: &[(
-        &data::Target,
-        data::DeployData,
+        &data::DeployData,
         data::DeployDefs,
     )],
 ) -> Result<(), PromptDeploymentError> {
@@ -166,12 +164,9 @@ pub enum RunDeployError {
     DeployProfile(#[from] deploy::deploy::DeployProfileError),
     #[error("Failed to push profile: {0}")]
     PushProfile(#[from] deploy::push::PushProfileError),
-    #[error("No profile named `{0}` was found")]
-    ProfileNotFound(String),
-    #[error("No node named `{0}` was found")]
-    NodeNotFound(String),
-    #[error("Profile was provided without a node name")]
-    ProfileWithoutNode,
+    #[error("Failed to resolve target: {0}")]
+    ResolveTarget(#[from] data::ResolveTargetError),
+
     #[error("Error processing deployment definitions: {0}")]
     DeployDataDefs(#[from] data::DeployDataDefsError),
     #[error("Failed to make printable TOML of deployment: {0}")]
@@ -182,13 +177,6 @@ pub enum RunDeployError {
     RevokeProfile(#[from] deploy::deploy::RevokeProfileError),
 }
 
-type ToDeploy<'a> = Vec<(
-    &'a data::Target,
-    &'a settings::Root,
-    (&'a str, &'a settings::Node),
-    (&'a str, &'a settings::Profile),
-)>;
-
 async fn run_deploy(
     targets: Vec<data::Target>,
     settings: Vec<settings::Root>,
@@ -197,127 +185,27 @@ async fn run_deploy(
     cmd_settings: settings::GenericSettings,
     cmd_flags: data::Flags,
 ) -> Result<(), RunDeployError> {
-    let to_deploy: ToDeploy = targets
-        .iter()
-        .zip(&settings)
-        .map(|(target, root)| {
-            let to_deploys: ToDeploy = match (&target.node, &target.profile) {
-                (Some(node_name), Some(profile_name)) => {
-                    let node = match root.nodes.get(node_name) {
-                        Some(x) => x,
-                        None => Err(RunDeployError::NodeNotFound(node_name.to_owned()))?,
-                    };
-                    let profile = match node.node_settings.profiles.get(profile_name) {
-                        Some(x) => x,
-                        None => Err(RunDeployError::ProfileNotFound(profile_name.to_owned()))?,
-                    };
-
-                    vec![(
-                        &target,
-                        &root,
-                        (node_name.as_str(), node),
-                        (profile_name.as_str(), profile),
-                    )]
-                }
-                (Some(node_name), None) => {
-                    let node = match root.nodes.get(node_name) {
-                        Some(x) => x,
-                        None => return Err(RunDeployError::NodeNotFound(node_name.to_owned())),
-                    };
-
-                    let mut profiles_list: Vec<(&str, &settings::Profile)> = Vec::new();
-
-                    for profile_name in [
-                        node.node_settings.profiles_order.iter().collect(),
-                        node.node_settings.profiles.keys().collect::<Vec<&String>>(),
-                    ]
-                    .concat()
-                    {
-                        let profile = match node.node_settings.profiles.get(profile_name) {
-                            Some(x) => x,
-                            None => {
-                                return Err(RunDeployError::ProfileNotFound(
-                                    profile_name.to_owned(),
-                                ))
-                            }
-                        };
-
-                        if !profiles_list.iter().any(|(n, _)| n == profile_name) {
-                            profiles_list.push((&profile_name, profile));
-                        }
-                    }
-
-                    profiles_list
-                        .into_iter()
-                        .map(|x| (target, root, (node_name.as_str(), node), x))
-                        .collect()
-                }
-                (None, None) => {
-                    let mut l = Vec::new();
-
-                    for (node_name, node) in &root.nodes {
-                        let mut profiles_list: Vec<(&str, &settings::Profile)> = Vec::new();
-
-                        for profile_name in [
-                            node.node_settings.profiles_order.iter().collect(),
-                            node.node_settings.profiles.keys().collect::<Vec<&String>>(),
-                        ]
-                        .concat()
-                        {
-                            let profile = match node.node_settings.profiles.get(profile_name) {
-                                Some(x) => x,
-                                None => {
-                                    return Err(RunDeployError::ProfileNotFound(
-                                        profile_name.to_owned(),
-                                    ))
-                                }
-                            };
-
-                            if !profiles_list.iter().any(|(n, _)| n == profile_name) {
-                                profiles_list.push((&profile_name, profile));
-                            }
-                        }
-
-                        let ll: ToDeploy = profiles_list
-                            .into_iter()
-                            .map(|x| (target, root, (node_name.as_str(), node), x))
-                            .collect();
-
-                        l.extend(ll);
-                    }
-
-                    l
-                }
-                (None, Some(_)) => return Err(RunDeployError::ProfileWithoutNode),
-            };
-            Ok(to_deploys)
-        })
-        .collect::<Result<Vec<ToDeploy>, RunDeployError>>()?
-        .into_iter()
-        .flatten()
-        .collect();
+    let deploy_datas_ = targets.into_iter().zip(&settings)
+        .map(
+            |(target, root)|
+            target.resolve(
+                &root,
+                &cmd_settings,
+                &cmd_flags,
+                hostname.as_deref(),
+            )
+        )
+        .collect::<Result<Vec<Vec<data::DeployData<'_>>>, data::ResolveTargetError>>()?;
+    let deploy_datas: Vec<&data::DeployData<'_>> = deploy_datas_.iter().flatten().collect();
 
     let mut parts: Vec<(
-        &data::Target,
-        data::DeployData,
+        &data::DeployData,
         data::DeployDefs,
     )> = Vec::new();
 
-    for (target, root, (node_name, node), (profile_name, profile)) in to_deploy {
-        let deploy_data = data::make_deploy_data(
-            &root.generic_settings,
-            &cmd_settings,
-            &cmd_flags,
-            node,
-            node_name,
-            profile,
-            profile_name,
-            hostname.as_deref(),
-        );
-
+    for deploy_data in deploy_datas {
         let deploy_defs = deploy_data.defs()?;
-
-        parts.push((target, deploy_data, deploy_defs));
+        parts.push((deploy_data, deploy_defs));
     }
 
     if cmd_flags.interactive {
@@ -326,11 +214,11 @@ async fn run_deploy(
         print_deployment(&parts[..])?;
     }
 
-    for (target, deploy_data, deploy_defs) in &parts {
+    for (deploy_data, deploy_defs) in &parts {
         deploy::push::push_profile(deploy::push::PushProfileData {
             supports_flakes: &supports_flakes,
             check_sigs: &cmd_flags.checksigs,
-            repo: &target.repo,
+            repo: &deploy_data.repo,
             deploy_data: &deploy_data,
             deploy_defs: &deploy_defs,
             keep_result: &cmd_flags.keep_result,
@@ -346,7 +234,7 @@ async fn run_deploy(
     // In case of an error rollback any previoulsy made deployment.
     // Rollbacks adhere to the global seeting to auto_rollback and secondary
     // the profile's configuration
-    for (_, deploy_data, deploy_defs) in &parts {
+    for (deploy_data, deploy_defs) in &parts {
         if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, cmd_flags.dry_activate).await
         {
             error!("{}", e);
