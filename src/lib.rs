@@ -141,6 +141,7 @@ pub fn init_logger(
 
 pub mod settings;
 pub mod data;
+pub mod flake;
 pub mod deploy;
 pub mod push;
 pub mod cli;
