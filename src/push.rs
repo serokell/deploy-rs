@@ -46,12 +46,12 @@ pub enum PushProfileError {
 }
 
 pub struct PushProfileData<'a> {
-    pub supports_flakes: bool,
-    pub check_sigs: bool,
+    pub supports_flakes: &'a bool,
+    pub check_sigs: &'a bool,
     pub repo: &'a str,
     pub deploy_data: &'a data::DeployData<'a>,
     pub deploy_defs: &'a data::DeployDefs,
-    pub keep_result: bool,
+    pub keep_result: &'a bool,
     pub result_path: Option<&'a str>,
     pub extra_build_args: &'a [String],
 }
@@ -95,13 +95,13 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         data.deploy_data.profile_name, data.deploy_data.node_name
     );
 
-    let mut build_command = if data.supports_flakes {
+    let mut build_command = if *data.supports_flakes {
         Command::new("nix")
     } else {
         Command::new("nix-build")
     };
 
-    if data.supports_flakes {
+    if *data.supports_flakes {
         build_command.arg("build").arg(derivation_name)
     } else {
         build_command.arg(derivation_name)
@@ -208,9 +208,9 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         // .collect::<Vec<String>>()
         .join(" ");
 
-    let hostname = match data.deploy_data.cmd_overrides.hostname {
-        Some(ref x) => x,
-        None => &data.deploy_data.node.node_settings.hostname,
+    let hostname = match data.deploy_data.hostname {
+        Some(x) => x,
+        None => data.deploy_data.node.node_settings.hostname.as_str(),
     };
 
     let copy_exit_status = copy_command

@@ -297,16 +297,16 @@ pub async fn deploy_profile(
         temp_path: &temp_path,
         confirm_timeout,
         magic_rollback,
-        debug_logs: deploy_data.debug_logs,
-        log_dir: deploy_data.log_dir,
+        debug_logs: deploy_data.flags.debug_logs,
+        log_dir: deploy_data.flags.log_dir.as_deref(),
         dry_activate,
     });
 
     debug!("Constructed activation command: {}", self_activate_command);
 
-    let hostname = match deploy_data.cmd_overrides.hostname {
-        Some(ref x) => x,
-        None => &deploy_data.node.node_settings.hostname,
+    let hostname = match deploy_data.hostname {
+        Some(x) => x,
+        None => deploy_data.node.node_settings.hostname.as_str(),
     };
 
     let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
@@ -340,8 +340,8 @@ pub async fn deploy_profile(
             sudo: &deploy_defs.sudo,
             closure: &deploy_data.profile.profile_settings.path,
             temp_path: &temp_path,
-            debug_logs: deploy_data.debug_logs,
-            log_dir: deploy_data.log_dir,
+            debug_logs: deploy_data.flags.debug_logs,
+            log_dir: deploy_data.flags.log_dir.as_deref(),
         });
 
         debug!("Constructed wait command: {}", self_wait_command);
@@ -425,15 +425,15 @@ pub async fn revoke(
         sudo: &deploy_defs.sudo,
         closure: &deploy_data.profile.profile_settings.path,
         profile_path: &deploy_data.get_profile_path()?,
-        debug_logs: deploy_data.debug_logs,
-        log_dir: deploy_data.log_dir,
+        debug_logs: deploy_data.flags.debug_logs,
+        log_dir: deploy_data.flags.log_dir.as_deref(),
     });
 
     debug!("Constructed revoke command: {}", self_revoke_command);
 
-    let hostname = match deploy_data.cmd_overrides.hostname {
-        Some(ref x) => x,
-        None => &deploy_data.node.node_settings.hostname,
+    let hostname = match deploy_data.hostname {
+        Some(x) => x,
+        None => deploy_data.node.node_settings.hostname.as_str(),
     };
 
     let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
