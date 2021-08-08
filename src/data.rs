@@ -6,6 +6,7 @@
 use rnix::{types::*, SyntaxKind::*};
 use merge::Merge;
 use thiserror::Error;
+use clap::Clap;
 
 use crate::settings;
 
@@ -158,33 +159,53 @@ fn test_deploy_target_from_str() {
     );
 }
 
-#[derive(Debug)]
-pub struct CmdOverrides {
-    pub ssh_user: Option<String>,
-    pub profile_user: Option<String>,
-    pub ssh_opts: Option<String>,
-    pub fast_connection: Option<bool>,
-    pub auto_rollback: Option<bool>,
-    pub hostname: Option<String>,
-    pub magic_rollback: Option<bool>,
-    pub temp_path: Option<String>,
-    pub confirm_timeout: Option<u16>,
-    pub dry_activate: bool,
-}
-
 #[derive(Debug, Clone)]
 pub struct DeployData<'a> {
     pub node_name: &'a str,
     pub node: &'a settings::Node,
     pub profile_name: &'a str,
     pub profile: &'a settings::Profile,
+    pub hostname: Option<&'a str>,
 
-    pub cmd_overrides: &'a CmdOverrides,
-
+    pub flags: &'a Flags,
     pub merged_settings: settings::GenericSettings,
+}
 
-    pub debug_logs: bool,
-    pub log_dir: Option<&'a str>,
+#[derive(Clap, Debug, Clone)]
+pub struct Flags {
+    /// Check signatures when using `nix copy`
+    #[clap(short, long)]
+     pub checksigs: bool,
+    /// Use the interactive prompt before deployment
+    #[clap(short, long)]
+     pub interactive: bool,
+    /// Extra arguments to be passed to nix build
+     pub extra_build_args: Vec<String>,
+
+    /// Print debug logs to output
+    #[clap(short, long)]
+     pub debug_logs: bool,
+    /// Directory to print logs to (including the background activation process)
+    #[clap(long)]
+     pub log_dir: Option<String>,
+
+    /// Keep the build outputs of each built profile
+    #[clap(short, long)]
+     pub keep_result: bool,
+    /// Location to keep outputs from built profiles in
+    #[clap(short, long)]
+     pub result_path: Option<String>,
+
+    /// Skip the automatic pre-build checks
+    #[clap(short, long)]
+     pub skip_checks: bool,
+    /// Make activation wait for confirmation, or roll back after a period of time
+    /// Show what will be activated on the machines
+    #[clap(long)]
+     pub dry_activate: bool,
+    /// Revoke all previously succeeded deploys when deploying multiple profiles
+    #[clap(long)]
+     pub rollback_succeeded: bool,
 }
 
 #[derive(Debug)]
@@ -257,47 +278,32 @@ impl<'a> DeployData<'a> {
     }
 }
 
-pub fn make_deploy_data<'a, 's>(
-    top_settings: &'s settings::GenericSettings,
+pub fn make_deploy_data<'a>(
+    top_settings: &'a settings::GenericSettings,
+    cmd_settings: &'a settings::GenericSettings,
+    flags: &'a Flags,
     node: &'a settings::Node,
     node_name: &'a str,
     profile: &'a settings::Profile,
     profile_name: &'a str,
-    cmd_overrides: &'a CmdOverrides,
-    debug_logs: bool,
-    log_dir: Option<&'a str>,
+    hostname: Option<&'a str>,
 ) -> DeployData<'a> {
-    let mut merged_settings = profile.generic_settings.clone();
+    let mut merged_settings = cmd_settings.clone();
+    merged_settings.merge(profile.generic_settings.clone());
     merged_settings.merge(node.generic_settings.clone());
     merged_settings.merge(top_settings.clone());
 
-    if cmd_overrides.ssh_user.is_some() {
-        merged_settings.ssh_user = cmd_overrides.ssh_user.clone();
-    }
-    if cmd_overrides.profile_user.is_some() {
-        merged_settings.user = cmd_overrides.profile_user.clone();
-    }
-    if let Some(ref ssh_opts) = cmd_overrides.ssh_opts {
-        merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
-    }
-    if let Some(fast_connection) = cmd_overrides.fast_connection {
-        merged_settings.fast_connection = Some(fast_connection);
-    }
-    if let Some(auto_rollback) = cmd_overrides.auto_rollback {
-        merged_settings.auto_rollback = Some(auto_rollback);
-    }
-    if let Some(magic_rollback) = cmd_overrides.magic_rollback {
-        merged_settings.magic_rollback = Some(magic_rollback);
-    }
+    // if let Some(ref ssh_opts) = cmd_overrides.ssh_opts {
+    //     merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
+    // }
 
     DeployData {
         node_name,
         node,
         profile_name,
         profile,
-        cmd_overrides,
+        hostname,
+        flags,
         merged_settings,
-        debug_logs,
-        log_dir,
     }
 }

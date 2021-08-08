@@ -2,30 +2,46 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use clap::Clap;
 use merge::Merge;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Deserialize, Debug, Clone, Merge)]
+#[derive(Clap, Deserialize, Debug, Clone, Merge)]
 pub struct GenericSettings {
+    /// Override the SSH user with the given value
+    #[clap(long)]
     #[serde(rename(deserialize = "sshUser"))]
     pub ssh_user: Option<String>,
+    /// Override the profile user with the given value
+    #[clap(long = "profile-user")]
     pub user: Option<String>,
+    /// Override the SSH options used
+    #[clap(long)]
     #[serde(
         skip_serializing_if = "Vec::is_empty",
         default,
         rename(deserialize = "sshOpts")
     )]
     #[merge(strategy = merge::vec::append)]
-    pub ssh_opts: Vec<String>,
+    pub ssh_opts: Vec<String>, // TODO: figure out type casting
+    /// Override if the connecting to the target node should be considered fast
+    #[clap(long)]
     #[serde(rename(deserialize = "fastConnection"))]
     pub fast_connection: Option<bool>,
+    /// Override if a rollback should be attempted if activation fails
+    #[clap(long)]
     #[serde(rename(deserialize = "autoRollback"))]
     pub auto_rollback: Option<bool>,
+    /// How long activation should wait for confirmation (if using magic-rollback)
+    #[clap(long)]
     #[serde(rename(deserialize = "confirmTimeout"))]
     pub confirm_timeout: Option<u16>,
+    /// Where to store temporary files (only used by magic-rollback)
+    #[clap(long)]
     #[serde(rename(deserialize = "tempPath"))]
     pub temp_path: Option<String>,
+    #[clap(long)]
     #[serde(rename(deserialize = "magicRollback"))]
     pub magic_rollback: Option<bool>,
 }
