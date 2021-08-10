@@ -2,8 +2,9 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use envmnt::{self, ExpandOptions, ExpansionType};
 use merge::Merge;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 
 #[derive(Deserialize, Debug, Clone, Merge)]
@@ -14,7 +15,8 @@ pub struct GenericSettings {
     #[serde(
         skip_serializing_if = "Vec::is_empty",
         default,
-        rename(deserialize = "sshOpts")
+        rename(deserialize = "sshOpts"),
+        deserialize_with = "GenericSettings::de_ssh_opts"
     )]
     #[merge(strategy = merge::vec::append)]
     pub ssh_opts: Vec<String>,
@@ -28,6 +30,23 @@ pub struct GenericSettings {
     pub temp_path: Option<String>,
     #[serde(rename(deserialize = "magicRollback"))]
     pub magic_rollback: Option<bool>,
+}
+
+impl GenericSettings {
+    fn de_ssh_opts<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let buf: Vec<String> = Vec::deserialize(deserializer)?;
+
+        let mut options = ExpandOptions::new();
+        options.expansion_type = Some(ExpansionType::UnixBrackets);
+
+        Ok(buf
+            .into_iter()
+            .map(|opt| envmnt::expand(&opt, Some(options)))
+            .collect())
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
