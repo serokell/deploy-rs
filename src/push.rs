@@ -26,12 +26,12 @@ pub enum PushProfileError {
     #[error("Nix build command resulted in a bad exit code: {0:?}")]
     BuildExitError(Option<i32>),
     #[error(
-        "Activation script deploy-rs-activate does not exist in profile.\n\
-             Did you forget to use deploy-rs#lib.<...>.activate.<...> on your profile path?"
+        "Activation script yeet-activate does not exist in profile.\n\
+             Did you forget to use yeet#lib.<...>.activate.<...> on your profile path?"
     )]
     DeployRsActivateDoesntExist,
     #[error("Activation script activate-rs does not exist in profile.\n\
-             Is there a mismatch in deploy-rs used in the flake you're deploying and deploy-rs command you're running?")]
+             Is there a mismatch in yeet used in the flake you're deploying and yeet command you're running?")]
     ActivateRsDoesntExist,
     #[error("Failed to run Nix sign command: {0}")]
     SignError(std::io::Error),
@@ -136,7 +136,7 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
 
     if !Path::new(
         format!(
-            "{}/deploy-rs-activate",
+            "{}/yeet-activate",
             data.deploy_data.profile.profile_settings.path
         )
         .as_str(),

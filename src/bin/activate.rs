@@ -23,7 +23,7 @@ use thiserror::Error;
 
 use log::{debug, error, info, warn};
 
-/// Remote activation utility for deploy-rs
+/// Remote activation utility for yeet
 #[derive(Clap, Debug)]
 #[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
 struct Opts {
@@ -176,7 +176,7 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
 
     info!("Attempting to re-activate the last generation");
 
-    let re_activate_exit_status = Command::new(format!("{}/deploy-rs-activate", profile_path))
+    let re_activate_exit_status = Command::new(format!("{}/yeet-activate", profile_path))
         .env("PROFILE", &profile_path)
         .current_dir(&profile_path)
         .status()
@@ -235,7 +235,7 @@ pub async fn activation_confirmation(
     confirm_timeout: u16,
     closure: String,
 ) -> Result<(), ActivationConfirmationError> {
-    let lock_path = deploy::make_lock_path(&temp_path, &closure);
+    let lock_path = yeet::make_lock_path(&temp_path, &closure);
 
     debug!("Ensuring parent directory exists for canary file");
 
@@ -298,7 +298,7 @@ pub enum WaitError {
     Waiting(#[from] DangerZoneError),
 }
 pub async fn wait(temp_path: String, closure: String) -> Result<(), WaitError> {
-    let lock_path = deploy::make_lock_path(&temp_path, &closure);
+    let lock_path = yeet::make_lock_path(&temp_path, &closure);
 
     let (created, done) = mpsc::channel(1);
 
@@ -396,7 +396,7 @@ pub async fn activate(
         &profile_path
     };
 
-    let activate_status = match Command::new(format!("{}/deploy-rs-activate", activation_location))
+    let activate_status = match Command::new(format!("{}/yeet-activate", activation_location))
         .env("PROFILE", activation_location)
         .env("DRY_ACTIVATE", if dry_activate { "1" } else { "0" })
         .current_dir(activation_location)
@@ -468,13 +468,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let opts: Opts = Opts::parse();
 
-    deploy::init_logger(
+    yeet::init_logger(
         opts.debug_logs,
         opts.log_dir.as_deref(),
         match opts.subcmd {
-            SubCommand::Activate(_) => deploy::LoggerType::Activate,
-            SubCommand::Wait(_) => deploy::LoggerType::Wait,
-            SubCommand::Revoke(_) => deploy::LoggerType::Revoke,
+            SubCommand::Activate(_) => yeet::LoggerType::Activate,
+            SubCommand::Wait(_) => yeet::LoggerType::Wait,
+            SubCommand::Revoke(_) => yeet::LoggerType::Revoke,
         },
     )?;
 

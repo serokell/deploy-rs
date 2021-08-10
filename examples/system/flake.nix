@@ -5,9 +5,9 @@
 {
   description = "Deploy a full system with hello service as a separate profile";
 
-  inputs.deploy-rs.url = "github:serokell/deploy-rs";
+  inputs.yeet.url = "github:serokell/yeet";
 
-  outputs = { self, nixpkgs, deploy-rs }: {
+  outputs = { self, nixpkgs, yeet }: {
     nixosConfigurations.example-nixos-system = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [ ./configuration.nix ];
@@ -30,17 +30,17 @@
         system = {
           sshUser = "admin";
           path =
-            deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.example-nixos-system;
+            yeet.lib.x86_64-linux.activate.nixos self.nixosConfigurations.example-nixos-system;
           user = "root";
         };
         hello = {
           sshUser = "hello";
-          path = deploy-rs.lib.x86_64-linux.activate.custom self.defaultPackage.x86_64-linux "./bin/activate";
+          path = yeet.lib.x86_64-linux.activate.custom self.defaultPackage.x86_64-linux "./bin/activate";
           user = "hello";
         };
       };
     };
 
-    checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
+    checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) yeet.lib;
   };
 }
