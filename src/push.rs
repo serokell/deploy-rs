@@ -45,7 +45,7 @@ pub enum PushProfileError {
     CopyExit(Option<i32>),
 
     #[error("Deployment data invalid: {0}")]
-    InvalidDeployDataDefs(#[from] data::DeployDataDefsError),
+    DeployData(#[from] data::DeployDataError),
 }
 
 pub struct PushProfileData<'a> {
