@@ -265,6 +265,14 @@ pub struct DeployData<'a> {
     pub merged_settings: settings::GenericSettings,
 }
 
+#[derive(Error, Debug)]
+pub enum DeployDataError {
+    #[error("Neither `user` nor `sshUser` are set for profile {0} of node {1}")]
+    NoProfileUser(String, String),
+    #[error("Value `hostname` is not define for profile {0} of node {1}")]
+    NoProfileHost(String, String),
+}
+
 #[derive(Clap, Debug, Clone)]
 pub struct Flags {
     /// Check signatures when using `nix copy`
@@ -310,14 +318,6 @@ pub struct DeployDefs {
     pub sudo: Option<String>,
 }
 
-#[derive(Error, Debug)]
-pub enum DeployDataDefsError {
-    #[error("Neither `user` nor `sshUser` are set for profile {0} of node {1}")]
-    NoProfileUser(String, String),
-    #[error("Value `hostname` is not define for profile {0} of node {1}")]
-    NoProfileHost(String, String),
-}
-
 impl<'a> DeployData<'a> {
 
     fn new(
@@ -352,7 +352,7 @@ impl<'a> DeployData<'a> {
         }
     }
 
-    pub fn defs(&'a self) -> Result<DeployDefs, DeployDataDefsError> {
+    pub fn defs(&'a self) -> Result<DeployDefs, DeployDataError> {
         let ssh_user = match self.merged_settings.ssh_user {
             Some(ref u) => u.clone(),
             None => whoami::username(),
@@ -375,7 +375,7 @@ impl<'a> DeployData<'a> {
         })
     }
 
-    pub fn ssh_uri(&'a self) -> Result<String, DeployDataDefsError> {
+    pub fn ssh_uri(&'a self) -> Result<String, DeployDataError> {
 
         let hostname = match self.hostname {
             Some(x) => x,
@@ -390,7 +390,7 @@ impl<'a> DeployData<'a> {
     }
 
     // can be dropped once ssh fully supports ipv6 uris
-    pub fn ssh_non_uri(&'a self) -> Result<String, DeployDataDefsError> {
+    pub fn ssh_non_uri(&'a self) -> Result<String, DeployDataError> {
 
         let hostname = match self.hostname {
             Some(x) => x,
@@ -408,7 +408,7 @@ impl<'a> DeployData<'a> {
         self.merged_settings.ssh_opts.iter()
     }
 
-    pub fn get_profile_path(&'a self) -> Result<String, DeployDataDefsError> {
+    pub fn get_profile_path(&'a self) -> Result<String, DeployDataError> {
         let profile_user = self.get_profile_user()?;
         let profile_path = match self.profile.profile_settings.profile_path {
             None => match &profile_user[..] {
@@ -423,13 +423,13 @@ impl<'a> DeployData<'a> {
         Ok(profile_path)
     }
 
-    pub fn get_profile_user(&'a self) -> Result<String, DeployDataDefsError> {
+    pub fn get_profile_user(&'a self) -> Result<String, DeployDataError> {
         let profile_user = match self.merged_settings.user {
             Some(ref x) => x.clone(),
             None => match self.merged_settings.ssh_user {
                 Some(ref x) => x.clone(),
                 None => {
-                    return Err(DeployDataDefsError::NoProfileUser(
+                    return Err(DeployDataError::NoProfileUser(
                         self.profile_name.to_owned(),
                         self.node_name.to_owned(),
                     ))

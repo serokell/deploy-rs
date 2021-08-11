@@ -168,7 +168,7 @@ pub enum RunDeployError {
     ResolveTarget(#[from] data::ResolveTargetError),
 
     #[error("Error processing deployment definitions: {0}")]
-    DeployDataDefs(#[from] data::DeployDataDefsError),
+    DeployDataError(#[from] data::DeployDataError),
     #[error("Failed to make printable TOML of deployment: {0}")]
     TomlFormat(#[from] toml::ser::Error),
     #[error("{0}")]

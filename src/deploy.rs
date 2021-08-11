@@ -206,7 +206,7 @@ pub enum ConfirmProfileError {
     SSHConfirmExitError(Option<i32>),
 
     #[error("Deployment data invalid: {0}")]
-    InvalidDeployDataDefsError(#[from] data::DeployDataDefsError),
+    InvalidDeployDataError(#[from] data::DeployDataError),
 }
 
 pub async fn confirm_profile(
@@ -265,7 +265,7 @@ pub enum DeployProfileError {
     ConfirmError(#[from] ConfirmProfileError),
 
     #[error("Deployment data invalid: {0}")]
-    InvalidDeployDataDefsError(#[from] data::DeployDataDefsError),
+    InvalidDeployDataError(#[from] data::DeployDataError),
 }
 
 pub async fn deploy_profile(
@@ -404,7 +404,7 @@ pub enum RevokeProfileError {
     SSHRevokeExitError(Option<i32>),
 
     #[error("Deployment data invalid: {0}")]
-    InvalidDeployDataDefsError(#[from] data::DeployDataDefsError),
+    InvalidDeployDataError(#[from] data::DeployDataError),
 }
 pub async fn revoke(
     deploy_data: &data::DeployData<'_>,
