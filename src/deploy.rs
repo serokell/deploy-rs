@@ -17,11 +17,7 @@ pub struct SshCommand<'a> {
 
 impl<'a> SshCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Result<Self, data::DeployDataError> {
-        let hostname = match d.hostname {
-            Some(x) => x,
-            None => &d.node.node_settings.hostname,
-        };
-        let hoststring = format!("{}@{}", &d.ssh_user, hostname);
+        let hoststring = format!("{}@{}", &d.ssh_user, d.hostname);
         let opts = d.merged_settings.ssh_opts.as_ref();
         Ok(SshCommand {hoststring, opts})
     }

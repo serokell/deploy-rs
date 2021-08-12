@@ -66,22 +66,19 @@ struct PromptPart<'a> {
 }
 
 fn print_deployment(
-    parts: &[(
-        &data::DeployData,
-        data::DeployDefs,
-    )],
+    parts: &[&data::DeployData],
 ) -> Result<(), toml::ser::Error> {
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
 
-    for (data, defs) in parts {
+    for data in parts {
         part_map
             .entry(data.node_name.to_string())
             .or_insert_with(HashMap::new)
             .insert(
                 data.profile_name.to_string(),
                 PromptPart {
-                    user: &defs.profile_user,
-                    ssh_user: &defs.ssh_user,
+                    user: &data.profile_user,
+                    ssh_user: &data.ssh_user,
                     path: &data.profile.profile_settings.path,
                     hostname: &data.node.node_settings.hostname,
                     ssh_opts: &data.merged_settings.ssh_opts,
@@ -108,10 +105,7 @@ pub enum PromptDeploymentError {
 }
 
 fn prompt_deployment(
-    parts: &[(
-        &data::DeployData,
-        data::DeployDefs,
-    )],
+    parts: &[&data::DeployData],
 ) -> Result<(), PromptDeploymentError> {
     print_deployment(parts)?;
 
@@ -198,14 +192,10 @@ async fn run_deploy(
         .collect::<Result<Vec<Vec<data::DeployData<'_>>>, data::ResolveTargetError>>()?;
     let deploy_datas: Vec<&data::DeployData<'_>> = deploy_datas_.iter().flatten().collect();
 
-    let mut parts: Vec<(
-        &data::DeployData,
-        data::DeployDefs,
-    )> = Vec::new();
+    let mut parts: Vec<&data::DeployData> = Vec::new();
 
     for deploy_data in deploy_datas {
-        let deploy_defs = deploy_data.defs()?;
-        parts.push((deploy_data, deploy_defs));
+        parts.push(deploy_data);
     }
 
     if cmd_flags.interactive {
@@ -214,27 +204,24 @@ async fn run_deploy(
         print_deployment(&parts[..])?;
     }
 
-    for (deploy_data, deploy_defs) in &parts {
-        deploy::push::push_profile(deploy::push::PushProfileData {
-            supports_flakes: &supports_flakes,
-            check_sigs: &cmd_flags.checksigs,
-            repo: &deploy_data.repo,
-            deploy_data: &deploy_data,
-            deploy_defs: &deploy_defs,
-            keep_result: &cmd_flags.keep_result,
-            result_path: cmd_flags.result_path.as_deref(),
-            extra_build_args: &cmd_flags.extra_build_args,
-        })
+    for deploy_data in &parts {
+        deploy::push::push_profile(
+            supports_flakes,
+            deploy::push::ShowDerivationCommand::from_data(&deploy_data),
+            deploy::push::BuildCommand::from_data(&deploy_data),
+            deploy::push::SignCommand::from_data(&deploy_data),
+            deploy::push::CopyCommand::from_data(&deploy_data),
+        )
         .await?;
     }
 
-    let mut succeeded: Vec<(&data::DeployData, &data::DeployDefs)> = vec![];
+    let mut succeeded: Vec<&data::DeployData> = vec![];
 
     // Run all deployments
     // In case of an error rollback any previoulsy made deployment.
     // Rollbacks adhere to the global seeting to auto_rollback and secondary
     // the profile's configuration
-    for (deploy_data, deploy_defs) in &parts {
+    for deploy_data in &parts {
         if let Err(e) = deploy::deploy::deploy_profile(
             &deploy_data.node_name,
             &deploy_data.profile_name,
@@ -253,7 +240,7 @@ async fn run_deploy(
                 // revoking all previous deploys
                 // (adheres to profile configuration if not set explicitely by
                 //  the command line)
-                for (deploy_data, _) in &succeeded {
+                for deploy_data in &succeeded {
                     if deploy_data.merged_settings.auto_rollback.unwrap_or(true) {
                         deploy::deploy::revoke(
                             &deploy_data.node_name,
@@ -266,7 +253,7 @@ async fn run_deploy(
             }
             break;
         }
-        succeeded.push((deploy_data, deploy_defs))
+        succeeded.push(deploy_data)
     }
 
     Ok(())
