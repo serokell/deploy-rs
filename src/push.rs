@@ -207,7 +207,7 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         .arg(&data.deploy_data.profile.profile_settings.path)
         .env(
             "NIX_SSHOPTS",
-            data.deploy_data.ssh_opts().fold("".to_string(), |s, o| format!("{} {}", s, o))
+            data.deploy_data.ssh_opts()?.fold("".to_string(), |s, o| format!("{} {}", s, o))
         )
         .status()
         .await

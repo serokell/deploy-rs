@@ -34,6 +34,8 @@ pub enum ResolveTargetError {
     ProfileNotFound(String, String, String),
     #[error("Profile was provided without a node name for repo `{0}`")]
     ProfileWithoutNode(String),
+    #[error("Deployment data invalid: {0}")]
+    InvalidDeployDataError(#[from] DeployDataError),
 }
 
 impl<'a> Target {
@@ -70,7 +72,7 @@ impl<'a> Target {
                             node_,
                             profile_,
                             hostname,
-                        );
+                        )?;
                         vec![d]
                     })
                 } else {
@@ -257,12 +259,18 @@ pub struct DeployData<'a> {
     pub repo: String,
     pub node_name: String,
     pub profile_name: String,
-    pub node: &'a settings::Node,
-    pub profile: &'a settings::Profile,
+
     pub hostname: Option<&'a str>,
 
     pub flags: &'a Flags,
+    pub node: &'a settings::Node,
+    pub profile: &'a settings::Profile,
     pub merged_settings: settings::GenericSettings,
+
+    pub ssh_user: String,
+    pub temp_path: String,
+    pub profile_path: String,
+    pub sudo: Option<String>,
 }
 
 #[derive(Error, Debug)]
@@ -330,7 +338,7 @@ impl<'a> DeployData<'a> {
         node: &'a settings::Node,
         profile: &'a settings::Profile,
         hostname: Option<&'a str>,
-    ) -> DeployData<'a> {
+    ) -> Result<DeployData<'a>, DeployDataError> {
         let mut merged_settings = cmd_settings.clone();
         merged_settings.merge(profile.generic_settings.clone());
         merged_settings.merge(node.generic_settings.clone());
@@ -339,17 +347,49 @@ impl<'a> DeployData<'a> {
         // if let Some(ref ssh_opts) = cmd_overrides.ssh_opts {
         //     merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
         // }
+        let temp_path = match merged_settings.temp_path {
+            Some(ref x) => x.to_owned(),
+            None => "/tmp".to_string(),
+        };
+        let profile_user = match merged_settings.user {
+            Some(ref x) => x.to_owned(),
+            None => match merged_settings.ssh_user {
+                Some(ref x) => x.to_owned(),
+                None => {
+                    return Err(DeployDataError::NoProfileUser(profile_name, node_name))
+                }
+            },
+        };
+        let profile_path = match profile.profile_settings.profile_path {
+            None => format!("/nix/var/nix/profiles/{}", match &profile_user[..] {
+                "root" => profile_name.to_owned(),
+                _ => format!("per-user/{}/{}", profile_user, profile_name),
+            }),
+            Some(ref x) => x.to_owned(),
+        };
+        let ssh_user = match merged_settings.ssh_user {
+            Some(ref u) => u.to_owned(),
+            None => whoami::username(),
+        };
+        let sudo = match merged_settings.user {
+            Some(ref user) if user != &ssh_user => Some(format!("sudo -u {}", user)),
+            _ => None,
+        };
 
-        DeployData {
+        Ok(DeployData {
             repo,
             node_name,
             profile_name,
             node,
             profile,
             hostname,
+            ssh_user,
+            temp_path,
+            profile_path,
+            sudo,
             flags,
             merged_settings,
-        }
+        })
     }
 
     pub fn defs(&'a self) -> Result<DeployDefs, DeployDataError> {
@@ -357,15 +397,9 @@ impl<'a> DeployData<'a> {
             Some(ref u) => u.clone(),
             None => whoami::username(),
         };
-
         let profile_user = self.get_profile_user()?;
-
         let profile_path = self.get_profile_path()?;
-
-        let sudo: Option<String> = match self.merged_settings.user {
-            Some(ref user) if user != &ssh_user => Some(format!("sudo -u {}", user)),
-            _ => None,
-        };
+        let sudo = self.sudo()?;
 
         Ok(DeployDefs {
             ssh_user,
@@ -373,6 +407,28 @@ impl<'a> DeployData<'a> {
             profile_path,
             sudo,
         })
+    }
+
+    pub fn sudo(&'a self) -> Result<Option<String>, DeployDataError> {
+        let ssh_user = match self.merged_settings.ssh_user {
+            Some(ref u) => u.clone(),
+            None => whoami::username(),
+        };
+        Ok(
+            match self.merged_settings.user {
+                Some(ref user) if user != &ssh_user => Some(format!("sudo -u {}", user)),
+                _ => None,
+            }
+        )
+    }
+
+    pub fn temp_path(&'a self) -> Result<String, DeployDataError> {
+        Ok(
+            match self.merged_settings.temp_path {
+                Some(ref x) => x.to_owned(),
+                None => "/tmp".to_string(),
+            }
+        )
     }
 
     pub fn ssh_uri(&'a self) -> Result<String, DeployDataError> {
@@ -404,8 +460,8 @@ impl<'a> DeployData<'a> {
         Ok(format!("{}@{}", ssh_user, hostname))
     }
 
-    pub fn ssh_opts(&'a self) -> impl Iterator<Item = &String> {
-        self.merged_settings.ssh_opts.iter()
+    pub fn ssh_opts(&'a self) -> Result<impl Iterator<Item = &String>, DeployDataError> {
+        Ok(self.merged_settings.ssh_opts.iter())
     }
 
     pub fn get_profile_path(&'a self) -> Result<String, DeployDataError> {
