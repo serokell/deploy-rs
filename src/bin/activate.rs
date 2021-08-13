@@ -206,7 +206,12 @@ pub async fn deactivate(
     };
 
     info!("Attempting to re-activate the last generation");
-    let mut re_activate_cmd = Command::new(format!("{}/deploy-rs-activate", profile_path));
+    let mut re_activate_cmd;
+    if let Some(ref mount_point) = mount_point {
+        re_activate_cmd = Command::new(format!("{}/{}/deploy-rs-activate", mount_point, profile_path));
+    } else {
+        re_activate_cmd = Command::new(format!("{}/deploy-rs-activate", profile_path));
+    };
     if let Some(ref mount_point) = mount_point {
         re_activate_cmd
             .env("MOUNT_POINT", mount_point);
@@ -453,7 +458,12 @@ pub async fn activate(
     } else {
         &profile_path
     };
-    let mut activate_cmd = Command::new(format!("{}/deploy-rs-activate", activation_location));
+    let mut activate_cmd;
+    if let Some(ref mount_point) = mount_point {
+        activate_cmd = Command::new(format!("{}/{}/deploy-rs-activate", mount_point, activation_location));
+    } else {
+        activate_cmd = Command::new(format!("{}/deploy-rs-activate", profile_path));
+    };
 
     if let Some(ref mount_point) = mount_point {
         activate_cmd

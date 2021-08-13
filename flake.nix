@@ -73,8 +73,8 @@
                         (final.writeTextFile {
                             name = base.name + "-activate-rs";
                             text = ''
-                            #!${final.runtimeShell}
-                            exec ${self.defaultPackage.${system}}/bin/activate "$@"
+                            #!''${MOUNT_POINT:-}${final.runtimeShell}
+                            exec ''${MOUNT_POINT:-}${self.defaultPackage.${system}}/bin/activate "$@"
                           '';
                           executable = true;
                           destination = "/activate-rs";

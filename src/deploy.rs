@@ -73,7 +73,7 @@ impl<'a> ActivateCommand<'a> {
         }
 
         if let Some(mount_point) = self.mount_point {
-            cmd = format!("{} --store-root '{}'", cmd, mount_point);
+            cmd = format!("MOUNT_POINT='{1}' {1}{0} --store-root '{1}'", cmd, mount_point);
         }
 
         cmd = format!(
@@ -171,7 +171,7 @@ impl<'a> WaitCommand<'a> {
         }
 
         if let Some(mount_point) = self.mount_point {
-            cmd = format!("{} --store-root '{}'", cmd, mount_point);
+            cmd = format!("MOUNT_POINT='{1}' {1}{0} --store-root '{1}'", cmd, mount_point);
         }
 
         cmd = format!(
@@ -243,7 +243,7 @@ impl<'a> RevokeCommand<'a> {
         }
 
         if let Some(mount_point) = self.mount_point {
-            cmd = format!("{} --store-root '{}'", cmd, mount_point);
+            cmd = format!("MOUNT_POINT='{1}' {1}{0} --store-root '{1}'", cmd, mount_point);
         }
 
         cmd = format!("{} revoke '{}'", cmd, self.profile_path);
