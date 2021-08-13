@@ -70,10 +70,22 @@
                           executable = true;
                           destination = "/deploy-rs-activate";
                         })
+                        (final.writeTextFile  {
+                          name = base.name + "-activate-chroot-wrapper";
+                          text = ''
+                          # no interpreter: absolute storepaths are not resolvable outside chroot
+                          # run with bash <>, instead
+                          ${nixpkgs.lib.fileContents ./chroot-wrapper.bash};
+                          '';
+                          executable = true;
+                          destination = "/deploy-rs-chroot-wrapper";
+                        })
                         (final.writeTextFile {
                             name = base.name + "-activate-rs";
                             text = ''
                             #!${final.runtimeShell}
+                            # required by bin/activate
+                            export PATH="${nixpkgs.lib.makeBinPath [final.nixUnstable final.coreutils]}"
                             exec ${self.defaultPackage.${system}}/bin/activate "$@"
                           '';
                           executable = true;
@@ -84,34 +96,49 @@
               };
 
             nixos = base: (custom // { dryActivate = "$PROFILE/bin/switch-to-configuration dry-activate"; }) base.config.system.build.toplevel ''
+              export PATH="${nixpkgs.lib.makeBinPath [final.coreutils]}"
               # work around https://github.com/NixOS/nixpkgs/issues/73404
               cd /tmp
 
               _SYSTEM="/nix/var/nix/profiles/system"
-              _SWITCH_COMMAND="$PROFILE/bin/switch-to-configuration switch" # always relative to root
+              _SWITCH_COMMAND="$PROFILE/bin/switch-to-configuration"
+
+              # Set $LOCALE_ARCHIVE to supress some Perl locale warnings.
+              export LOCALE_ARCHIVE="$PROFILE/sw/lib/locale/locale-archive"
 
               _already_on_nixos() { [[ -f "/etc/NIXOS" ]]; }
-              _ensure_fs_contract() { mkdir -m 0755 -p /etc; touch /etc/NIXOS; }
-              _insall_bootloader_and_switch() {
-                  ln -sfn /proc/mounts /etc/mtab # Grub needs an mtab.
-                  NIXOS_INSTALL_BOOTLOADER=1 $_SWITCH_COMMAND
+              _switch_cmd() {
+                  "$_SWITCH_COMMAND" "$1"
               }
-              _switch_configuration() {
-                  $_SWITCH_COMMAND
+
+              _become_a_nixos() { touch /etc/NIXOS; }
+              _if_chrooted() { [[ "''${CHROOTED:-}" == "1" ]] && echo $@; }
+              _activate_system() {
+                  # Run the activation script.
+                  "$PROFILE/activate" 1>&2 || true
+                  # Cooperatively respect our chrooted environment
+                  ${final.systemd}/bin/systemd-tmpfiles --create --remove $(_if_chrooted "--exclude-prefix=/dev") 1>&2 || true;
               }
 
               if _already_on_nixos
               then
-                  _switch_configuration
+                  _switch_cmd switch
               else
-                  _ensure_fs_contract
-                  _insall_bootloader_and_switch
+                  echo "-> Become a NixOS ..."
+                  _become_a_nixos
+                  echo "-> Activate the system ..."
+                  _activate_system
+                  echo "-> Install the boot loader ..."
+                  NIXOS_INSTALL_BOOTLOADER=1 _switch_cmd boot
+                  echo "-> Reboot ..."
+                  $(_if_chrooted sync && echo b |tee /proc/sysrq-trigger)
+                  ${final.systemd}/bin/reboot --reboot
               fi
 
               # https://github.com/serokell/deploy-rs/issues/31
               ${with base.config.boot.loader;
               final.lib.optionalString systemd-boot.enable
-              "sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
+              "${final.gnused}/bin/sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
             '';
 
             home-manager = base: custom base.activationPackage "$PROFILE/activate";

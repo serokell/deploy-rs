@@ -35,6 +35,9 @@ pub enum PushProfileError {
     #[error("Activation script activate-rs does not exist in profile.\n\
              Is there a mismatch in deploy-rs used in the flake you're deploying and deploy-rs command you're running?")]
     ActivateRsDoesntExist,
+    #[error("Activation script helper deploy-rs-chroot-helper does not exist in profile.\n\
+             Is there a mismatch in deploy-rs used in the flake you're deploying and deploy-rs command you're running?")]
+    DeployRsChrootWrapperDoesntExist,
     #[error("Failed to run Nix sign command: {0}")]
     SignError(std::io::Error),
     #[error("Nix sign command resulted in a bad exit code: {0:?}")]
@@ -247,6 +250,10 @@ pub async fn push_profile(
 
     if !Path::new(format!("{}/deploy-rs-activate", closure).as_str()).exists() {
         return Err(PushProfileError::DeployRsActivateDoesntExist);
+    }
+
+    if !Path::new(format!("{}/deploy-rs-chroot-wrapper", closure).as_str()).exists() {
+        return Err(PushProfileError::DeployRsChrootWrapperDoesntExist);
     }
 
     if !Path::new(format!("{}/activate-rs", closure).as_str()).exists() {

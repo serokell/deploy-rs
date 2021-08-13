@@ -64,6 +64,12 @@ impl<'a> ActivateCommand<'a> {
     fn build(self) -> String {
         let mut cmd = format!("{}/activate-rs", self.closure);
 
+        // Exec trough our chroot wrapper that lives within the profile
+        // down there on the mounted filesystem.
+        if let Some(mount_point) = self.mount_point {
+            cmd = format!("bash {0}$(readlink -m {0}{1}/deploy-rs-chroot-wrapper) --root {0} -- {2}", mount_point, self.closure, cmd);
+        }
+
         if self.debug_logs {
             cmd = format!("{} --debug-logs", cmd);
         }
@@ -158,6 +164,12 @@ impl<'a> WaitCommand<'a> {
     fn build(self) -> String {
         let mut cmd = format!("{}/activate-rs", self.closure);
 
+        // Exec trough our chroot wrapper that lives within the profile
+        // down there on the mounted filesystem.
+        if let Some(mount_point) = self.mount_point {
+            cmd = format!("bash {0}$(readlink -m {0}{1}/deploy-rs-chroot-wrapper) --root {0} -- {2}", mount_point, self.closure, cmd);
+        }
+
         if self.debug_logs {
             cmd = format!("{} --debug-logs", cmd);
         }
@@ -226,6 +238,12 @@ impl<'a> RevokeCommand<'a> {
     fn build(self) -> String {
         let mut cmd = format!("{}/activate-rs", self.closure);
 
+        // Exec trough our chroot wrapper that lives within the profile
+        // down there on the mounted filesystem.
+        if let Some(mount_point) = self.mount_point {
+            cmd = format!("bash {0}$(readlink -m {0}{1}/deploy-rs-chroot-wrapper) --root {0} -- {2}", mount_point, self.closure, cmd);
+        }
+
         if self.debug_logs {
             cmd = format!("{} --debug-logs", cmd);
         }
@@ -267,6 +285,7 @@ fn test_revoke_command_builder() {
 }
 
 pub struct ConfirmCommand<'a> {
+    mount_point: Option<&'a str>,
     sudo: Option<&'a str>,
     temp_path: &'a str,
     closure: &'a str,
@@ -275,6 +294,7 @@ pub struct ConfirmCommand<'a> {
 impl<'a> ConfirmCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Self {
         ConfirmCommand {
+            mount_point: d.flags.mount_point.as_deref(),
             sudo: d.sudo.as_deref(),
             temp_path: &d.temp_path,
             closure: &d.profile.profile_settings.path,
@@ -285,7 +305,12 @@ impl<'a> ConfirmCommand<'a> {
     fn build(self) -> String {
         let lock_path = super::make_lock_path(&self.temp_path, &self.closure);
 
-        let mut cmd = format!("rm {}", lock_path);
+        let mut cmd;
+        if let Some(mount_point) = self.mount_point {
+            cmd = format!("rm {}{}", mount_point, lock_path);
+        } else {
+            cmd = format!("rm {}", lock_path);
+        }
         if let Some(sudo_cmd) = &self.sudo {
             cmd = format!("{} {}", sudo_cmd, cmd);
         }
