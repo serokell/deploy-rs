@@ -43,6 +43,9 @@ pub enum PushProfileError {
     CopyError(std::io::Error),
     #[error("Nix copy command resulted in a bad exit code: {0:?}")]
     CopyExitError(Option<i32>),
+
+    #[error("Deployment data invalid: {0}")]
+    InvalidDeployDataDefsError(#[from] data::DeployDataDefsError),
 }
 
 pub struct PushProfileData<'a> {
@@ -198,26 +201,14 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         copy_command.arg("--no-check-sigs");
     }
 
-    let ssh_opts_str = data
-        .deploy_data
-        .merged_settings
-        .ssh_opts
-        // This should provide some extra safety, but it also breaks for some reason, oh well
-        // .iter()
-        // .map(|x| format!("'{}'", x))
-        // .collect::<Vec<String>>()
-        .join(" ");
-
-    let hostname = match data.deploy_data.hostname {
-        Some(x) => x,
-        None => data.deploy_data.node.node_settings.hostname.as_str(),
-    };
-
     let copy_exit_status = copy_command
         .arg("--to")
-        .arg(format!("ssh://{}@{}", data.deploy_defs.ssh_user, hostname))
+        .arg(data.deploy_data.ssh_uri()?)
         .arg(&data.deploy_data.profile.profile_settings.path)
-        .env("NIX_SSHOPTS", ssh_opts_str)
+        .env(
+            "NIX_SSHOPTS",
+            data.deploy_data.ssh_opts().fold("".to_string(), |s, o| format!("{} {}", s, o))
+        )
         .status()
         .await
         .map_err(PushProfileError::CopyError)?;
