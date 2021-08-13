@@ -109,7 +109,7 @@ impl<'a> CopyCommand<'a> {
 
         let target = {
             if let Some(ref mount_point) = d.flags.mount_point {
-                format!("{}:{}", &d.ssh_uri, mount_point)
+                format!("{0}?store={1}&remote-store={2}%3fstore={1}%26real={2}/{1}", &d.ssh_uri, "/nix/store", mount_point)
             } else {
                 d.ssh_uri.to_owned()
             }
