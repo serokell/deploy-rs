@@ -220,6 +220,8 @@ pub struct DeployDefs {
 pub enum DeployDataDefsError {
     #[error("Neither `user` nor `sshUser` are set for profile {0} of node {1}")]
     NoProfileUser(String, String),
+    #[error("Value `hostname` is not define for profile {0} of node {1}")]
+    NoProfileHost(String, String),
 }
 
 impl<'a> DeployData<'a> {
@@ -244,6 +246,39 @@ impl<'a> DeployData<'a> {
             profile_path,
             sudo,
         })
+    }
+
+    pub fn ssh_uri(&'a self) -> Result<String, DeployDataDefsError> {
+
+        let hostname = match self.hostname {
+            Some(x) => x,
+            None => &self.node.node_settings.hostname,
+        };
+        let curr_user = &whoami::username();
+        let ssh_user = match self.merged_settings.ssh_user {
+            Some(ref u) => u,
+            None => curr_user,
+        };
+        Ok(format!("ssh://{}@{}", ssh_user, hostname))
+    }
+
+    // can be dropped once ssh fully supports ipv6 uris
+    pub fn ssh_non_uri(&'a self) -> Result<String, DeployDataDefsError> {
+
+        let hostname = match self.hostname {
+            Some(x) => x,
+            None => &self.node.node_settings.hostname,
+        };
+        let curr_user = &whoami::username();
+        let ssh_user = match self.merged_settings.ssh_user {
+            Some(ref u) => u,
+            None => curr_user,
+        };
+        Ok(format!("{}@{}", ssh_user, hostname))
+    }
+
+    pub fn ssh_opts(&'a self) -> impl Iterator<Item = &String> {
+        self.merged_settings.ssh_opts.iter()
     }
 
     pub fn get_profile_path(&'a self) -> Result<String, DeployDataDefsError> {
