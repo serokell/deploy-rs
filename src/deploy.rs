@@ -204,20 +204,19 @@ pub enum ConfirmProfileError {
         "Confirming activation over SSH resulted in a bad exit code (the server should roll back): {0:?}"
     )]
     SSHConfirmExit(Option<i32>),
+
+    #[error("Deployment data invalid: {0}")]
+    InvalidDeployDataDefs(#[from] data::DeployDataDefsError),
 }
 
 pub async fn confirm_profile(
     deploy_data: &data::DeployData<'_>,
     deploy_defs: &data::DeployDefs,
     temp_path: Cow<'_, str>,
-    ssh_addr: &str,
 ) -> Result<(), ConfirmProfileError> {
     let mut ssh_confirm_command = Command::new("ssh");
-    ssh_confirm_command.arg(ssh_addr);
-
-    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_confirm_command.arg(ssh_opt);
-    }
+    ssh_confirm_command.arg(deploy_data.ssh_non_uri()?);
+    ssh_confirm_command.args(deploy_data.ssh_opts());
 
     let lock_path = super::make_lock_path(&temp_path, &deploy_data.profile.profile_settings.path);
 
@@ -264,6 +263,9 @@ pub enum DeployProfileError {
 
     #[error("Error confirming deployment: {0}")]
     Confirm(#[from] ConfirmProfileError),
+
+    #[error("Deployment data invalid: {0}")]
+    InvalidDeployDataDefs(#[from] data::DeployDataDefsError),
 }
 
 pub async fn deploy_profile(
@@ -304,19 +306,9 @@ pub async fn deploy_profile(
 
     debug!("Constructed activation command: {}", self_activate_command);
 
-    let hostname = match deploy_data.hostname {
-        Some(x) => x,
-        None => deploy_data.node.node_settings.hostname.as_str(),
-    };
-
-    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
-
     let mut ssh_activate_command = Command::new("ssh");
-    ssh_activate_command.arg(&ssh_addr);
-
-    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_activate_command.arg(&ssh_opt);
-    }
+    ssh_activate_command.arg(deploy_data.ssh_non_uri()?);
+    ssh_activate_command.args(deploy_data.ssh_opts());
 
     if !magic_rollback || dry_activate {
         let ssh_activate_exit_status = ssh_activate_command
@@ -354,11 +346,8 @@ pub async fn deploy_profile(
         info!("Creating activation waiter");
 
         let mut ssh_wait_command = Command::new("ssh");
-        ssh_wait_command.arg(&ssh_addr);
-
-        for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-            ssh_wait_command.arg(ssh_opt);
-        }
+        ssh_wait_command.arg(deploy_data.ssh_non_uri()?);
+        ssh_wait_command.args(deploy_data.ssh_opts());
 
         let (send_activate, recv_activate) = tokio::sync::oneshot::channel();
         let (send_activated, recv_activated) = tokio::sync::oneshot::channel();
@@ -396,7 +385,7 @@ pub async fn deploy_profile(
 
         info!("Success activating, attempting to confirm activation");
 
-        let c = confirm_profile(deploy_data, deploy_defs, temp_path, &ssh_addr).await;
+        let c = confirm_profile(deploy_data, deploy_defs, temp_path).await;
         recv_activated.await.unwrap();
         c?;
     }
@@ -431,19 +420,9 @@ pub async fn revoke(
 
     debug!("Constructed revoke command: {}", self_revoke_command);
 
-    let hostname = match deploy_data.hostname {
-        Some(x) => x,
-        None => deploy_data.node.node_settings.hostname.as_str(),
-    };
-
-    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
-
     let mut ssh_activate_command = Command::new("ssh");
-    ssh_activate_command.arg(&ssh_addr);
-
-    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_activate_command.arg(&ssh_opt);
-    }
+    ssh_activate_command.arg(deploy_data.ssh_non_uri()?);
+    ssh_activate_command.args(deploy_data.ssh_opts());
 
     let ssh_revoke = ssh_activate_command
         .arg(self_revoke_command)
