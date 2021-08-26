@@ -235,7 +235,14 @@ async fn run_deploy(
     // Rollbacks adhere to the global seeting to auto_rollback and secondary
     // the profile's configuration
     for (deploy_data, deploy_defs) in &parts {
-        if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, cmd_flags.dry_activate).await
+        if let Err(e) = deploy::deploy::deploy_profile(
+            &deploy_data.node_name,
+            &deploy_data.profile_name,
+            deploy::deploy::SshCommand::from_data(&deploy_data)?,
+            deploy::deploy::ActivateCommand::from_data(&deploy_data),
+            deploy::deploy::WaitCommand::from_data(&deploy_data),
+            deploy::deploy::ConfirmCommand::from_data(&deploy_data),
+        ).await
         {
             error!("{}", e);
             if cmd_flags.dry_activate {
@@ -246,9 +253,14 @@ async fn run_deploy(
                 // revoking all previous deploys
                 // (adheres to profile configuration if not set explicitely by
                 //  the command line)
-                for (deploy_data, deploy_defs) in &succeeded {
+                for (deploy_data, _) in &succeeded {
                     if deploy_data.merged_settings.auto_rollback.unwrap_or(true) {
-                        deploy::deploy::revoke(*deploy_data, *deploy_defs).await?;
+                        deploy::deploy::revoke(
+                            &deploy_data.node_name,
+                            &deploy_data.profile_name,
+                            deploy::deploy::SshCommand::from_data(&deploy_data)?,
+                            deploy::deploy::RevokeCommand::from_data(&deploy_data),
+                        ).await?;
                     }
                 }
             }
