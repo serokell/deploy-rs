@@ -10,7 +10,7 @@ use clap::{ArgMatches, Clap, FromArgMatches};
 
 use crate as deploy;
 
-use self::deploy::{data, settings, flake};
+use self::deploy::{data, flake, settings};
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use std::process::Stdio;
@@ -65,9 +65,7 @@ struct PromptPart<'a> {
     ssh_opts: &'a [String],
 }
 
-fn print_deployment(
-    parts: &[&data::DeployData],
-) -> Result<(), toml::ser::Error> {
+fn print_deployment(parts: &[&data::DeployData]) -> Result<(), toml::ser::Error> {
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
 
     for data in parts {
@@ -104,9 +102,7 @@ pub enum PromptDeploymentError {
     Cancelled,
 }
 
-fn prompt_deployment(
-    parts: &[&data::DeployData],
-) -> Result<(), PromptDeploymentError> {
+fn prompt_deployment(parts: &[&data::DeployData]) -> Result<(), PromptDeploymentError> {
     print_deployment(parts)?;
 
     info!("Are you sure you want to deploy these profiles?");
@@ -179,16 +175,10 @@ async fn run_deploy(
     cmd_settings: settings::GenericSettings,
     cmd_flags: data::Flags,
 ) -> Result<(), RunDeployError> {
-    let deploy_datas_ = targets.into_iter().zip(&settings)
-        .map(
-            |(target, root)|
-            target.resolve(
-                &root,
-                &cmd_settings,
-                &cmd_flags,
-                hostname.as_deref(),
-            )
-        )
+    let deploy_datas_ = targets
+        .into_iter()
+        .zip(&settings)
+        .map(|(target, root)| target.resolve(&root, &cmd_settings, &cmd_flags, hostname.as_deref()))
         .collect::<Result<Vec<Vec<data::DeployData<'_>>>, data::ResolveTargetError>>()?;
     let deploy_datas: Vec<&data::DeployData<'_>> = deploy_datas_.iter().flatten().collect();
 
@@ -229,7 +219,8 @@ async fn run_deploy(
             deploy::deploy::ActivateCommand::from_data(&deploy_data),
             deploy::deploy::WaitCommand::from_data(&deploy_data),
             deploy::deploy::ConfirmCommand::from_data(&deploy_data),
-        ).await
+        )
+        .await
         {
             error!("{}", e);
             if cmd_flags.dry_activate {
@@ -247,7 +238,8 @@ async fn run_deploy(
                             &deploy_data.profile_name,
                             deploy::deploy::SshCommand::from_data(&deploy_data)?,
                             deploy::deploy::RevokeCommand::from_data(&deploy_data),
-                        ).await?;
+                        )
+                        .await?;
                     }
                 }
             }
@@ -305,14 +297,17 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     let targets: Vec<data::Target> = deploys
         .into_iter()
         .map(|f| f.parse::<data::Target>())
-        .collect::<Result<Vec<data::Target>, data::ParseTargetError>>()?;
+        .collect::<Result<Vec<data::Target>, data::ParseTargetError>>(
+    )?;
 
     if !opts.flags.skip_checks {
         for target in targets.iter() {
-            flake::check_deployment(supports_flakes, &target.repo, &opts.flags.extra_build_args).await?;
+            flake::check_deployment(supports_flakes, &target.repo, &opts.flags.extra_build_args)
+                .await?;
         }
     }
-    let settings = flake::get_deployment_data(supports_flakes, &targets, &opts.flags.extra_build_args).await?;
+    let settings =
+        flake::get_deployment_data(supports_flakes, &targets, &opts.flags.extra_build_args).await?;
     run_deploy(
         targets,
         settings,

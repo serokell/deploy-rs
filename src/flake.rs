@@ -6,9 +6,9 @@
 use crate as deploy;
 
 use self::deploy::{data, settings};
+use futures_util::stream::{StreamExt, TryStreamExt};
 use log::{error, info};
 use std::process::Stdio;
-use futures_util::stream::{StreamExt, TryStreamExt};
 use thiserror::Error;
 use tokio::process::Command;
 

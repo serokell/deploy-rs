@@ -3,11 +3,11 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use linked_hash_set::LinkedHashSet;
-use rnix::{types::*, SyntaxKind::*};
-use merge::Merge;
-use thiserror::Error;
 use clap::Clap;
+use linked_hash_set::LinkedHashSet;
+use merge::Merge;
+use rnix::{types::*, SyntaxKind::*};
+use thiserror::Error;
 
 use crate::settings;
 
@@ -47,19 +47,30 @@ impl<'a> Target {
         hostname: Option<&'a str>,
     ) -> Result<Vec<DeployData<'a>>, ResolveTargetError> {
         match self {
-            Target{repo, node: Some(node), profile} => {
+            Target {
+                repo,
+                node: Some(node),
+                profile,
+            } => {
                 let node_ = match r.nodes.get(&node) {
                     Some(x) => x,
-                    None => return Err(ResolveTargetError::NodeNotFound(
-                        node.to_owned(), repo.to_owned()
-                    )),
+                    None => {
+                        return Err(ResolveTargetError::NodeNotFound(
+                            node.to_owned(),
+                            repo.to_owned(),
+                        ))
+                    }
                 };
                 if let Some(profile) = profile {
                     let profile_ = match node_.node_settings.profiles.get(&profile) {
                         Some(x) => x,
-                        None => return Err(ResolveTargetError::ProfileNotFound(
-                            profile.to_owned(), node.to_owned(), repo.to_owned()
-                        )),
+                        None => {
+                            return Err(ResolveTargetError::ProfileNotFound(
+                                profile.to_owned(),
+                                node.to_owned(),
+                                repo.to_owned(),
+                            ))
+                        }
                     };
                     Ok({
                         let d = DeployData::new(
@@ -76,45 +87,58 @@ impl<'a> Target {
                         vec![d]
                     })
                 } else {
-                    let ordered_profile_names: LinkedHashSet::<String> = node_.node_settings.profiles_order.iter().cloned().collect();
-                    let profile_names: LinkedHashSet::<String> = node_.node_settings.profiles.keys().cloned().collect();
-                    let prioritized_profile_names: LinkedHashSet::<&String> = ordered_profile_names.union(&profile_names).collect();
-                    Ok(
-                        prioritized_profile_names
+                    let ordered_profile_names: LinkedHashSet<String> =
+                        node_.node_settings.profiles_order.iter().cloned().collect();
+                    let profile_names: LinkedHashSet<String> =
+                        node_.node_settings.profiles.keys().cloned().collect();
+                    let prioritized_profile_names: LinkedHashSet<&String> =
+                        ordered_profile_names.union(&profile_names).collect();
+                    Ok(prioritized_profile_names
                         .iter()
-                        .map(
-                            |p|
-                            Target{repo: repo.to_owned(), node: Some(node.to_owned()), profile: Some(p.to_string())}.resolve(
-                                r, cs, cf, hostname,
-                            )
-                        )
+                        .map(|p| {
+                            Target {
+                                repo: repo.to_owned(),
+                                node: Some(node.to_owned()),
+                                profile: Some(p.to_string()),
+                            }
+                            .resolve(r, cs, cf, hostname)
+                        })
                         .collect::<Result<Vec<Vec<DeployData<'_>>>, ResolveTargetError>>()?
-                        .into_iter().flatten().collect::<Vec<DeployData<'_>>>()
-                    )
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<DeployData<'_>>>())
                 }
-            },
-            Target{repo, node: None, profile: None} => {
+            }
+            Target {
+                repo,
+                node: None,
+                profile: None,
+            } => {
                 if let Some(hostname) = hostname {
                     todo!() // create issue to discuss:
-                    // if allowed, it would be really awkward
-                    // to override the hostname for a series of nodes at once
+                            // if allowed, it would be really awkward
+                            // to override the hostname for a series of nodes at once
                 }
-                Ok(
-                    r.nodes
+                Ok(r.nodes
                     .iter()
-                    .map(
-                        |(n, _)|
-                        Target{repo: repo.to_owned(), node: Some(n.to_string()), profile: None}.resolve(
-                            r, cs, cf, hostname,
-                        )
-                    )
+                    .map(|(n, _)| {
+                        Target {
+                            repo: repo.to_owned(),
+                            node: Some(n.to_string()),
+                            profile: None,
+                        }
+                        .resolve(r, cs, cf, hostname)
+                    })
                     .collect::<Result<Vec<Vec<DeployData<'_>>>, ResolveTargetError>>()?
-                    .into_iter().flatten().collect::<Vec<DeployData<'_>>>()
-                )
-            },
-            Target{repo, node: None, profile: Some(_)} => return Err(ResolveTargetError::ProfileWithoutNode(
-                repo.to_owned()
-            ))
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<DeployData<'_>>>())
+            }
+            Target {
+                repo,
+                node: None,
+                profile: Some(_),
+            } => return Err(ResolveTargetError::ProfileWithoutNode(repo.to_owned())),
         }
     }
 }
@@ -209,7 +233,9 @@ fn test_deploy_target_from_str() {
     );
 
     assert_eq!(
-        "../deploy/examples/system#computer.\"something.nix\"".parse::<Target>().unwrap(),
+        "../deploy/examples/system#computer.\"something.nix\""
+            .parse::<Target>()
+            .unwrap(),
         Target {
             repo: "../deploy/examples/system".to_string(),
             node: Some("computer".to_string()),
@@ -218,7 +244,9 @@ fn test_deploy_target_from_str() {
     );
 
     assert_eq!(
-        "../deploy/examples/system#\"example.com\".system".parse::<Target>().unwrap(),
+        "../deploy/examples/system#\"example.com\".system"
+            .parse::<Target>()
+            .unwrap(),
         Target {
             repo: "../deploy/examples/system".to_string(),
             node: Some("example.com".to_string()),
@@ -227,7 +255,9 @@ fn test_deploy_target_from_str() {
     );
 
     assert_eq!(
-        "../deploy/examples/system#example".parse::<Target>().unwrap(),
+        "../deploy/examples/system#example"
+            .parse::<Target>()
+            .unwrap(),
         Target {
             repo: "../deploy/examples/system".to_string(),
             node: Some("example".to_string()),
@@ -236,7 +266,9 @@ fn test_deploy_target_from_str() {
     );
 
     assert_eq!(
-        "../deploy/examples/system#example.system".parse::<Target>().unwrap(),
+        "../deploy/examples/system#example.system"
+            .parse::<Target>()
+            .unwrap(),
         Target {
             repo: "../deploy/examples/system".to_string(),
             node: Some("example".to_string()),
@@ -287,41 +319,40 @@ pub enum DeployDataError {
 pub struct Flags {
     /// Check signatures when using `nix copy`
     #[clap(short, long)]
-     pub checksigs: bool,
+    pub checksigs: bool,
     /// Use the interactive prompt before deployment
     #[clap(short, long)]
-     pub interactive: bool,
+    pub interactive: bool,
     /// Extra arguments to be passed to nix build
-     pub extra_build_args: Vec<String>,
+    pub extra_build_args: Vec<String>,
 
     /// Print debug logs to output
     #[clap(short, long)]
-     pub debug_logs: bool,
+    pub debug_logs: bool,
     /// Directory to print logs to (including the background activation process)
     #[clap(long)]
-     pub log_dir: Option<String>,
+    pub log_dir: Option<String>,
 
     /// Keep the build outputs of each built profile
     #[clap(short, long)]
-     pub keep_result: bool,
+    pub keep_result: bool,
     /// Location to keep outputs from built profiles in
     #[clap(short, long)]
-     pub result_path: Option<String>,
+    pub result_path: Option<String>,
 
     /// Skip the automatic pre-build checks
     #[clap(short, long)]
-     pub skip_checks: bool,
+    pub skip_checks: bool,
     /// Make activation wait for confirmation, or roll back after a period of time
     /// Show what will be activated on the machines
     #[clap(long)]
-     pub dry_activate: bool,
+    pub dry_activate: bool,
     /// Revoke all previously succeeded deploys when deploying multiple profiles
     #[clap(long)]
-     pub rollback_succeeded: bool,
+    pub rollback_succeeded: bool,
 }
 
 impl<'a> DeployData<'a> {
-
     fn new(
         repo: String,
         node_name: String,
@@ -345,16 +376,23 @@ impl<'a> DeployData<'a> {
             Some(ref x) => x.to_owned(),
             None => "/tmp".to_string(),
         };
-        let profile_user = if let Some(ref x) = merged_settings.user { x.to_owned() } else {
-            if let Some(ref x) = merged_settings.ssh_user { x.to_owned() } else {
-                return Err(DeployDataError::NoProfileUser(profile_name, node_name))
+        let profile_user = if let Some(ref x) = merged_settings.user {
+            x.to_owned()
+        } else {
+            if let Some(ref x) = merged_settings.ssh_user {
+                x.to_owned()
+            } else {
+                return Err(DeployDataError::NoProfileUser(profile_name, node_name));
             }
         };
         let profile_path = match profile.profile_settings.profile_path {
-            None => format!("/nix/var/nix/profiles/{}", match &profile_user[..] {
-                "root" => profile_name.to_owned(),
-                _ => format!("per-user/{}/{}", profile_user, profile_name),
-            }),
+            None => format!(
+                "/nix/var/nix/profiles/{}",
+                match &profile_user[..] {
+                    "root" => profile_name.to_owned(),
+                    _ => format!("per-user/{}/{}", profile_user, profile_name),
+                }
+            ),
             Some(ref x) => x.to_owned(),
         };
         let ssh_user = match merged_settings.ssh_user {

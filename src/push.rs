@@ -63,9 +63,7 @@ impl<'a> ShowDerivationCommand<'a> {
         // `nix-store --query --deriver` doesn't work on invalid paths, so we parse output of show-derivation :(
         let mut cmd = Command::new("nix");
 
-        cmd
-            .arg("show-derivation")
-            .arg(&self.closure);
+        cmd.arg("show-derivation").arg(&self.closure);
         //cmd.what_is_this;
         cmd
     }
@@ -85,8 +83,7 @@ impl<'a> SignCommand<'a> {
     fn build(self, local_key: String) -> Command {
         let mut cmd = Command::new("nix");
 
-        cmd
-            .arg("sign-paths")
+        cmd.arg("sign-paths")
             .arg("-r")
             .arg("-k")
             .arg(local_key)
@@ -111,7 +108,11 @@ impl<'a> CopyCommand<'a> {
             fast_connection: d.merged_settings.fast_connection.unwrap_or(false),
             check_sigs: &d.flags.checksigs,
             ssh_uri: d.ssh_uri.as_str(),
-            ssh_opts: d.merged_settings.ssh_opts.iter().fold("".to_string(), |s, o| format!("{} {}", s, o)),
+            ssh_opts: d
+                .merged_settings
+                .ssh_opts
+                .iter()
+                .fold("".to_string(), |s, o| format!("{} {}", s, o)),
         }
     }
 
@@ -127,8 +128,7 @@ impl<'a> CopyCommand<'a> {
         if !self.check_sigs {
             cmd.arg("--no-check-sigs");
         }
-        cmd
-            .arg("--to")
+        cmd.arg("--to")
             .arg(self.ssh_uri)
             .arg(self.closure)
             .env("NIX_SSHOPTS", self.ssh_opts);
@@ -170,12 +170,10 @@ impl<'a> BuildCommand<'a> {
         };
 
         match (self.keep_result, supports_flakes) {
-            (true, _) => {
-                cmd.arg("--out-link").arg(format!(
-                    "{}/{}/{}",
-                    self.result_path, self.node_name, self.profile_name
-                ))
-            }
+            (true, _) => cmd.arg("--out-link").arg(format!(
+                "{}/{}/{}",
+                self.result_path, self.node_name, self.profile_name
+            )),
             (false, false) => cmd.arg("--no-out-link"),
             (false, true) => cmd.arg("--no-link"),
         };
@@ -220,7 +218,10 @@ pub async fn push_profile(
         .next()
         .ok_or(PushProfileError::ShowDerivationEmpty)?;
 
-    info!("Building profile `{}` for node `{}`", profile_name, node_name);
+    info!(
+        "Building profile `{}` for node `{}`",
+        profile_name, node_name
+    );
 
     let mut build_cmd = build.build(*derivation_name, supports_flakes);
 
@@ -245,13 +246,13 @@ pub async fn push_profile(
     }
 
     if let Ok(local_key) = std::env::var("LOCAL_KEY") {
-        info!("Signing key present! Signing profile `{}` for node `{}`", profile_name, node_name);
+        info!(
+            "Signing key present! Signing profile `{}` for node `{}`",
+            profile_name, node_name
+        );
 
         let mut sign_cmd = sign.build(local_key);
-        let sign_exit_status = sign_cmd
-            .status()
-            .await
-            .map_err(PushProfileError::Sign)?;
+        let sign_exit_status = sign_cmd.status().await.map_err(PushProfileError::Sign)?;
 
         match sign_exit_status.code() {
             Some(0) => (),
@@ -263,10 +264,7 @@ pub async fn push_profile(
 
     let mut copy_cmd = copy.build();
 
-    let copy_exit_status = copy_cmd
-        .status()
-        .await
-        .map_err(PushProfileError::Copy)?;
+    let copy_exit_status = copy_cmd.status().await.map_err(PushProfileError::Copy)?;
 
     match copy_exit_status.code() {
         Some(0) => (),

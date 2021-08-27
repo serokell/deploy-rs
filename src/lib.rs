@@ -139,9 +139,9 @@ pub fn init_logger(
     Ok(())
 }
 
-pub mod settings;
-pub mod data;
-pub mod flake;
-pub mod deploy;
-pub mod push;
 pub mod cli;
+pub mod data;
+pub mod deploy;
+pub mod flake;
+pub mod push;
+pub mod settings;

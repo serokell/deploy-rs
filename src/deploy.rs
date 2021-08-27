@@ -19,7 +19,7 @@ impl<'a> SshCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Result<Self, data::DeployDataError> {
         let hoststring = format!("{}@{}", &d.ssh_user, d.hostname);
         let opts = d.merged_settings.ssh_opts.as_ref();
-        Ok(SshCommand {hoststring, opts})
+        Ok(SshCommand { hoststring, opts })
     }
 
     fn build(&self) -> Command {
@@ -75,10 +75,7 @@ impl<'a> ActivateCommand<'a> {
             cmd, self.closure, self.profile_path, self.temp_path
         );
 
-        cmd = format!(
-            "{} --confirm-timeout {}",
-            cmd, self.confirm_timeout
-        );
+        cmd = format!("{} --confirm-timeout {}", cmd, self.confirm_timeout);
 
         if self.magic_rollback {
             cmd = format!("{} --magic-rollback", cmd);
@@ -214,7 +211,6 @@ impl<'a> RevokeCommand<'a> {
         }
     }
 
-
     fn build(self) -> String {
         let mut cmd = format!("{}/activate-rs", self.closure);
 
@@ -272,7 +268,6 @@ impl<'a> ConfirmCommand<'a> {
         }
     }
 
-
     fn build(self) -> String {
         let lock_path = super::make_lock_path(&self.temp_path, &self.closure);
 
@@ -298,7 +293,6 @@ pub async fn confirm_profile(
     ssh: SshCommand<'_>,
     confirm: ConfirmCommand<'_>,
 ) -> Result<(), ConfirmProfileError> {
-
     let mut ssh_confirm_cmd = ssh.build();
 
     let confirm_cmd = confirm.build();
@@ -352,7 +346,10 @@ pub async fn deploy_profile(
     confirm: ConfirmCommand<'_>,
 ) -> Result<(), DeployProfileError> {
     if !activate.dry_activate {
-        info!("Activating profile `{}` for node `{}`", profile_name, node_name);
+        info!(
+            "Activating profile `{}` for node `{}`",
+            profile_name, node_name
+        );
     }
     let dry_activate = &activate.dry_activate.clone();
     let magic_rollback = &activate.magic_rollback.clone();
@@ -391,7 +388,6 @@ pub async fn deploy_profile(
             .map_err(DeployProfileError::SSHSpawnActivate)?;
 
         info!("Creating activation waiter");
-
 
         let mut ssh_wait_cmd = ssh.build();
 
@@ -455,7 +451,10 @@ pub async fn revoke(
     ssh: SshCommand<'_>,
     revoke: RevokeCommand<'_>,
 ) -> Result<(), RevokeProfileError> {
-    info!("Revoking profile `{}` for node `{}`", profile_name, node_name);
+    info!(
+        "Revoking profile `{}` for node `{}`",
+        profile_name, node_name
+    );
 
     let revoke_cmd = revoke.build();
     debug!("Constructed revoke command: {}", revoke_cmd);
