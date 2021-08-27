@@ -54,12 +54,7 @@ impl<'a> Target {
             } => {
                 let node_ = match r.nodes.get(&node) {
                     Some(x) => x,
-                    None => {
-                        return Err(ResolveTargetError::NodeNotFound(
-                            node.to_owned(),
-                            repo.to_owned(),
-                        ))
-                    }
+                    None => return Err(ResolveTargetError::NodeNotFound(node.to_owned(), repo)),
                 };
                 if let Some(profile) = profile {
                     let profile_ = match node_.node_settings.profiles.get(&profile) {
@@ -68,13 +63,13 @@ impl<'a> Target {
                             return Err(ResolveTargetError::ProfileNotFound(
                                 profile.to_owned(),
                                 node.to_owned(),
-                                repo.to_owned(),
+                                repo,
                             ))
                         }
                     };
                     Ok({
                         let d = DeployData::new(
-                            repo.to_owned(),
+                            repo,
                             node.to_owned(),
                             profile.to_owned(),
                             &r.generic_settings,
@@ -114,7 +109,7 @@ impl<'a> Target {
                 node: None,
                 profile: None,
             } => {
-                if let Some(hostname) = hostname {
+                if let Some(_hostname) = hostname {
                     todo!() // create issue to discuss:
                             // if allowed, it would be really awkward
                             // to override the hostname for a series of nodes at once
@@ -138,7 +133,7 @@ impl<'a> Target {
                 repo,
                 node: None,
                 profile: Some(_),
-            } => return Err(ResolveTargetError::ProfileWithoutNode(repo.to_owned())),
+            } => Err(ResolveTargetError::ProfileWithoutNode(repo)),
         }
     }
 }
@@ -163,7 +158,7 @@ impl std::str::FromStr for Target {
                 Some(x) => x,
                 None => {
                     return Ok(Target {
-                        repo: repo.to_owned(),
+                        repo,
                         node: None,
                         profile: None,
                     })
@@ -205,9 +200,9 @@ impl std::str::FromStr for Target {
         }
 
         Ok(Target {
-            repo: repo.to_owned(),
-            node: node,
-            profile: profile,
+            repo,
+            node,
+            profile,
         })
     }
 }
@@ -352,6 +347,7 @@ pub struct Flags {
     pub rollback_succeeded: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl<'a> DeployData<'a> {
     fn new(
         repo: String,
@@ -378,17 +374,16 @@ impl<'a> DeployData<'a> {
         };
         let profile_user = if let Some(ref x) = merged_settings.user {
             x.to_owned()
+        } else if let Some(ref x) = merged_settings.ssh_user {
+            x.to_owned()
         } else {
-            if let Some(ref x) = merged_settings.ssh_user {
-                x.to_owned()
-            } else {
-                return Err(DeployDataError::NoProfileUser(profile_name, node_name));
-            }
+            return Err(DeployDataError::NoProfileUser(profile_name, node_name));
         };
         let profile_path = match profile.profile_settings.profile_path {
             None => format!(
                 "/nix/var/nix/profiles/{}",
                 match &profile_user[..] {
+                    #[allow(clippy::redundant_clone)]
                     "root" => profile_name.to_owned(),
                     _ => format!("per-user/{}/{}", profile_user, profile_name),
                 }
@@ -413,8 +408,10 @@ impl<'a> DeployData<'a> {
             repo,
             node_name,
             profile_name,
+            flags,
             node,
             profile,
+            merged_settings,
             hostname,
             ssh_user,
             ssh_uri,
@@ -422,8 +419,6 @@ impl<'a> DeployData<'a> {
             profile_path,
             profile_user,
             sudo,
-            flags,
-            merged_settings,
         })
     }
 }
