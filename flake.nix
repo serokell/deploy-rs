@@ -49,7 +49,7 @@
             custom =
               {
                 __functor = customSelf: base: activate:
-                  final.buildEnv {
+                  (final.buildEnv {
                     name = ("activatable-" + base.name);
                     paths =
                       [
@@ -80,10 +80,10 @@
                           destination = "/activate-rs";
                         })
                       ];
-                  };
+                  } // customSelf);
               };
 
-            nixos = base: (custom // { dryActivate = "$PROFILE/bin/switch-to-configuration dry-activate"; }) base.config.system.build.toplevel ''
+            nixos = base: (custom // { inherit base; dryActivate = "$PROFILE/bin/switch-to-configuration dry-activate"; }) base.config.system.build.toplevel ''
               # work around https://github.com/NixOS/nixpkgs/issues/73404
               cd /tmp
 
