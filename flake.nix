@@ -20,10 +20,10 @@
     overlay = final: prev:
     let
       system = final.system;
-      isDarwin = final.lib.strings.hasSuffix "-darwin" system;
-      darwinOptions = final.lib.optionalAttrs isDarwin {
-        nativeBuildInputs = [
-          final.darwin.apple_sdk.frameworks.SystemConfiguration
+      darwinOptions = final.lib.optionalAttrs final.stdenv.isDarwin {
+        buildInputs = with final.darwin.apple_sdk.frameworks; [
+          SystemConfiguration
+          CoreServices
         ];
       };
     in
