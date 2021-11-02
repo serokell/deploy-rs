@@ -3,6 +3,10 @@ Upstream-Name: deploy-rs
 Upstream-Contact: Serokell <https://serokell.io/>
 Source: https://github.com/serokell/deploy-rs
 
+Copyright: 2020 Serokell <https://serokell.io/>
+License: MPL-2.0
+Files: *.lock *.json docs/*.svg examples/*
+
 # Sample paragraph, commented out:
 #
 # Files: src/*
