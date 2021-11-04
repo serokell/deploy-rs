@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
-use clap::{ArgMatches, Clap, FromArgMatches};
+use clap::{ArgMatches, FromArgMatches, Parser};
 
 use crate as deploy;
 
@@ -18,7 +18,7 @@ use thiserror::Error;
 use tokio::process::Command;
 
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
-#[derive(Clap, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Default)]
 #[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
 pub struct Opts {
     /// The flake to deploy
@@ -273,7 +273,7 @@ pub enum RunError {
 
 pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     let opts = match args {
-        Some(o) => <Opts as FromArgMatches>::from_arg_matches(o),
+        Some(o) => <Opts as FromArgMatches>::from_arg_matches(o).unwrap_or_default(),
         None => Opts::parse(),
     };
 

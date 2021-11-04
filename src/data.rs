@@ -3,7 +3,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use clap::Clap;
+use clap::Parser;
 use linked_hash_set::LinkedHashSet;
 use merge::Merge;
 use rnix::{types::*, SyntaxKind::*};
@@ -310,7 +310,7 @@ pub enum DeployDataError {
     NoProfileHost(String, String),
 }
 
-#[derive(Clap, Debug, Clone)]
+#[derive(Parser, Debug, Clone, Default)]
 pub struct Flags {
     /// Check signatures when using `nix copy`
     #[clap(short, long)]

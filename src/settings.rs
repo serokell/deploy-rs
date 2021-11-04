@@ -2,13 +2,13 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use clap::Clap;
+use clap::Parser;
 use envmnt::{self, ExpandOptions, ExpansionType};
 use merge::Merge;
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 
-#[derive(Clap, Deserialize, Debug, Clone, Merge)]
+#[derive(Parser, Deserialize, Debug, Clone, Merge, Default)]
 pub struct GenericSettings {
     /// Override the SSH user with the given value
     #[clap(long)]

@@ -9,7 +9,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     naersk = {
-      url = "github:nmattia/naersk/master";
+      url = "github:nix-community/naersk";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     utils.url = "github:numtide/flake-utils";
@@ -17,42 +17,41 @@
       url = "github:edolstra/flake-compat";
       flake = false;
     };
+    fenix.url = "github:nix-community/fenix";
+    fenix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, utils, naersk, ... }:
-  {
-    overlay = final: prev:
-    let
-      naersk-lib = final.callPackage naersk { };
-      system = final.system;
-      isDarwin = final.lib.strings.hasSuffix "-darwin" system;
-      darwinOptions = final.lib.optionalAttrs isDarwin {
-        nativeBuildInputs = [
-          final.darwin.apple_sdk.frameworks.SystemConfiguration
-        ];
-      };
-    in
+  outputs = { self, nixpkgs, utils, naersk, fenix, ... }:
     {
-      deploy-rs = {
+      overlay = final: prev:
+        let
+          system = final.system;
+          isDarwin = final.lib.strings.hasSuffix "-darwin" system;
+          darwinOptions = final.lib.optionalAttrs isDarwin {
+            nativeBuildInputs =
+              [ final.darwin.apple_sdk.frameworks.SystemConfiguration ];
+          };
+        in {
+          deploy-rs = {
 
-        deploy-rs = naersk-lib.buildPackage (darwinOptions // {
-          root = ./.;
-        }) // { meta.description = "A Simple multi-profile Nix-flake deploy tool"; };
+            deploy-rs =
+              final.naersk.buildPackage (darwinOptions // { root = ./.; }) // {
+                meta.description =
+                  "A Simple multi-profile Nix-flake deploy tool";
+              };
 
-        lib = rec {
+            lib = rec {
 
-          setActivate = builtins.trace
-            "deploy-rs#lib.setActivate is deprecated, use activate.noop, activate.nixos or activate.custom instead"
-            activate.custom;
+              setActivate = builtins.trace
+                "deploy-rs#lib.setActivate is deprecated, use activate.noop, activate.nixos or activate.custom instead"
+                activate.custom;
 
-          activate = rec {
-            custom =
-              {
-                __functor = customSelf: base: activate:
-                  (final.buildEnv {
-                    name = ("activatable-" + base.name);
-                    paths =
-                      [
+              activate = rec {
+                custom = {
+                  __functor = customSelf: base: activate:
+                    (final.buildEnv {
+                      name = ("activatable-" + base.name);
+                      paths = [
                         base
                         (final.writeTextFile {
                           name = base.name + "-activate-path";
@@ -62,7 +61,11 @@
 
                             if [[ "''${DRY_ACTIVATE:-}" == "1" ]]
                             then
-                                ${customSelf.dryActivate or "echo ${final.writeScript "activate" activate}"}
+                                ${
+                                  customSelf.dryActivate or "echo ${
+                                    final.writeScript "activate" activate
+                                  }"
+                                }
                             else
                                 ${activate}
                             fi
@@ -71,67 +74,97 @@
                           destination = "/deploy-rs-activate";
                         })
                         (final.writeTextFile {
-                            name = base.name + "-activate-rs";
-                            text = ''
+                          name = base.name + "-activate-rs";
+                          text = ''
                             #!${final.runtimeShell}
-                            exec ${self.defaultPackage.${system}}/bin/activate "$@"
+                            exec ${
+                              self.defaultPackage.${system}
+                            }/bin/activate "$@"
                           '';
                           executable = true;
                           destination = "/activate-rs";
                         })
                       ];
-                  } // customSelf);
+                    } // customSelf);
+                };
+
+                nixos = base:
+                  (custom // {
+                    inherit base;
+                    dryActivate =
+                      "$PROFILE/bin/switch-to-configuration dry-activate";
+                  }) base.config.system.build.toplevel ''
+                    # work around https://github.com/NixOS/nixpkgs/issues/73404
+                    cd /tmp
+
+                    $PROFILE/bin/switch-to-configuration switch
+
+                    # https://github.com/serokell/deploy-rs/issues/31
+                    ${with base.config.boot.loader;
+                    final.lib.optionalString systemd-boot.enable
+                    "sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
+                  '';
+
+                home-manager = base:
+                  custom base.activationPackage "$PROFILE/activate";
+
+                noop = base: custom base ":";
               };
 
-            nixos = base: (custom // { inherit base; dryActivate = "$PROFILE/bin/switch-to-configuration dry-activate"; }) base.config.system.build.toplevel ''
-              # work around https://github.com/NixOS/nixpkgs/issues/73404
-              cd /tmp
+              deployChecks = deploy:
+                builtins.mapAttrs (_: check: check deploy) {
+                  schema = deploy:
+                    final.runCommandNoCC "jsonschema-deploy-system" { } ''
+                      ${final.python3.pkgs.jsonschema}/bin/jsonschema -i ${
+                        final.writeText "deploy.json" (builtins.toJSON deploy)
+                      } ${./interface.json} && touch $out
+                    '';
 
-              $PROFILE/bin/switch-to-configuration switch
+                  activate = deploy:
+                    let
+                      profiles = builtins.concatLists (final.lib.mapAttrsToList
+                        (nodeName: node:
+                          final.lib.mapAttrsToList (profileName: profile: [
+                            (toString profile.path)
+                            nodeName
+                            profileName
+                          ]) node.profiles) deploy.nodes);
+                    in final.runCommandNoCC "deploy-rs-check-activate" { } ''
+                      for x in ${
+                        builtins.concatStringsSep " "
+                        (map (p: builtins.concatStringsSep ":" p) profiles)
+                      }; do
+                        profile_path=$(echo $x | cut -f1 -d:)
+                        node_name=$(echo $x | cut -f2 -d:)
+                        profile_name=$(echo $x | cut -f3 -d:)
 
-              # https://github.com/serokell/deploy-rs/issues/31
-              ${with base.config.boot.loader;
-              final.lib.optionalString systemd-boot.enable
-              "sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
-            '';
+                        test -f "$profile_path/deploy-rs-activate" || (echo "#$node_name.$profile_name is missing the deploy-rs-activate activation script" && exit 1);
 
-            home-manager = base: custom base.activationPackage "$PROFILE/activate";
+                        test -f "$profile_path/activate-rs" || (echo "#$node_name.$profile_name is missing the activate-rs activation script" && exit 1);
+                      done
 
-            noop = base: custom base ":";
-          };
-
-          deployChecks = deploy: builtins.mapAttrs (_: check: check deploy) {
-            schema = deploy: final.runCommandNoCC "jsonschema-deploy-system" { } ''
-              ${final.python3.pkgs.jsonschema}/bin/jsonschema -i ${final.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface.json} && touch $out
-            '';
-
-            activate = deploy:
-              let
-                profiles = builtins.concatLists (final.lib.mapAttrsToList (nodeName: node: final.lib.mapAttrsToList (profileName: profile: [ (toString profile.path) nodeName profileName ]) node.profiles) deploy.nodes);
-              in
-              final.runCommandNoCC "deploy-rs-check-activate" { } ''
-                for x in ${builtins.concatStringsSep " " (map (p: builtins.concatStringsSep ":" p) profiles)}; do
-                  profile_path=$(echo $x | cut -f1 -d:)
-                  node_name=$(echo $x | cut -f2 -d:)
-                  profile_name=$(echo $x | cut -f3 -d:)
-
-                  test -f "$profile_path/deploy-rs-activate" || (echo "#$node_name.$profile_name is missing the deploy-rs-activate activation script" && exit 1);
-
-                  test -f "$profile_path/activate-rs" || (echo "#$node_name.$profile_name is missing the activate-rs activation script" && exit 1);
-                done
-
-                touch $out
-              '';
+                      touch $out
+                    '';
+                };
+            };
           };
         };
-      };
-    };
-  } //
-    utils.lib.eachDefaultSystem (system:
+    } // utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs { inherit system; overlays = [ self.overlay ]; };
-      in
-      {
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [
+            naersk.overlay
+            (final: prev: {
+              naersk = prev.naersk.override {
+                inherit (fenix.packages.${prev.system}.stable) cargo rustc;
+              };
+            })
+            self.overlay
+            fenix.overlay
+          ];
+        };
+      in {
         defaultPackage = self.packages."${system}".deploy-rs;
         packages.deploy-rs = pkgs.deploy-rs.deploy-rs;
 
@@ -142,22 +175,23 @@
         };
 
         devShell = pkgs.mkShell {
-          inputsFrom = [ self.packages.${system}.deploy-rs ];
-          RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+          RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
           buildInputs = with pkgs; [
-            nixUnstable
-            cargo
-            rustc
-            rust-analyzer
-            rustfmt
-            clippy
+            rust-analyzer-nightly
             reuse
-            rust.packages.stable.rustPlatform.rustLibSrc
+            (pkgs.fenix.stable.withComponents [
+              "cargo"
+              "clippy"
+              "rust-src"
+              "rustc"
+              "rustfmt"
+            ])
           ];
         };
 
         checks = {
-          deploy-rs = self.defaultPackage.${system}.overrideAttrs (super: { doCheck = true; });
+          deploy-rs = self.defaultPackage.${system}.overrideAttrs
+            (super: { doCheck = true; });
         };
 
         lib = pkgs.deploy-rs.lib;
