@@ -23,21 +23,21 @@ use tokio::process::Command;
 pub struct Opts {
     /// The flake to deploy
     #[clap(group = "deploy")]
-    target: Option<String>,
+    pub target: Option<String>,
 
     /// A list of flakes to deploy alternatively
     #[clap(long, group = "deploy")]
-    targets: Option<Vec<String>>,
+    pub targets: Option<Vec<String>>,
 
     /// Override hostname used for the node
     #[clap(long)]
-    hostname: Option<String>,
+    pub hostname: Option<String>,
 
     #[clap(flatten)]
-    flags: data::Flags,
+    pub flags: data::Flags,
 
     #[clap(flatten)]
-    generic_settings: settings::GenericSettings,
+    pub generic_settings: settings::GenericSettings,
 }
 
 /// Returns if the available Nix installation supports flakes
