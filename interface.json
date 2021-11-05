@@ -64,10 +64,7 @@
                     },
                     "additionalProperties": false
                 }
-            },
-            "required": [
-                "hostname"
-            ]
+            }
         },
         "profile_settings": {
             "type": "object",
