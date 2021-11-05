@@ -271,9 +271,9 @@ pub enum RunError {
     RunDeploy(#[from] RunDeployError),
 }
 
-pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
+pub async fn run(args: Option<Opts>) -> Result<(), RunError> {
     let opts = match args {
-        Some(o) => <Opts as FromArgMatches>::from_arg_matches(o).unwrap_or_default(),
+        Some(o) => o,
         None => Opts::parse(),
     };
 
