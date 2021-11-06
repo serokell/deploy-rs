@@ -247,73 +247,80 @@ impl std::str::FromStr for Target {
 #[test]
 fn test_deploy_target_from_str() {
     assert_eq!(
-        "../deploy/examples/system".parse::<Target>().unwrap(),
+        "../examples/system".parse::<Target>().unwrap(),
         Target {
-            repo: "../deploy/examples/system".to_string(),
+            repo: "../examples/system".to_string(),
             node: None,
             profile: None,
+            ip: None,
         }
     );
 
     assert_eq!(
-        "../deploy/examples/system#".parse::<Target>().unwrap(),
+        "../examples/system#".parse::<Target>().unwrap(),
         Target {
-            repo: "../deploy/examples/system".to_string(),
+            repo: "../examples/system".to_string(),
             node: None,
             profile: None,
+            ip: None,
         }
     );
 
     assert_eq!(
-        "../deploy/examples/system#computer.\"something.nix\""
+        "../examples/system#computer.\"something.nix\"@localhost:22"
             .parse::<Target>()
             .unwrap(),
         Target {
-            repo: "../deploy/examples/system".to_string(),
+            repo: "../examples/system".to_string(),
             node: Some("computer".to_string()),
             profile: Some("something.nix".to_string()),
+            ip: Some("localhost:22".to_string()),
         }
     );
 
     assert_eq!(
-        "../deploy/examples/system#\"example.com\".system"
+        "../examples/system#\"example.com\".system"
             .parse::<Target>()
             .unwrap(),
         Target {
-            repo: "../deploy/examples/system".to_string(),
+            repo: "../examples/system".to_string(),
             node: Some("example.com".to_string()),
             profile: Some("system".to_string()),
+            ip: None,
         }
     );
 
     assert_eq!(
-        "../deploy/examples/system#example"
+        "../examples/system#example"
             .parse::<Target>()
             .unwrap(),
         Target {
-            repo: "../deploy/examples/system".to_string(),
+            repo: "../examples/system".to_string(),
             node: Some("example".to_string()),
-            profile: None
+            profile: None,
+            ip: None,
         }
     );
 
     assert_eq!(
-        "../deploy/examples/system#example.system"
+        "../examples/system#example.system"
             .parse::<Target>()
             .unwrap(),
         Target {
-            repo: "../deploy/examples/system".to_string(),
+            repo: "../examples/system".to_string(),
             node: Some("example".to_string()),
-            profile: Some("system".to_string())
+            profile: Some("system".to_string()),
+            ip: None,
         }
     );
 
     assert_eq!(
-        "../deploy/examples/system".parse::<Target>().unwrap(),
+        "../examples/system".parse::<Target>().unwrap(),
         Target {
-            repo: "../deploy/examples/system".to_string(),
+            repo: "../examples/system".to_string(),
             node: None,
             profile: None,
+            ip: None,
         }
     );
 }

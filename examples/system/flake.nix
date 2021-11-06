@@ -23,8 +23,8 @@
     defaultPackage.x86_64-linux = import ./hello.nix nixpkgs;
 
     deploy.nodes.example = {
-      sshOpts = [ "-p" "2221" ];
-      hostname = "localhost";
+      sshOpts = [ "-i" "./path/to/private/key" ];
+      hostname = "localhost:2221";
       fastConnection = true;
       profiles = {
         system = {
