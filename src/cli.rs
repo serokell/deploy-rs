@@ -69,11 +69,6 @@ fn print_deployment(parts: &[&data::DeployData]) -> Result<(), toml::ser::Error>
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
 
     for data in parts {
-        let hostname = if let Some(x) = &data.node.node_settings.hostname {
-            x
-        } else {
-            panic!()
-        };
         part_map
             .entry(data.node_name.to_string())
             .or_insert_with(HashMap::new)
@@ -83,7 +78,7 @@ fn print_deployment(parts: &[&data::DeployData]) -> Result<(), toml::ser::Error>
                     user: &data.profile_user,
                     ssh_user: &data.ssh_user,
                     path: &data.profile.profile_settings.path,
-                    hostname,
+                    hostname: &data.hostname,
                     ssh_opts: &data.merged_settings.ssh_opts,
                 },
             );
