@@ -178,7 +178,7 @@ async fn run_deploy(
     let deploy_datas_ = targets
         .into_iter()
         .zip(&settings)
-        .map(|(target, root)| target.resolve(&root, &cmd_settings, &cmd_flags, hostname.as_deref()))
+        .map(|(target, root)| target.resolve(&root, &cmd_settings, &cmd_flags, hostname.to_owned()))
         .collect::<Result<Vec<Vec<data::DeployData<'_>>>, data::ResolveTargetError>>()?;
     let deploy_datas: Vec<&data::DeployData<'_>> = deploy_datas_.iter().flatten().collect();
 

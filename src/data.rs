@@ -8,6 +8,7 @@ use linked_hash_set::LinkedHashSet;
 use merge::Merge;
 use rnix::{types::*, SyntaxKind::*};
 use thiserror::Error;
+use std::net::{AddrParseError};
 
 use crate::settings;
 
@@ -16,12 +17,15 @@ pub struct Target {
     pub repo: String,
     pub node: Option<String>,
     pub profile: Option<String>,
+    pub ip: Option<String>,
 }
 
 #[derive(Error, Debug)]
 pub enum ParseTargetError {
     #[error("The given path was too long, did you mean to put something in quotes?")]
     PathTooLong,
+    #[error("Invalid IP suffix for target '{0}': {1}")]
+    InvalidIp(String, AddrParseError),
     #[error("Unrecognized node or token encountered")]
     Unrecognized,
 }
@@ -36,6 +40,8 @@ pub enum ResolveTargetError {
     ProfileWithoutNode(String),
     #[error("Deployment data invalid: {0}")]
     InvalidDeployDataError(#[from] DeployDataError),
+    #[error("IP suffix on flake root target '{0}'. You can't deploy all the flake's targets to the same node, dude.")]
+    IpOnFlakeRoot(String),
 }
 
 impl<'a> Target {
@@ -44,13 +50,14 @@ impl<'a> Target {
         r: &'a settings::Root,
         cs: &'a settings::GenericSettings,
         cf: &'a Flags,
-        hostname: Option<&'a str>,
+        hostname: Option<String>,
     ) -> Result<Vec<DeployData<'a>>, ResolveTargetError> {
         match self {
             Target {
                 repo,
                 node: Some(node),
                 profile,
+                ip,
             } => {
                 let node_ = match r.nodes.get(&node) {
                     Some(x) => x,
@@ -68,6 +75,11 @@ impl<'a> Target {
                         }
                     };
                     Ok({
+                        let hostname_: Option<String> = if let Some(_) = ip {
+                            ip
+                        } else {
+                            hostname
+                        };
                         let d = DeployData::new(
                             repo,
                             node.to_owned(),
@@ -77,7 +89,7 @@ impl<'a> Target {
                             cf,
                             node_,
                             profile_,
-                            hostname,
+                            hostname_,
                         )?;
                         vec![d]
                     })
@@ -95,8 +107,9 @@ impl<'a> Target {
                                 repo: repo.to_owned(),
                                 node: Some(node.to_owned()),
                                 profile: Some(p.to_string()),
+                                ip: ip.to_owned(),
                             }
-                            .resolve(r, cs, cf, hostname)
+                            .resolve(r, cs, cf, hostname.to_owned())
                         })
                         .collect::<Result<Vec<Vec<DeployData<'_>>>, ResolveTargetError>>()?
                         .into_iter()
@@ -107,7 +120,14 @@ impl<'a> Target {
             Target {
                 repo,
                 node: None,
+                profile: _,
+                ip: Some(_),
+            } => Err(ResolveTargetError::IpOnFlakeRoot(repo)),
+            Target {
+                repo,
+                node: None,
                 profile: None,
+                ip: _,
             } => {
                 if let Some(_hostname) = hostname {
                     todo!() // create issue to discuss:
@@ -121,8 +141,9 @@ impl<'a> Target {
                             repo: repo.to_owned(),
                             node: Some(n.to_string()),
                             profile: None,
+                            ip: self.ip.to_owned(),
                         }
-                        .resolve(r, cs, cf, hostname)
+                        .resolve(r, cs, cf, hostname.to_owned())
                     })
                     .collect::<Result<Vec<Vec<DeployData<'_>>>, ResolveTargetError>>()?
                     .into_iter()
@@ -133,6 +154,7 @@ impl<'a> Target {
                 repo,
                 node: None,
                 profile: Some(_),
+                ip: _,
             } => Err(ResolveTargetError::ProfileWithoutNode(repo)),
         }
     }
@@ -142,17 +164,41 @@ impl std::str::FromStr for Target {
     type Err = ParseTargetError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let flake_fragment_start = s.find('#');
-        let (repo, maybe_fragment) = match flake_fragment_start {
+        let target_fragment_start = s.find('#');
+        let (repo, maybe_target_full) = match target_fragment_start {
             Some(i) => (s[..i].to_string(), Some(&s[i + 1..])),
             None => (s.to_string(), None),
         };
 
+        let mut maybe_target: Option<&str> = None;
+
+        let mut ip: Option<String> = None;
+
+        if let Some(t) = maybe_target_full {
+            let ip_fragment_start = t.find('@');
+            if let Some(i) = ip_fragment_start {
+                maybe_target = Some(&t[..i]);
+                ip = Some(t[i + 1..].to_string());
+                // match t[i + 1..].parse() {
+                //     Ok(k) => k,
+                //     Err(e) => return Err(
+                //         ParseTargetError::InvalidIp(
+                //             maybe_target.unwrap().to_string(),
+                //             e
+                //         )
+                //     ),
+                // };
+            } else {
+                maybe_target = maybe_target_full;
+            };
+        };
+
+
         let mut node: Option<String> = None;
         let mut profile: Option<String> = None;
 
-        if let Some(fragment) = maybe_fragment {
-            let ast = rnix::parse(fragment);
+        if let Some(target) = maybe_target {
+            let ast = rnix::parse(target);
 
             let first_child = match ast.root().node().first_child() {
                 Some(x) => x,
@@ -161,6 +207,7 @@ impl std::str::FromStr for Target {
                         repo,
                         node: None,
                         profile: None,
+                        ip, // NB: error if not none; catched on target resolve
                     })
                 }
             };
@@ -203,6 +250,7 @@ impl std::str::FromStr for Target {
             repo,
             node,
             profile,
+            ip,
         })
     }
 }
@@ -292,8 +340,7 @@ pub struct DeployData<'a> {
     pub profile: &'a settings::Profile,
     pub merged_settings: settings::GenericSettings,
 
-    pub hostname: &'a str,
-
+    pub hostname: String,
     pub ssh_user: String,
     pub ssh_uri: String,
     pub temp_path: String,
@@ -358,7 +405,7 @@ impl<'a> DeployData<'a> {
         flags: &'a Flags,
         node: &'a settings::Node,
         profile: &'a settings::Profile,
-        hostname: Option<&'a str>,
+        hostname: Option<String>,
     ) -> Result<DeployData<'a>, DeployDataError> {
         let mut merged_settings = cmd_settings.clone();
         merged_settings.merge(profile.generic_settings.clone());
@@ -400,8 +447,8 @@ impl<'a> DeployData<'a> {
         };
         let hostname = match hostname {
             Some(x) => x,
-            None => if let Some(ref x) = node.node_settings.hostname {
-                x
+            None => if let Some(x) = &node.node_settings.hostname {
+                x.to_string()
             } else {
               return Err(DeployDataError::NoHost(node_name));
             },
