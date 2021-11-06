@@ -30,7 +30,7 @@ You can try out this tool easily with `nix run`:
 
 In you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `deploy <flake>` you can issue `deploy --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
 
-Running in this mode, if any of the deploys fails, the deploy will be aborted and all successful deploys rolled back. `--rollback-succeeded false` can be used to override this behavior, otherwise the `auto-rollback` argument takes precedent.
+Running in this mode, if any of the deploys fails, the deploy will be aborted and all successful deploys rolled back. `--rollback-succeeded false` can be used to override this behavior, otherwise the `no-auto-rollback` argument takes precedent.
 
 If you require a signing key to push closures to your server, specify the path to it in the `LOCAL_KEY` environment variable.
 
@@ -48,7 +48,7 @@ This type of design (as opposed to more traditional tools like NixOps or morph) 
 
 ### Magic Rollback
 
-There is a built-in feature to prevent you making changes that might render your machine unconnectable or unusuable, which works by connecting to the machine after profile activation to confirm the machine is still available, and instructing the target node to automatically roll back if it is not confirmed. If you do not disable `magicRollback` in your configuration (see later sections) or with the CLI flag, you will be unable to make changes to the system which will affect you connecting to it (changing SSH port, changing your IP, etc).
+There is a built-in feature to prevent you making changes that might render your machine unconnectable or unusuable, which works by connecting to the machine after profile activation to confirm the machine is still available, and instructing the target node to automatically roll back if it is not confirmed. If you do not disable `noMagicRollback` in your configuration (see later sections) or with the CLI flag, you will be unable to make changes to the system which will affect you connecting to it (changing SSH port, changing your IP, etc).
 
 ## API
 
@@ -166,17 +166,15 @@ This is a set of options that can be put in any of the above definitions, with t
   # This defaults to `false`
   fastConnection = false;
 
-  # If the previous profile should be re-activated if activation fails.
-  # This defaults to `true`
-  autoRollback = true;
+  # If the previous profile should NOT be re-activated if activation fails.
+  noAutoRollback = true;
 
-  # See the earlier section about Magic Rollback for more information.
-  # This defaults to `true`
-  magicRollback = true;
+  # See the earlier section about Magic Rollback for more information, disable with this attr.
+  noMagicRollback = true;
 
-  # The path which deploy-rs will use for temporary files, this is currently only used by `magicRollback` to create an inotify watcher in for confirmations
+  # The path which deploy-rs will use for temporary files, this is currently only used by the magic rollback to create an inotify watcher in for confirmations
   # If not specified, this will default to `/tmp`
-  # (if `magicRollback` is in use, this _must_ be writable by `user`)
+  # (if magic rollback is in use, this _must_ be writable by `user`)
   tempPath = "/home/someuser/.deploy-rs";
 }
 ```

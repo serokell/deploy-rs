@@ -209,7 +209,7 @@ async fn run_deploy(
 
     // Run all deployments
     // In case of an error rollback any previoulsy made deployment.
-    // Rollbacks adhere to the global seeting to auto_rollback and secondary
+    // Rollbacks adhere to the global seeting to no_auto_rollback and secondary
     // the profile's configuration
     for deploy_data in &parts {
         if let Err(e) = deploy::deploy::deploy_profile(
@@ -226,13 +226,13 @@ async fn run_deploy(
             if cmd_flags.dry_activate {
                 info!("dry run, not rolling back");
             }
-            if cmd_flags.rollback_succeeded && cmd_settings.auto_rollback.unwrap_or(true) {
+            if cmd_flags.rollback_succeeded && !cmd_settings.no_auto_rollback {
                 info!("Revoking previous deploys");
                 // revoking all previous deploys
                 // (adheres to profile configuration if not set explicitely by
                 //  the command line)
                 for deploy_data in &succeeded {
-                    if deploy_data.merged_settings.auto_rollback.unwrap_or(true) {
+                    if !deploy_data.merged_settings.no_auto_rollback {
                         deploy::deploy::revoke(
                             &deploy_data.node_name,
                             &deploy_data.profile_name,

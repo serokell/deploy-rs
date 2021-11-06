@@ -29,12 +29,14 @@ pub struct GenericSettings {
     pub ssh_opts: Vec<String>,
     /// Override if the connecting to the target node should be considered fast
     #[clap(long)]
-    #[serde(rename(deserialize = "fastConnection"))]
-    pub fast_connection: Option<bool>,
-    /// Override if a rollback should be attempted if activation fails
+    #[serde(rename(deserialize = "fastConnection"), default)]
+    #[merge(strategy = merge::bool::overwrite_false)]
+    pub fast_connection: bool,
+    /// Do not attempt rollback if activation fails
     #[clap(long)]
-    #[serde(rename(deserialize = "autoRollback"))]
-    pub auto_rollback: Option<bool>,
+    #[serde(rename(deserialize = "noAutoRollback"), default)]
+    #[merge(strategy = merge::bool::overwrite_false)]
+    pub no_auto_rollback: bool,
     /// How long activation should wait for confirmation (if using magic-rollback)
     #[clap(long)]
     #[serde(rename(deserialize = "confirmTimeout"))]
@@ -43,9 +45,11 @@ pub struct GenericSettings {
     #[clap(long)]
     #[serde(rename(deserialize = "tempPath"))]
     pub temp_path: Option<String>,
+    /// Do not do a magic rollback (see documentation)
     #[clap(long)]
-    #[serde(rename(deserialize = "magicRollback"))]
-    pub magic_rollback: Option<bool>,
+    #[serde(rename(deserialize = "noMagicRollback"), default)]
+    #[merge(strategy = merge::bool::overwrite_false)]
+    pub no_magic_rollback: bool,
 }
 
 impl GenericSettings {

@@ -105,7 +105,7 @@ impl<'a> CopyCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Self {
         CopyCommand {
             closure: d.profile.profile_settings.path.as_str(),
-            fast_connection: d.merged_settings.fast_connection.unwrap_or(false),
+            fast_connection: d.merged_settings.fast_connection,
             check_sigs: &d.flags.checksigs,
             ssh_uri: d.ssh_uri.as_str(),
             ssh_opts: d

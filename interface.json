@@ -21,10 +21,10 @@
                 "fastConnection": {
                     "type": "boolean"
                 },
-                "autoRollback": {
+                "noAutoRollback": {
                     "type": "boolean"
                 },
-                "magicRollback": {
+                "noMagicRollback": {
                     "type": "boolean"
                 },
                 "confirmTimeout": {
