@@ -59,9 +59,8 @@ async fn test_flake_support() -> Result<bool, std::io::Error> {
 #[derive(Serialize)]
 struct PromptPart<'a> {
     user: &'a str,
-    ssh_user: &'a str,
     path: &'a str,
-    hostname: &'a str,
+    uri: &'a str,
     ssh_opts: &'a [String],
 }
 
@@ -76,9 +75,8 @@ fn print_deployment(parts: &[&data::DeployData]) -> Result<(), toml::ser::Error>
                 data.profile_name.to_string(),
                 PromptPart {
                     user: &data.profile_user,
-                    ssh_user: &data.ssh_user,
                     path: &data.profile.profile_settings.path,
-                    hostname: &data.hostname,
+                    uri: &data.ssh_uri,
                     ssh_opts: &data.merged_settings.ssh_opts,
                 },
             );

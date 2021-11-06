@@ -11,20 +11,19 @@ use tokio::process::Command;
 use crate::data;
 
 pub struct SshCommand<'a> {
-    hoststring: String,
+    ssh_uri: &'a str,
     opts: &'a Vec<String>,
 }
 
 impl<'a> SshCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Result<Self, data::DeployDataError> {
-        let hoststring = format!("{}@{}", &d.ssh_user, d.hostname);
         let opts = d.merged_settings.ssh_opts.as_ref();
-        Ok(SshCommand { hoststring, opts })
+        Ok(SshCommand { ssh_uri: d.ssh_uri.as_ref(), opts })
     }
 
     fn build(&self) -> Command {
         let mut cmd = Command::new("ssh");
-        cmd.arg(&self.hoststring);
+        cmd.arg(self.ssh_uri);
         cmd.args(self.opts.iter());
         cmd
     }

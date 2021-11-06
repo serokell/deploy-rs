@@ -8,7 +8,7 @@ use linked_hash_set::LinkedHashSet;
 use merge::Merge;
 use rnix::{types::*, SyntaxKind::*};
 use thiserror::Error;
-use std::net::{AddrParseError};
+use std::net::{SocketAddr, ToSocketAddrs};
 
 use crate::settings;
 
@@ -24,8 +24,6 @@ pub struct Target {
 pub enum ParseTargetError {
     #[error("The given path was too long, did you mean to put something in quotes?")]
     PathTooLong,
-    #[error("Invalid IP suffix for target '{0}': {1}")]
-    InvalidIp(String, AddrParseError),
     #[error("Unrecognized node or token encountered")]
     Unrecognized,
 }
@@ -179,15 +177,6 @@ impl std::str::FromStr for Target {
             if let Some(i) = ip_fragment_start {
                 maybe_target = Some(&t[..i]);
                 ip = Some(t[i + 1..].to_string());
-                // match t[i + 1..].parse() {
-                //     Ok(k) => k,
-                //     Err(e) => return Err(
-                //         ParseTargetError::InvalidIp(
-                //             maybe_target.unwrap().to_string(),
-                //             e
-                //         )
-                //     ),
-                // };
             } else {
                 maybe_target = maybe_target_full;
             };
@@ -340,7 +329,11 @@ pub struct DeployData<'a> {
     pub profile: &'a settings::Profile,
     pub merged_settings: settings::GenericSettings,
 
-    pub hostname: String,
+    // TODO: can be used instead of ssh_uri to iterate
+    // over potentially a series of sockets to deploy
+    // to
+    // pub sockets: Vec<SocketAddr>,
+
     pub ssh_user: String,
     pub ssh_uri: String,
     pub temp_path: String,
@@ -355,6 +348,8 @@ pub enum DeployDataError {
     NoProfileUser(String, String),
     #[error("Value `hostname` is not define for node {0}")]
     NoHost(String),
+    #[error("Cannot creato a socket for '{0}' from '{1}': {2}")]
+    InvalidSockent(String, String, String),
 }
 
 #[derive(Parser, Debug, Clone, Default)]
@@ -453,7 +448,14 @@ impl<'a> DeployData<'a> {
               return Err(DeployDataError::NoHost(node_name));
             },
         };
-        let ssh_uri = format!("ssh://{}@{}", &ssh_user, &hostname);
+        let maybe_iter = &mut hostname[..].to_socket_addrs();
+        let sockets: Vec<SocketAddr> = match maybe_iter {
+            Ok(x) => x.into_iter().collect(),
+            Err(err) => return Err(
+                DeployDataError::InvalidSockent(repo, hostname, err.to_string()),
+            ),
+        };
+        let ssh_uri = format!("ssh://{}@{}", &ssh_user, sockets.first().unwrap());
 
         Ok(DeployData {
             repo,
@@ -463,7 +465,7 @@ impl<'a> DeployData<'a> {
             node,
             profile,
             merged_settings,
-            hostname,
+            // sockets,
             ssh_user,
             ssh_uri,
             temp_path,
