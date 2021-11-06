@@ -97,22 +97,27 @@ pub struct CopyCommand<'a> {
     closure: &'a str,
     fast_connection: bool,
     check_sigs: &'a bool,
-    ssh_uri: &'a str,
-    ssh_opts: String,
+    hostname: &'a str,
+    nix_ssh_opts: String,
 }
 
 impl<'a> CopyCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Self {
+        // ssh_uri: ssh://host:port
+        let (uri, port) = d.ssh_uri.as_str().rsplit_once(":").unwrap();
         CopyCommand {
             closure: d.profile.profile_settings.path.as_str(),
             fast_connection: d.merged_settings.fast_connection,
             check_sigs: &d.flags.checksigs,
-            ssh_uri: d.ssh_uri.as_str(),
-            ssh_opts: d
+            hostname: uri,
+            nix_ssh_opts: format!("{} -p {}",
+                d
                 .merged_settings
                 .ssh_opts
                 .iter()
                 .fold("".to_string(), |s, o| format!("{} {}", s, o)),
+                port,
+            ),
         }
     }
 
@@ -129,9 +134,9 @@ impl<'a> CopyCommand<'a> {
             cmd.arg("--no-check-sigs");
         }
         cmd.arg("--to")
-            .arg(self.ssh_uri)
+            .arg(self.hostname)
             .arg(self.closure)
-            .env("NIX_SSHOPTS", self.ssh_opts);
+            .env("NIX_SSHOPTS", self.nix_ssh_opts);
         //cmd.what_is_this;
         cmd
     }
