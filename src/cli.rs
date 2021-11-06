@@ -226,8 +226,8 @@ async fn run_deploy(
             if cmd_flags.dry_activate {
                 info!("dry run, not rolling back");
             }
-            info!("Revoking previous deploys");
             if cmd_flags.rollback_succeeded && cmd_settings.auto_rollback.unwrap_or(true) {
+                info!("Revoking previous deploys");
                 // revoking all previous deploys
                 // (adheres to profile configuration if not set explicitely by
                 //  the command line)
