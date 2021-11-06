@@ -71,7 +71,7 @@ impl GenericSettings {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct NodeSettings {
-    pub hostname: String,
+    pub hostname: Option<String>,
     pub profiles: HashMap<String, Profile>,
     #[serde(
         skip_serializing_if = "Vec::is_empty",

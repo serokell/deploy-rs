@@ -306,8 +306,8 @@ pub struct DeployData<'a> {
 pub enum DeployDataError {
     #[error("Neither `user` nor `sshUser` are set for profile {0} of node {1}")]
     NoProfileUser(String, String),
-    #[error("Value `hostname` is not define for profile {0} of node {1}")]
-    NoProfileHost(String, String),
+    #[error("Value `hostname` is not define for node {0}")]
+    NoHost(String),
 }
 
 #[derive(Parser, Debug, Clone, Default)]
@@ -400,7 +400,11 @@ impl<'a> DeployData<'a> {
         };
         let hostname = match hostname {
             Some(x) => x,
-            None => &node.node_settings.hostname,
+            None => if let Some(ref x) = node.node_settings.hostname {
+                x
+            } else {
+              return Err(DeployDataError::NoHost(node_name));
+            },
         };
         let ssh_uri = format!("ssh://{}@{}", &ssh_user, &hostname);
 
