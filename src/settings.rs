@@ -18,7 +18,7 @@ pub struct GenericSettings {
     #[clap(long = "profile-user")]
     pub user: Option<String>,
     /// Override the SSH options used
-    #[clap(long, multiple_occurrences(true), multiple_values(true))]
+    #[clap(long, multiple_occurrences(true))]
     #[serde(
         skip_serializing_if = "Vec::is_empty",
         default,

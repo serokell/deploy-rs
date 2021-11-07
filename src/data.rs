@@ -368,6 +368,7 @@ pub struct Flags {
     #[clap(short, long)]
     pub interactive: bool,
     /// Extra arguments to be passed to nix build
+    #[clap(long)]
     pub extra_build_args: Vec<String>,
 
     /// Print debug logs to output
