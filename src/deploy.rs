@@ -363,7 +363,7 @@ pub async fn deploy_profile(
         let (send_activate, recv_activate) = tokio::sync::oneshot::channel();
         let (send_activated, recv_activated) = tokio::sync::oneshot::channel();
 
-        tokio::spawn(async move {
+        let thread = tokio::spawn(async move {
             let o = ssh_activate.wait_with_output().await;
 
             let maybe_err = match o {
@@ -399,6 +399,10 @@ pub async fn deploy_profile(
         let c = confirm_profile(deploy_data, deploy_defs, temp_path, &ssh_addr).await;
         recv_activated.await.unwrap();
         c?;
+
+        thread
+            .await
+            .map_err(|x| DeployProfileError::SSHActivate(x.into()))?;
     }
 
     Ok(())
