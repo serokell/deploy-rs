@@ -386,7 +386,7 @@ pub struct Flags {
     pub result_path: Option<String>,
 
     /// Skip the automatic pre-build checks
-    #[clap(short, long)]
+    #[clap(short, long, env = "DEPLOY_SKIP_CHECKS")]
     pub skip_checks: bool,
     /// Make activation wait for confirmation, or roll back after a period of time
     /// Show what will be activated on the machines
