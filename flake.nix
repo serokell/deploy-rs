@@ -16,7 +16,9 @@
     fenix.url = "github:nix-community/fenix";
   };
 
-  outputs = { self, nixpkgs, utils, fenix, ... }:
+  outputs = { self, nixpkgs, utils, fenix, ... }: let
+    toolchain = "stable";
+  in
   {
     overlay = final: prev:
     let
@@ -32,7 +34,7 @@
       deploy-rs = {
 
         deploy-rs = (final.makeRustPlatform {
-          inherit (final.fenix.stable) cargo rustc;
+          inherit (final.fenix.${toolchain}) cargo rustc;
         }).buildRustPackage (darwinOptions // {
           pname = "deploy-rs";
           version = "0.1.0";
@@ -133,7 +135,7 @@
     utils.lib.eachSystem (utils.lib.defaultSystems ++ ["aarch64-darwin"]) (system:
       let
         pkgs = import nixpkgs { inherit system; overlays = [ self.overlay fenix.overlay ]; };
-        rustPkg = pkgs.fenix.stable.withComponents [
+        rustPkg = pkgs.fenix.${toolchain}.withComponents [
           "cargo"
           "clippy"
           "rust-src"
