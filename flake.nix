@@ -7,14 +7,13 @@
   description = "A Simple multi-profile Nix-flake deploy tool.";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.follows = "fenix/nixpkgs";
     utils.url = "github:numtide/flake-utils";
     flake-compat = {
       url = "github:edolstra/flake-compat";
       flake = false;
     };
     fenix.url = "github:nix-community/fenix";
-    fenix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs = { self, nixpkgs, utils, fenix, ... }:
@@ -134,6 +133,13 @@
     utils.lib.eachSystem (utils.lib.defaultSystems ++ ["aarch64-darwin"]) (system:
       let
         pkgs = import nixpkgs { inherit system; overlays = [ self.overlay fenix.overlay ]; };
+        rustPkg = pkgs.fenix.stable.withComponents [
+          "cargo"
+          "clippy"
+          "rust-src"
+          "rustc"
+          "rustfmt"
+        ];
       in {
         defaultPackage = self.packages."${system}".deploy-rs;
         packages.deploy-rs = pkgs.deploy-rs.deploy-rs;
@@ -145,17 +151,11 @@
         };
 
         devShell = pkgs.mkShell {
-          RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
+          RUST_SRC_PATH = "${rustPkg}/lib/rustlib/src/rust/library";
           buildInputs = with pkgs; [
             rust-analyzer-nightly
             reuse
-            (pkgs.fenix.stable.withComponents [
-              "cargo"
-              "clippy"
-              "rust-src"
-              "rustc"
-              "rustfmt"
-            ])
+            rustPkg
           ];
         };
 
