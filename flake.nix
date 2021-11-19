@@ -39,9 +39,9 @@
           pname = "deploy-rs";
           version = "0.1.0";
 
-          src = ./.;
+          src = self;
 
-          cargoLock.lockFile = ./Cargo.lock;
+          cargoLock.lockFile = "${self}/Cargo.lock";
         }) // { meta.description = "A Simple multi-profile Nix-flake deploy tool"; };
 
         lib = rec {
@@ -107,7 +107,7 @@
 
             deployChecks = deploy: builtins.mapAttrs (_: check: check deploy) {
               schema = deploy: final.runCommandNoCC "jsonschema-deploy-system" { } ''
-                ${final.python3.pkgs.jsonschema}/bin/jsonschema -i ${final.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface.json} && touch $out
+                ${final.python3.pkgs.jsonschema}/bin/jsonschema -i ${final.writeText "deploy.json" (builtins.toJSON deploy)} ${self}/interface.json && touch $out
               '';
 
               activate = deploy:
