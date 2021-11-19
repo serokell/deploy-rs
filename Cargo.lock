@@ -126,7 +126,6 @@ dependencies = [
  "clap",
  "envmnt",
  "flexi_logger",
- "fork",
  "futures-util",
  "linked_hash_set",
  "log",
@@ -186,15 +185,6 @@ dependencies = [
  "regex",
  "thiserror",
  "yansi",
-]
-
-[[package]]
-name = "fork"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4c5b9b0bce249a456f83ac4404e8baad0d2ba81cf651949719a4f74eb7323bb"
-dependencies = [
- "libc",
 ]
 
 [[package]]
