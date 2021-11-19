@@ -156,7 +156,7 @@ impl<'a> BuildCommand<'a> {
             node_name: d.node_name.as_str(),
             profile_name: d.profile_name.as_str(),
             keep_result: &d.flags.keep_result,
-            result_path: &d.flags.result_path.as_deref().unwrap_or("./.deploy-gc"),
+            result_path: d.flags.result_path.as_deref().unwrap_or("./.deploy-gc"),
             extra_build_args: &d.flags.extra_build_args,
         }
     }

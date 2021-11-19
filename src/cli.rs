@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
-use clap::{Parser};
+use clap::Parser;
 
 use crate as deploy;
 
@@ -176,7 +176,7 @@ async fn run_deploy(
     let deploy_datas_ = targets
         .into_iter()
         .zip(&settings)
-        .map(|(target, root)| target.resolve(&root, &cmd_settings, &cmd_flags, hostname.to_owned()))
+        .map(|(target, root)| target.resolve(root, &cmd_settings, &cmd_flags, hostname.to_owned()))
         .collect::<Result<Vec<Vec<data::DeployData<'_>>>, data::ResolveTargetError>>()?;
     let deploy_datas: Vec<&data::DeployData<'_>> = deploy_datas_.iter().flatten().collect();
 
@@ -195,10 +195,10 @@ async fn run_deploy(
     for deploy_data in &parts {
         deploy::push::push_profile(
             supports_flakes,
-            deploy::push::ShowDerivationCommand::from_data(&deploy_data),
-            deploy::push::BuildCommand::from_data(&deploy_data),
-            deploy::push::SignCommand::from_data(&deploy_data),
-            deploy::push::CopyCommand::from_data(&deploy_data),
+            deploy::push::ShowDerivationCommand::from_data(deploy_data),
+            deploy::push::BuildCommand::from_data(deploy_data),
+            deploy::push::SignCommand::from_data(deploy_data),
+            deploy::push::CopyCommand::from_data(deploy_data),
         )
         .await?;
     }
@@ -213,10 +213,10 @@ async fn run_deploy(
         if let Err(e) = deploy::deploy::deploy_profile(
             &deploy_data.node_name,
             &deploy_data.profile_name,
-            deploy::deploy::SshCommand::from_data(&deploy_data)?,
-            deploy::deploy::ActivateCommand::from_data(&deploy_data),
-            deploy::deploy::WaitCommand::from_data(&deploy_data),
-            deploy::deploy::ConfirmCommand::from_data(&deploy_data),
+            deploy::deploy::SshCommand::from_data(deploy_data)?,
+            deploy::deploy::ActivateCommand::from_data(deploy_data),
+            deploy::deploy::WaitCommand::from_data(deploy_data),
+            deploy::deploy::ConfirmCommand::from_data(deploy_data),
         )
         .await
         {
@@ -234,8 +234,8 @@ async fn run_deploy(
                         deploy::deploy::revoke(
                             &deploy_data.node_name,
                             &deploy_data.profile_name,
-                            deploy::deploy::SshCommand::from_data(&deploy_data)?,
-                            deploy::deploy::RevokeCommand::from_data(&deploy_data),
+                            deploy::deploy::SshCommand::from_data(deploy_data)?,
+                            deploy::deploy::RevokeCommand::from_data(deploy_data),
                         )
                         .await?;
                     }

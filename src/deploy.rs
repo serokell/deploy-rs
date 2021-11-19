@@ -268,7 +268,7 @@ impl<'a> ConfirmCommand<'a> {
     }
 
     fn build(self) -> String {
-        let lock_path = super::make_lock_path(&self.temp_path, &self.closure);
+        let lock_path = super::make_lock_path(self.temp_path, self.closure);
 
         let mut cmd = format!("rm {}", lock_path);
         if let Some(sudo_cmd) = &self.sudo {

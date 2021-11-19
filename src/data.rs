@@ -73,7 +73,7 @@ impl<'a> Target {
                         }
                     };
                     Ok({
-                        let hostname_: Option<String> = if let Some(_) = ip {
+                        let hostname_: Option<String> = if ip.is_some() {
                             ip
                         } else {
                             hostname
