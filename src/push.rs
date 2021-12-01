@@ -5,7 +5,6 @@
 use log::{debug, info};
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Stdio;
 use thiserror::Error;
 use tokio::process::Command;
 
@@ -65,6 +64,8 @@ impl<'a> ShowDerivationCommand<'a> {
 
         cmd.arg("show-derivation").arg(&self.closure);
         //cmd.what_is_this;
+
+        debug!("Built command: ShowDerivationCommand -> {:?}", cmd);
         cmd
     }
 }
@@ -89,6 +90,8 @@ impl<'a> SignCommand<'a> {
             .arg(local_key)
             .arg(&self.closure);
         //cmd.what_is_this;
+
+        debug!("Built command: SignCommand -> {:?}", cmd);
         cmd
     }
 }
@@ -138,6 +141,8 @@ impl<'a> CopyCommand<'a> {
             .arg(self.closure)
             .env("NIX_SSHOPTS", self.nix_ssh_opts);
         //cmd.what_is_this;
+
+        debug!("Built command: CopyCommand -> {:?}", cmd);
         cmd
     }
 }
@@ -184,6 +189,8 @@ impl<'a> BuildCommand<'a> {
         };
         cmd.args(self.extra_build_args.iter());
         // cmd.what_is_this;
+
+        debug!("Built command: BuildCommand -> {:?}", cmd);
         cmd
     }
 }
@@ -195,11 +202,13 @@ pub async fn push_profile(
     sign: SignCommand<'_>,
     copy: CopyCommand<'_>,
 ) -> Result<(), PushProfileError> {
+
+    debug!("Entering push_profil function ...");
+
     let node_name = build.node_name;
     let profile_name = build.profile_name;
     let closure = show_derivation.closure;
 
-    debug!("Finding the deriver of store path for {}", closure);
     let mut show_derivation_cmd = show_derivation.build();
 
     let show_derivation_output = show_derivation_cmd
@@ -230,14 +239,12 @@ pub async fn push_profile(
 
     let mut build_cmd = build.build(*derivation_name, supports_flakes);
 
-    let build_exit_status = build_cmd
-        // Logging should be in stderr, this just stops the store path from printing for no reason
-        .stdout(Stdio::null())
-        .status()
+    let build_cmd_handle = build_cmd
+        .output()
         .await
         .map_err(PushProfileError::Build)?;
 
-    match build_exit_status.code() {
+    match build_cmd_handle.status.code() {
         Some(0) => (),
         a => return Err(PushProfileError::BuildExit(a)),
     };
@@ -257,9 +264,9 @@ pub async fn push_profile(
         );
 
         let mut sign_cmd = sign.build(local_key);
-        let sign_exit_status = sign_cmd.status().await.map_err(PushProfileError::Sign)?;
+        let sign_cmd_handle = sign_cmd.output().await.map_err(PushProfileError::Sign)?;
 
-        match sign_exit_status.code() {
+        match sign_cmd_handle.status.code() {
             Some(0) => (),
             a => return Err(PushProfileError::SignExit(a)),
         };
@@ -269,9 +276,9 @@ pub async fn push_profile(
 
     let mut copy_cmd = copy.build();
 
-    let copy_exit_status = copy_cmd.status().await.map_err(PushProfileError::Copy)?;
+    let copy_exit_cmd_handle = copy_cmd.output().await.map_err(PushProfileError::Copy)?;
 
-    match copy_exit_status.code() {
+    match copy_exit_cmd_handle.status.code() {
         Some(0) => (),
         a => return Err(PushProfileError::CopyExit(a)),
     };

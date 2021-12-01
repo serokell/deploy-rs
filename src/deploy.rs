@@ -25,6 +25,8 @@ impl<'a> SshCommand<'a> {
         let mut cmd = Command::new("ssh");
         cmd.arg(self.ssh_uri);
         cmd.args(self.opts.iter());
+
+        debug!("Built command: SshCommand -> {:?}", cmd);
         cmd
     }
 }
@@ -92,6 +94,7 @@ impl<'a> ActivateCommand<'a> {
             cmd = format!("{} {}", sudo_cmd, cmd);
         }
 
+        debug!("Built command: ActivateCommand -> {}", cmd);
         cmd
     }
 }
@@ -166,6 +169,7 @@ impl<'a> WaitCommand<'a> {
             cmd = format!("{} {}", sudo_cmd, cmd);
         }
 
+        debug!("Built command: WaitCommand -> {}", cmd);
         cmd
     }
 }
@@ -227,6 +231,7 @@ impl<'a> RevokeCommand<'a> {
             cmd = format!("{} {}", sudo_cmd, cmd);
         }
 
+        debug!("Built command: RevokeCommand -> {}", cmd);
         cmd
     }
 }
@@ -274,6 +279,8 @@ impl<'a> ConfirmCommand<'a> {
         if let Some(sudo_cmd) = &self.sudo {
             cmd = format!("{} {}", sudo_cmd, cmd);
         }
+
+        debug!("Built command: ConfirmCommand -> {}", cmd);
         cmd
     }
 }
@@ -292,22 +299,20 @@ pub async fn confirm_profile(
     ssh: SshCommand<'_>,
     confirm: ConfirmCommand<'_>,
 ) -> Result<(), ConfirmProfileError> {
+
+    debug!("Entering confirm_profile function ...");
+
     let mut ssh_confirm_cmd = ssh.build();
 
     let confirm_cmd = confirm.build();
 
-    debug!(
-        "Attempting to run command to confirm deployment: {}",
-        confirm_cmd
-    );
-
-    let ssh_confirm_exit_status = ssh_confirm_cmd
+    let ssh_confirm_cmd_handle = ssh_confirm_cmd
         .arg(confirm_cmd)
-        .status()
+        .output()
         .await
         .map_err(ConfirmProfileError::SSHConfirm)?;
 
-    match ssh_confirm_exit_status.code() {
+    match ssh_confirm_cmd_handle.status.code() {
         Some(0) => (),
         a => return Err(ConfirmProfileError::SSHConfirmExit(a)),
     };
@@ -344,6 +349,9 @@ pub async fn deploy_profile(
     wait: WaitCommand<'_>,
     confirm: ConfirmCommand<'_>,
 ) -> Result<(), DeployProfileError> {
+
+    debug!("Entering deploy_profile function ...");
+
     if !activate.dry_activate {
         info!(
             "Activating profile `{}` for node `{}`",
@@ -355,18 +363,16 @@ pub async fn deploy_profile(
 
     let activate_cmd = activate.build();
 
-    debug!("Constructed activation command: {}", activate_cmd);
-
     let mut ssh_activate_cmd = ssh.build();
 
     if *no_magic_rollback || *dry_activate {
-        let ssh_activate_exit_status = ssh_activate_cmd
+        let ssh_activate_cmd_handle = ssh_activate_cmd
             .arg(activate_cmd)
-            .status()
+            .output()
             .await
             .map_err(DeployProfileError::SSHActivate)?;
 
-        match ssh_activate_exit_status.code() {
+        match ssh_activate_cmd_handle.status.code() {
             Some(0) => (),
             a => return Err(DeployProfileError::SSHActivateExit(a)),
         };
@@ -377,9 +383,6 @@ pub async fn deploy_profile(
             info!("Success activating, done!");
         }
     } else {
-        let wait_cmd = wait.build();
-
-        debug!("Constructed wait command: {}", wait_cmd);
 
         let ssh_activate = ssh_activate_cmd
             .arg(activate_cmd)
@@ -387,7 +390,7 @@ pub async fn deploy_profile(
             .map_err(DeployProfileError::SSHSpawnActivate)?;
 
         info!("Creating activation waiter");
-
+        let wait_cmd = wait.build();
         let mut ssh_wait_cmd = ssh.build();
 
         let (send_activate, recv_activate) = tokio::sync::oneshot::channel();
@@ -411,9 +414,9 @@ pub async fn deploy_profile(
             send_activated.send(()).unwrap();
         });
         tokio::select! {
-            x = ssh_wait_cmd.arg(wait_cmd).status() => {
+            x = ssh_wait_cmd.arg(wait_cmd).output() => {
                 debug!("Wait command ended");
-                match x.map_err(DeployProfileError::SSHWait)?.code() {
+                match x.map_err(DeployProfileError::SSHWait)?.status.code() {
                     Some(0) => (),
                     a => return Err(DeployProfileError::SSHWaitExit(a)),
                 };
@@ -454,13 +457,15 @@ pub async fn revoke(
     ssh: SshCommand<'_>,
     revoke: RevokeCommand<'_>,
 ) -> Result<(), RevokeProfileError> {
+
+    debug!("Entering revoke function ...");
+
     info!(
         "Revoking profile `{}` for node `{}`",
         profile_name, node_name
     );
 
     let revoke_cmd = revoke.build();
-    debug!("Constructed revoke command: {}", revoke_cmd);
 
     let mut ssh_revoke_cmd = ssh.build();
 
