@@ -129,7 +129,7 @@ impl<'a> CopyCommand<'a> {
 
         cmd.arg("copy");
 
-        if self.fast_connection {
+        if !self.fast_connection {
             cmd.arg("--substitute-on-destination");
         }
 
