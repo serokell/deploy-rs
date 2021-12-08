@@ -8,6 +8,7 @@ use log::{debug, info};
 use std::borrow::Cow;
 use thiserror::Error;
 use tokio::process::Command;
+use std::process::Stdio;
 
 use crate::DeployDataDefsError;
 
@@ -213,7 +214,7 @@ pub async fn confirm_profile(
     ssh_addr: &str,
 ) -> Result<(), ConfirmProfileError> {
     let mut ssh_confirm_command = Command::new("ssh");
-    ssh_confirm_command.arg(ssh_addr);
+    ssh_confirm_command.arg(ssh_addr).stdin(Stdio::null());
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
         ssh_confirm_command.arg(ssh_opt);
@@ -222,9 +223,6 @@ pub async fn confirm_profile(
     let lock_path = super::make_lock_path(&temp_path, &deploy_data.profile.profile_settings.path);
 
     let mut confirm_command = format!("rm {}", lock_path);
-    if let Some(sudo_cmd) = &deploy_defs.sudo {
-        confirm_command = format!("{} {}", sudo_cmd, confirm_command);
-    }
 
     debug!(
         "Attempting to run command to confirm deployment: {}",
@@ -317,6 +315,9 @@ pub async fn deploy_profile(
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
         ssh_activate_command.arg(&ssh_opt);
     }
+    if deploy_defs.sudo.is_some() {
+	ssh_activate_command.arg("-t");
+    }
 
     if !magic_rollback || dry_activate {
         let ssh_activate_exit_status = ssh_activate_command
@@ -337,7 +338,7 @@ pub async fn deploy_profile(
         }
     } else {
         let self_wait_command = build_wait_command(&WaitCommandData {
-            sudo: &deploy_defs.sudo,
+            sudo: &None, // &deploy_defs.sudo,
             closure: &deploy_data.profile.profile_settings.path,
             temp_path: &temp_path,
             debug_logs: deploy_data.debug_logs,
@@ -354,7 +355,7 @@ pub async fn deploy_profile(
         info!("Creating activation waiter");
 
         let mut ssh_wait_command = Command::new("ssh");
-        ssh_wait_command.arg(&ssh_addr);
+        ssh_wait_command.arg(&ssh_addr).stdin(Stdio::null());
 
         for ssh_opt in &deploy_data.merged_settings.ssh_opts {
             ssh_wait_command.arg(ssh_opt);

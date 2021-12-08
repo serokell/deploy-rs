@@ -13,6 +13,7 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
+use std::env;
 use std::time::Duration;
 
 use std::path::Path;
@@ -244,11 +245,15 @@ pub async fn activation_confirmation(
 
     debug!("Creating canary file");
 
-    fs::File::create(&lock_path)
+    let lock_file = fs::File::create(&lock_path)
         .await
         .map_err(ActivationConfirmationError::CreateConfirmFile)?;
 
     debug!("Creating notify watcher");
+
+    Command::new("chown")
+        .args([format!("{}:{}", env::var("SUDO_USER").unwrap(), env::var("SUDO_USER").unwrap()), lock_path.clone()])
+        .status().await.unwrap();
 
     let (deleted, done) = mpsc::channel(1);
 
@@ -273,16 +278,16 @@ pub async fn activation_confirmation(
 
     watcher.watch(&lock_path, RecursiveMode::NonRecursive)?;
 
-    if let Err(err) = danger_zone(done, confirm_timeout).await {
-        error!("Error waiting for confirmation event: {}", err);
+    // if let Err(err) = danger_zone(done, confirm_timeout).await {
+    //     error!("Error waiting for confirmation event: {}", err);
 
-        if let Err(err) = deactivate(&profile_path).await {
-            error!(
-                "Error de-activating due to another error waiting for confirmation, oh no...: {}",
-                err
-            );
-        }
-    }
+    //     if let Err(err) = deactivate(&profile_path).await {
+    //         error!(
+    //             "Error de-activating due to another error waiting for confirmation, oh no...: {}",
+    //             err
+    //         );
+    //     }
+    // }
 
     Ok(())
 }
