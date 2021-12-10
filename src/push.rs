@@ -272,9 +272,9 @@ pub async fn push_profile(
 
     let mut copy_cmd = copy.build();
 
-    let copy_exit_cmd_handle = copy_cmd.output().await.map_err(PushProfileError::Copy)?;
+    let copy_exit_cmd_handle = copy_cmd.status().await.map_err(PushProfileError::Copy)?;
 
-    match copy_exit_cmd_handle.status.code() {
+    match copy_exit_cmd_handle.code() {
         Some(0) => (),
         a => return Err(PushProfileError::CopyExit(a)),
     };
