@@ -113,12 +113,12 @@ impl<'a> CopyCommand<'a> {
             fast_connection: d.merged_settings.fast_connection,
             check_sigs: &d.flags.checksigs,
             hostname: uri,
-            nix_ssh_opts: format!("{} -p {}",
-                d
-                .merged_settings
-                .ssh_opts
-                .iter()
-                .fold("".to_string(), |s, o| format!("{} {}", s, o)),
+            nix_ssh_opts: format!(
+                "{} -p {}",
+                d.merged_settings
+                    .ssh_opts
+                    .iter()
+                    .fold("".to_string(), |s, o| format!("{} {}", s, o)),
                 port,
             ),
         }
@@ -202,7 +202,6 @@ pub async fn push_profile(
     sign: SignCommand<'_>,
     copy: CopyCommand<'_>,
 ) -> Result<(), PushProfileError> {
-
     debug!("Entering push_profil function ...");
 
     let node_name = build.node_name;
@@ -239,10 +238,7 @@ pub async fn push_profile(
 
     let mut build_cmd = build.build(*derivation_name, supports_flakes);
 
-    let build_cmd_handle = build_cmd
-        .output()
-        .await
-        .map_err(PushProfileError::Build)?;
+    let build_cmd_handle = build_cmd.output().await.map_err(PushProfileError::Build)?;
 
     match build_cmd_handle.status.code() {
         Some(0) => (),

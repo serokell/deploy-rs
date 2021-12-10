@@ -18,7 +18,10 @@ pub struct SshCommand<'a> {
 impl<'a> SshCommand<'a> {
     pub fn from_data(d: &'a data::DeployData) -> Result<Self, data::DeployDataError> {
         let opts = d.merged_settings.ssh_opts.as_ref();
-        Ok(SshCommand { ssh_uri: d.ssh_uri.as_ref(), opts })
+        Ok(SshCommand {
+            ssh_uri: d.ssh_uri.as_ref(),
+            opts,
+        })
     }
 
     fn build(&self) -> Command {
@@ -299,7 +302,6 @@ pub async fn confirm_profile(
     ssh: SshCommand<'_>,
     confirm: ConfirmCommand<'_>,
 ) -> Result<(), ConfirmProfileError> {
-
     debug!("Entering confirm_profile function ...");
 
     let mut ssh_confirm_cmd = ssh.build();
@@ -349,7 +351,6 @@ pub async fn deploy_profile(
     wait: WaitCommand<'_>,
     confirm: ConfirmCommand<'_>,
 ) -> Result<(), DeployProfileError> {
-
     debug!("Entering deploy_profile function ...");
 
     if !activate.dry_activate {
@@ -383,7 +384,6 @@ pub async fn deploy_profile(
             info!("Success activating, done!");
         }
     } else {
-
         let ssh_activate = ssh_activate_cmd
             .arg(activate_cmd)
             .spawn()
@@ -457,7 +457,6 @@ pub async fn revoke(
     ssh: SshCommand<'_>,
     revoke: RevokeCommand<'_>,
 ) -> Result<(), RevokeProfileError> {
-
     debug!("Entering revoke function ...");
 
     info!(

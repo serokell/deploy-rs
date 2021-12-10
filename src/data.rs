@@ -7,8 +7,8 @@ use clap::Parser;
 use linked_hash_set::LinkedHashSet;
 use merge::Merge;
 use rnix::{types::*, SyntaxKind::*};
-use thiserror::Error;
 use std::net::{SocketAddr, ToSocketAddrs};
+use thiserror::Error;
 
 use crate::settings;
 
@@ -73,11 +73,7 @@ impl<'a> Target {
                         }
                     };
                     Ok({
-                        let hostname_: Option<String> = if ip.is_some() {
-                            ip
-                        } else {
-                            hostname
-                        };
+                        let hostname_: Option<String> = if ip.is_some() { ip } else { hostname };
                         let d = DeployData::new(
                             repo,
                             node.to_owned(),
@@ -182,7 +178,6 @@ impl std::str::FromStr for Target {
             };
         };
 
-
         let mut node: Option<String> = None;
         let mut profile: Option<String> = None;
 
@@ -197,7 +192,7 @@ impl std::str::FromStr for Target {
                         node: None,
                         profile: None,
                         ip, // NB: error if not none; catched on target resolve
-                    })
+                    });
                 }
             };
 
@@ -291,9 +286,7 @@ fn test_deploy_target_from_str() {
     );
 
     assert_eq!(
-        "../examples/system#example"
-            .parse::<Target>()
-            .unwrap(),
+        "../examples/system#example".parse::<Target>().unwrap(),
         Target {
             repo: "../examples/system".to_string(),
             node: Some("example".to_string()),
@@ -340,7 +333,6 @@ pub struct DeployData<'a> {
     // over potentially a series of sockets to deploy
     // to
     // pub sockets: Vec<SocketAddr>,
-
     pub ssh_user: String,
     pub ssh_uri: String,
     pub temp_path: String,
@@ -450,18 +442,24 @@ impl<'a> DeployData<'a> {
         };
         let hostname = match hostname {
             Some(x) => x,
-            None => if let Some(x) = &node.node_settings.hostname {
-                x.to_string()
-            } else {
-              return Err(DeployDataError::NoHost(node_name));
-            },
+            None => {
+                if let Some(x) = &node.node_settings.hostname {
+                    x.to_string()
+                } else {
+                    return Err(DeployDataError::NoHost(node_name));
+                }
+            }
         };
         let maybe_iter = &mut hostname[..].to_socket_addrs();
         let sockets: Vec<SocketAddr> = match maybe_iter {
             Ok(x) => x.into_iter().collect(),
-            Err(err) => return Err(
-                DeployDataError::InvalidSockent(repo, hostname, err.to_string()),
-            ),
+            Err(err) => {
+                return Err(DeployDataError::InvalidSockent(
+                    repo,
+                    hostname,
+                    err.to_string(),
+                ))
+            }
         };
         let ssh_uri = format!("ssh://{}@{}", &ssh_user, sockets.first().unwrap());
 
