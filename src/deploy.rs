@@ -5,18 +5,37 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use log::{debug, info};
-use std::borrow::Cow;
 use thiserror::Error;
 use tokio::process::Command;
 
-use crate::DeployDataDefsError;
+use crate::data;
 
-struct ActivateCommandData<'a> {
-    sudo: &'a Option<String>,
+pub struct SshCommand<'a> {
+    hoststring: String,
+    opts: &'a Vec<String>,
+}
+
+impl<'a> SshCommand<'a> {
+    pub fn from_data(d: &'a data::DeployData) -> Result<Self, data::DeployDataError> {
+        let hoststring = format!("{}@{}", &d.ssh_user, d.hostname);
+        let opts = d.merged_settings.ssh_opts.as_ref();
+        Ok(SshCommand {hoststring, opts})
+    }
+
+    fn build(&self) -> Command {
+        let mut cmd = Command::new("ssh");
+        cmd.arg(&self.hoststring);
+        cmd.args(self.opts.iter());
+        cmd
+    }
+}
+
+pub struct ActivateCommand<'a> {
+    sudo: Option<&'a str>,
     profile_path: &'a str,
+    temp_path: &'a str,
     closure: &'a str,
     auto_rollback: bool,
-    temp_path: &'a str,
     confirm_timeout: u16,
     magic_rollback: bool,
     debug_logs: bool,
@@ -24,49 +43,66 @@ struct ActivateCommandData<'a> {
     dry_activate: bool,
 }
 
-fn build_activate_command(data: &ActivateCommandData) -> String {
-    let mut self_activate_command = format!("{}/activate-rs", data.closure);
-
-    if data.debug_logs {
-        self_activate_command = format!("{} --debug-logs", self_activate_command);
+impl<'a> ActivateCommand<'a> {
+    pub fn from_data(d: &'a data::DeployData) -> Self {
+        ActivateCommand {
+            sudo: d.sudo.as_deref(),
+            profile_path: &d.profile_path,
+            temp_path: &d.temp_path,
+            closure: &d.profile.profile_settings.path,
+            auto_rollback: d.merged_settings.auto_rollback.unwrap_or(true),
+            confirm_timeout: d.merged_settings.confirm_timeout.unwrap_or(30),
+            magic_rollback: d.merged_settings.magic_rollback.unwrap_or(true),
+            debug_logs: d.flags.debug_logs,
+            log_dir: d.flags.log_dir.as_deref(),
+            dry_activate: d.flags.dry_activate,
+        }
     }
 
-    if let Some(log_dir) = data.log_dir {
-        self_activate_command = format!("{} --log-dir {}", self_activate_command, log_dir);
+    fn build(self) -> String {
+        let mut cmd = format!("{}/activate-rs", self.closure);
+
+        if self.debug_logs {
+            cmd = format!("{} --debug-logs", cmd);
+        }
+
+        if let Some(log_dir) = self.log_dir {
+            cmd = format!("{} --log-dir {}", cmd, log_dir);
+        }
+
+        cmd = format!(
+            "{} activate '{}' '{}' --temp-path '{}'",
+            cmd, self.closure, self.profile_path, self.temp_path
+        );
+
+        cmd = format!(
+            "{} --confirm-timeout {}",
+            cmd, self.confirm_timeout
+        );
+
+        if self.magic_rollback {
+            cmd = format!("{} --magic-rollback", cmd);
+        }
+
+        if self.auto_rollback {
+            cmd = format!("{} --auto-rollback", cmd);
+        }
+
+        if self.dry_activate {
+            cmd = format!("{} --dry-activate", cmd);
+        }
+
+        if let Some(sudo_cmd) = &self.sudo {
+            cmd = format!("{} {}", sudo_cmd, cmd);
+        }
+
+        cmd
     }
-
-    self_activate_command = format!(
-        "{} activate '{}' '{}' --temp-path '{}'",
-        self_activate_command, data.closure, data.profile_path, data.temp_path
-    );
-
-    self_activate_command = format!(
-        "{} --confirm-timeout {}",
-        self_activate_command, data.confirm_timeout
-    );
-
-    if data.magic_rollback {
-        self_activate_command = format!("{} --magic-rollback", self_activate_command);
-    }
-
-    if data.auto_rollback {
-        self_activate_command = format!("{} --auto-rollback", self_activate_command);
-    }
-
-    if data.dry_activate {
-        self_activate_command = format!("{} --dry-activate", self_activate_command);
-    }
-
-    if let Some(sudo_cmd) = &data.sudo {
-        self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
-    }
-
-    self_activate_command
 }
 
 #[test]
 fn test_activation_command_builder() {
-    let sudo = Some("sudo -u test".to_string());
+    let sudo = Some("sudo -u test");
     let profile_path = "/blah/profiles/test";
     let closure = "/nix/store/blah/etc";
     let auto_rollback = true;
@@ -78,8 +114,8 @@ fn test_activation_command_builder() {
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_activate_command(&ActivateCommandData {
-            sudo: &sudo,
+        ActivateCommand {
+            sudo,
             profile_path,
             closure,
             auto_rollback,
@@ -89,111 +125,163 @@ fn test_activation_command_builder() {
             debug_logs,
             log_dir,
             dry_activate
-        }),
+        }.build(),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt activate '/nix/store/blah/etc' '/blah/profiles/test' --temp-path '/tmp' --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
     );
 }
 
-struct WaitCommandData<'a> {
-    sudo: &'a Option<String>,
+pub struct WaitCommand<'a> {
+    sudo: Option<&'a str>,
     closure: &'a str,
     temp_path: &'a str,
     debug_logs: bool,
     log_dir: Option<&'a str>,
 }
 
-fn build_wait_command(data: &WaitCommandData) -> String {
-    let mut self_activate_command = format!("{}/activate-rs", data.closure);
-
-    if data.debug_logs {
-        self_activate_command = format!("{} --debug-logs", self_activate_command);
+impl<'a> WaitCommand<'a> {
+    pub fn from_data(d: &'a data::DeployData) -> Self {
+        WaitCommand {
+            sudo: d.sudo.as_deref(),
+            temp_path: &d.temp_path,
+            closure: &d.profile.profile_settings.path,
+            debug_logs: d.flags.debug_logs,
+            log_dir: d.flags.log_dir.as_deref(),
+        }
     }
 
-    if let Some(log_dir) = data.log_dir {
-        self_activate_command = format!("{} --log-dir {}", self_activate_command, log_dir);
+    fn build(self) -> String {
+        let mut cmd = format!("{}/activate-rs", self.closure);
+
+        if self.debug_logs {
+            cmd = format!("{} --debug-logs", cmd);
+        }
+
+        if let Some(log_dir) = self.log_dir {
+            cmd = format!("{} --log-dir {}", cmd, log_dir);
+        }
+
+        cmd = format!(
+            "{} wait '{}' --temp-path '{}'",
+            cmd, self.closure, self.temp_path,
+        );
+
+        if let Some(sudo_cmd) = &self.sudo {
+            cmd = format!("{} {}", sudo_cmd, cmd);
+        }
+
+        cmd
     }
-
-    self_activate_command = format!(
-        "{} wait '{}' --temp-path '{}'",
-        self_activate_command, data.closure, data.temp_path,
-    );
-
-    if let Some(sudo_cmd) = &data.sudo {
-        self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
-    }
-
-    self_activate_command
 }
 
 #[test]
 fn test_wait_command_builder() {
-    let sudo = Some("sudo -u test".to_string());
+    let sudo = Some("sudo -u test");
     let closure = "/nix/store/blah/etc";
     let temp_path = "/tmp";
     let debug_logs = true;
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_wait_command(&WaitCommandData {
-            sudo: &sudo,
+        WaitCommand {
+            sudo,
             closure,
             temp_path,
             debug_logs,
             log_dir
-        }),
+        }.build(),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt wait '/nix/store/blah/etc' --temp-path '/tmp'"
             .to_string(),
     );
 }
 
-struct RevokeCommandData<'a> {
-    sudo: &'a Option<String>,
+pub struct RevokeCommand<'a> {
+    sudo: Option<&'a str>,
     closure: &'a str,
     profile_path: &'a str,
     debug_logs: bool,
     log_dir: Option<&'a str>,
 }
 
-fn build_revoke_command(data: &RevokeCommandData) -> String {
-    let mut self_activate_command = format!("{}/activate-rs", data.closure);
-
-    if data.debug_logs {
-        self_activate_command = format!("{} --debug-logs", self_activate_command);
+impl<'a> RevokeCommand<'a> {
+    pub fn from_data(d: &'a data::DeployData) -> Self {
+        RevokeCommand {
+            sudo: d.sudo.as_deref(),
+            profile_path: &d.profile_path,
+            closure: &d.profile.profile_settings.path,
+            debug_logs: d.flags.debug_logs,
+            log_dir: d.flags.log_dir.as_deref(),
+        }
     }
 
-    if let Some(log_dir) = data.log_dir {
-        self_activate_command = format!("{} --log-dir {}", self_activate_command, log_dir);
+
+    fn build(self) -> String {
+        let mut cmd = format!("{}/activate-rs", self.closure);
+
+        if self.debug_logs {
+            cmd = format!("{} --debug-logs", cmd);
+        }
+
+        if let Some(log_dir) = self.log_dir {
+            cmd = format!("{} --log-dir {}", cmd, log_dir);
+        }
+
+        cmd = format!("{} revoke '{}'", cmd, self.profile_path);
+
+        if let Some(sudo_cmd) = &self.sudo {
+            cmd = format!("{} {}", sudo_cmd, cmd);
+        }
+
+        cmd
     }
-
-    self_activate_command = format!("{} revoke '{}'", self_activate_command, data.profile_path);
-
-    if let Some(sudo_cmd) = &data.sudo {
-        self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
-    }
-
-    self_activate_command
 }
 
 #[test]
 fn test_revoke_command_builder() {
-    let sudo = Some("sudo -u test".to_string());
+    let sudo = Some("sudo -u test");
     let closure = "/nix/store/blah/etc";
     let profile_path = "/nix/var/nix/per-user/user/profile";
     let debug_logs = true;
     let log_dir = Some("/tmp/something.txt");
 
     assert_eq!(
-        build_revoke_command(&RevokeCommandData {
-            sudo: &sudo,
+        RevokeCommand {
+            sudo,
             closure,
             profile_path,
             debug_logs,
             log_dir
-        }),
+        }.build(),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt revoke '/nix/var/nix/per-user/user/profile'"
             .to_string(),
     );
+}
+
+pub struct ConfirmCommand<'a> {
+    sudo: Option<&'a str>,
+    temp_path: &'a str,
+    closure: &'a str,
+}
+
+impl<'a> ConfirmCommand<'a> {
+    pub fn from_data(d: &'a data::DeployData) -> Self {
+        ConfirmCommand {
+            sudo: d.sudo.as_deref(),
+            temp_path: &d.temp_path,
+            closure: &d.profile.profile_settings.path,
+        }
+    }
+
+
+    fn build(self) -> String {
+        let lock_path = super::make_lock_path(&self.temp_path, &self.closure);
+
+        let mut cmd = format!("rm {}", lock_path);
+        if let Some(sudo_cmd) = &self.sudo {
+            cmd = format!("{} {}", sudo_cmd, cmd);
+        }
+        cmd
+    }
 }
 
 #[derive(Error, Debug)]
@@ -207,32 +295,21 @@ pub enum ConfirmProfileError {
 }
 
 pub async fn confirm_profile(
-    deploy_data: &super::DeployData<'_>,
-    deploy_defs: &super::DeployDefs,
-    temp_path: Cow<'_, str>,
-    ssh_addr: &str,
+    ssh: SshCommand<'_>,
+    confirm: ConfirmCommand<'_>,
 ) -> Result<(), ConfirmProfileError> {
-    let mut ssh_confirm_command = Command::new("ssh");
-    ssh_confirm_command.arg(ssh_addr);
 
-    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_confirm_command.arg(ssh_opt);
-    }
+    let mut ssh_confirm_cmd = ssh.build();
 
-    let lock_path = super::make_lock_path(&temp_path, &deploy_data.profile.profile_settings.path);
-
-    let mut confirm_command = format!("rm {}", lock_path);
-    if let Some(sudo_cmd) = &deploy_defs.sudo {
-        confirm_command = format!("{} {}", sudo_cmd, confirm_command);
-    }
+    let confirm_cmd = confirm.build();
 
     debug!(
         "Attempting to run command to confirm deployment: {}",
-        confirm_command
+        confirm_cmd
     );
 
-    let ssh_confirm_exit_status = ssh_confirm_command
-        .arg(confirm_command)
+    let ssh_confirm_exit_status = ssh_confirm_cmd
+        .arg(confirm_cmd)
         .status()
         .await
         .map_err(ConfirmProfileError::SSHConfirm)?;
@@ -267,60 +344,28 @@ pub enum DeployProfileError {
 }
 
 pub async fn deploy_profile(
-    deploy_data: &super::DeployData<'_>,
-    deploy_defs: &super::DeployDefs,
-    dry_activate: bool,
+    node_name: &str,
+    profile_name: &str,
+    ssh: SshCommand<'_>,
+    activate: ActivateCommand<'_>,
+    wait: WaitCommand<'_>,
+    confirm: ConfirmCommand<'_>,
 ) -> Result<(), DeployProfileError> {
-    if !dry_activate {
-        info!(
-            "Activating profile `{}` for node `{}`",
-            deploy_data.profile_name, deploy_data.node_name
-        );
+    if !activate.dry_activate {
+        info!("Activating profile `{}` for node `{}`", profile_name, node_name);
     }
+    let dry_activate = &activate.dry_activate.clone();
+    let magic_rollback = &activate.magic_rollback.clone();
 
-    let temp_path: Cow<str> = match &deploy_data.merged_settings.temp_path {
-        Some(x) => x.into(),
-        None => "/tmp".into(),
-    };
+    let activate_cmd = activate.build();
 
-    let confirm_timeout = deploy_data.merged_settings.confirm_timeout.unwrap_or(30);
+    debug!("Constructed activation command: {}", activate_cmd);
 
-    let magic_rollback = deploy_data.merged_settings.magic_rollback.unwrap_or(true);
+    let mut ssh_activate_cmd = ssh.build();
 
-    let auto_rollback = deploy_data.merged_settings.auto_rollback.unwrap_or(true);
-
-    let self_activate_command = build_activate_command(&ActivateCommandData {
-        sudo: &deploy_defs.sudo,
-        profile_path: &deploy_defs.profile_path,
-        closure: &deploy_data.profile.profile_settings.path,
-        auto_rollback,
-        temp_path: &temp_path,
-        confirm_timeout,
-        magic_rollback,
-        debug_logs: deploy_data.debug_logs,
-        log_dir: deploy_data.log_dir,
-        dry_activate,
-    });
-
-    debug!("Constructed activation command: {}", self_activate_command);
-
-    let hostname = match deploy_data.cmd_overrides.hostname {
-        Some(ref x) => x,
-        None => &deploy_data.node.node_settings.hostname,
-    };
-
-    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
-
-    let mut ssh_activate_command = Command::new("ssh");
-    ssh_activate_command.arg(&ssh_addr);
-
-    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_activate_command.arg(&ssh_opt);
-    }
-
-    if !magic_rollback || dry_activate {
-        let ssh_activate_exit_status = ssh_activate_command
-            .arg(self_activate_command)
+    if !*magic_rollback || *dry_activate {
+        let ssh_activate_exit_status = ssh_activate_cmd
+            .arg(activate_cmd)
             .status()
             .await
             .map_err(DeployProfileError::SSHActivate)?;
@@ -330,35 +375,25 @@ pub async fn deploy_profile(
             a => return Err(DeployProfileError::SSHActivateExit(a)),
         };
 
-        if dry_activate {
+        if *dry_activate {
             info!("Completed dry-activate!");
         } else {
             info!("Success activating, done!");
         }
     } else {
-        let self_wait_command = build_wait_command(&WaitCommandData {
-            sudo: &deploy_defs.sudo,
-            closure: &deploy_data.profile.profile_settings.path,
-            temp_path: &temp_path,
-            debug_logs: deploy_data.debug_logs,
-            log_dir: deploy_data.log_dir,
-        });
+        let wait_cmd = wait.build();
 
-        debug!("Constructed wait command: {}", self_wait_command);
+        debug!("Constructed wait command: {}", wait_cmd);
 
-        let ssh_activate = ssh_activate_command
-            .arg(self_activate_command)
+        let ssh_activate = ssh_activate_cmd
+            .arg(activate_cmd)
             .spawn()
             .map_err(DeployProfileError::SSHSpawnActivate)?;
 
         info!("Creating activation waiter");
 
-        let mut ssh_wait_command = Command::new("ssh");
-        ssh_wait_command.arg(&ssh_addr);
 
-        for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-            ssh_wait_command.arg(ssh_opt);
-        }
+        let mut ssh_wait_cmd = ssh.build();
 
         let (send_activate, recv_activate) = tokio::sync::oneshot::channel();
         let (send_activated, recv_activated) = tokio::sync::oneshot::channel();
@@ -381,7 +416,7 @@ pub async fn deploy_profile(
             send_activated.send(()).unwrap();
         });
         tokio::select! {
-            x = ssh_wait_command.arg(self_wait_command).status() => {
+            x = ssh_wait_cmd.arg(wait_cmd).status() => {
                 debug!("Wait command ended");
                 match x.map_err(DeployProfileError::SSHWait)?.code() {
                     Some(0) => (),
@@ -396,7 +431,7 @@ pub async fn deploy_profile(
 
         info!("Success activating, attempting to confirm activation");
 
-        let c = confirm_profile(deploy_data, deploy_defs, temp_path, &ssh_addr).await;
+        let c = confirm_profile(ssh, confirm).await;
         recv_activated.await.unwrap();
         c?;
 
@@ -417,44 +452,26 @@ pub enum RevokeProfileError {
     SSHRevoke(std::io::Error),
     #[error("Revoking over SSH resulted in a bad exit code: {0:?}")]
     SSHRevokeExit(Option<i32>),
-
-    #[error("Deployment data invalid: {0}")]
-    InvalidDeployDataDefs(#[from] DeployDataDefsError),
 }
 pub async fn revoke(
-    deploy_data: &crate::DeployData<'_>,
-    deploy_defs: &crate::DeployDefs,
+    node_name: &str,
+    profile_name: &str,
+    ssh: SshCommand<'_>,
+    revoke: RevokeCommand<'_>,
 ) -> Result<(), RevokeProfileError> {
-    let self_revoke_command = build_revoke_command(&RevokeCommandData {
-        sudo: &deploy_defs.sudo,
-        closure: &deploy_data.profile.profile_settings.path,
-        profile_path: &deploy_data.get_profile_path()?,
-        debug_logs: deploy_data.debug_logs,
-        log_dir: deploy_data.log_dir,
-    });
+    info!("Revoking profile `{}` for node `{}`", profile_name, node_name);
 
-    debug!("Constructed revoke command: {}", self_revoke_command);
+    let revoke_cmd = revoke.build();
+    debug!("Constructed revoke command: {}", revoke_cmd);
 
-    let hostname = match deploy_data.cmd_overrides.hostname {
-        Some(ref x) => x,
-        None => &deploy_data.node.node_settings.hostname,
-    };
+    let mut ssh_revoke_cmd = ssh.build();
 
-    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
-
-    let mut ssh_activate_command = Command::new("ssh");
-    ssh_activate_command.arg(&ssh_addr);
-
-    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_activate_command.arg(&ssh_opt);
-    }
-
-    let ssh_revoke = ssh_activate_command
-        .arg(self_revoke_command)
+    let ssh_revoke_cmd = ssh_revoke_cmd
+        .arg(revoke_cmd)
         .spawn()
         .map_err(RevokeProfileError::SSHSpawnRevoke)?;
 
-    let result = ssh_revoke.wait_with_output().await;
+    let result = ssh_revoke_cmd.wait_with_output().await;
 
     match result {
         Err(x) => Err(RevokeProfileError::SSHRevoke(x)),
