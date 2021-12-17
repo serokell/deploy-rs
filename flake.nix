@@ -39,9 +39,9 @@
           pname = "deploy-rs";
           version = "0.1.0";
 
-          src = self;
+          src = nixpkgs.lib.cleanSource ./.;
 
-          cargoLock.lockFile = "${self}/Cargo.lock";
+          cargoLock.lockFile = ./Cargo.lock;
         }) // { meta.description = "A Simple multi-profile Nix-flake deploy tool"; };
 
         lib = rec {
