@@ -28,7 +28,7 @@ Any "extra" arguments will be passed into the Nix calls, so for instance to depl
 You can try out this tool easily with `nix run`:
 - `nix run github:serokell/deploy-rs your-flake`
 
-In you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `deploy <flake>` you can issue `deploy --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
+If you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `deploy <flake>` you can issue `deploy --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
 
 Running in this mode, if any of the deploys fails, the deploy will be aborted and all successful deploys rolled back. `--rollback-succeeded false` can be used to override this behavior, otherwise the `auto-rollback` argument takes precedent.
 
