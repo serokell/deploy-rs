@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use thiserror::Error;
 use tokio::process::Command;
 
-use crate::DeployDataDefsError;
+use crate::data;
 
 struct ActivateCommandData<'a> {
     sudo: &'a Option<String>,
@@ -207,8 +207,8 @@ pub enum ConfirmProfileError {
 }
 
 pub async fn confirm_profile(
-    deploy_data: &super::DeployData<'_>,
-    deploy_defs: &super::DeployDefs,
+    deploy_data: &data::DeployData<'_>,
+    deploy_defs: &data::DeployDefs,
     temp_path: Cow<'_, str>,
     ssh_addr: &str,
 ) -> Result<(), ConfirmProfileError> {
@@ -267,8 +267,8 @@ pub enum DeployProfileError {
 }
 
 pub async fn deploy_profile(
-    deploy_data: &super::DeployData<'_>,
-    deploy_defs: &super::DeployDefs,
+    deploy_data: &data::DeployData<'_>,
+    deploy_defs: &data::DeployDefs,
     dry_activate: bool,
 ) -> Result<(), DeployProfileError> {
     if !dry_activate {
@@ -297,16 +297,16 @@ pub async fn deploy_profile(
         temp_path: &temp_path,
         confirm_timeout,
         magic_rollback,
-        debug_logs: deploy_data.debug_logs,
-        log_dir: deploy_data.log_dir,
+        debug_logs: deploy_data.flags.debug_logs,
+        log_dir: deploy_data.flags.log_dir.as_deref(),
         dry_activate,
     });
 
     debug!("Constructed activation command: {}", self_activate_command);
 
-    let hostname = match deploy_data.cmd_overrides.hostname {
-        Some(ref x) => x,
-        None => &deploy_data.node.node_settings.hostname,
+    let hostname = match deploy_data.hostname {
+        Some(x) => x,
+        None => deploy_data.node.node_settings.hostname.as_str(),
     };
 
     let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
@@ -340,8 +340,8 @@ pub async fn deploy_profile(
             sudo: &deploy_defs.sudo,
             closure: &deploy_data.profile.profile_settings.path,
             temp_path: &temp_path,
-            debug_logs: deploy_data.debug_logs,
-            log_dir: deploy_data.log_dir,
+            debug_logs: deploy_data.flags.debug_logs,
+            log_dir: deploy_data.flags.log_dir.as_deref(),
         });
 
         debug!("Constructed wait command: {}", self_wait_command);
@@ -419,25 +419,25 @@ pub enum RevokeProfileError {
     SSHRevokeExit(Option<i32>),
 
     #[error("Deployment data invalid: {0}")]
-    InvalidDeployDataDefs(#[from] DeployDataDefsError),
+    InvalidDeployDataDefs(#[from] data::DeployDataDefsError),
 }
 pub async fn revoke(
-    deploy_data: &crate::DeployData<'_>,
-    deploy_defs: &crate::DeployDefs,
+    deploy_data: &data::DeployData<'_>,
+    deploy_defs: &data::DeployDefs,
 ) -> Result<(), RevokeProfileError> {
     let self_revoke_command = build_revoke_command(&RevokeCommandData {
         sudo: &deploy_defs.sudo,
         closure: &deploy_data.profile.profile_settings.path,
         profile_path: &deploy_data.get_profile_path()?,
-        debug_logs: deploy_data.debug_logs,
-        log_dir: deploy_data.log_dir,
+        debug_logs: deploy_data.flags.debug_logs,
+        log_dir: deploy_data.flags.log_dir.as_deref(),
     });
 
     debug!("Constructed revoke command: {}", self_revoke_command);
 
-    let hostname = match deploy_data.cmd_overrides.hostname {
-        Some(ref x) => x,
-        None => &deploy_data.node.node_settings.hostname,
+    let hostname = match deploy_data.hostname {
+        Some(x) => x,
+        None => deploy_data.node.node_settings.hostname.as_str(),
     };
 
     let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
