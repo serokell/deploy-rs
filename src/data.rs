@@ -1,73 +1,303 @@
 // SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
+// SPDX-FileCopyrightText: 2021 Yannik Sander <contact@ysndr.de>
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use rnix::{types::*, SyntaxKind::*};
 use merge::Merge;
-use serde::Deserialize;
-use std::collections::HashMap;
+use thiserror::Error;
 
-#[derive(Deserialize, Debug, Clone, Merge)]
-pub struct GenericSettings {
-    #[serde(rename(deserialize = "sshUser"))]
+use crate::settings;
+
+#[derive(PartialEq, Debug)]
+pub struct Target {
+    pub repo: String,
+    pub node: Option<String>,
+    pub profile: Option<String>,
+}
+
+#[derive(Error, Debug)]
+pub enum ParseTargetError {
+    #[error("The given path was too long, did you mean to put something in quotes?")]
+    PathTooLong,
+    #[error("Unrecognized node or token encountered")]
+    Unrecognized,
+}
+impl std::str::FromStr for Target {
+    type Err = ParseTargetError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let flake_fragment_start = s.find('#');
+        let (repo, maybe_fragment) = match flake_fragment_start {
+            Some(i) => (s[..i].to_string(), Some(&s[i + 1..])),
+            None => (s.to_string(), None),
+        };
+
+        let mut node: Option<String> = None;
+        let mut profile: Option<String> = None;
+
+        if let Some(fragment) = maybe_fragment {
+            let ast = rnix::parse(fragment);
+
+            let first_child = match ast.root().node().first_child() {
+                Some(x) => x,
+                None => {
+                    return Ok(Target {
+                        repo,
+                        node: None,
+                        profile: None,
+                    })
+                }
+            };
+
+            let mut node_over = false;
+
+            for entry in first_child.children_with_tokens() {
+                let x: Option<String> = match (entry.kind(), node_over) {
+                    (TOKEN_DOT, false) => {
+                        node_over = true;
+                        None
+                    }
+                    (TOKEN_DOT, true) => {
+                        return Err(ParseTargetError::PathTooLong);
+                    }
+                    (NODE_IDENT, _) => Some(entry.into_node().unwrap().text().to_string()),
+                    (TOKEN_IDENT, _) => Some(entry.into_token().unwrap().text().to_string()),
+                    (NODE_STRING, _) => {
+                        let c = entry
+                            .into_node()
+                            .unwrap()
+                            .children_with_tokens()
+                            .nth(1)
+                            .unwrap();
+
+                        Some(c.into_token().unwrap().text().to_string())
+                    }
+                    _ => return Err(ParseTargetError::Unrecognized),
+                };
+
+                if !node_over {
+                    node = x;
+                } else {
+                    profile = x;
+                }
+            }
+        }
+
+        Ok(Target {
+            repo,
+            node,
+            profile,
+        })
+    }
+}
+
+#[test]
+fn test_deploy_target_from_str() {
+    assert_eq!(
+        "../deploy/examples/system".parse::<Target>().unwrap(),
+        Target {
+            repo: "../deploy/examples/system".to_string(),
+            node: None,
+            profile: None,
+        }
+    );
+
+    assert_eq!(
+        "../deploy/examples/system#".parse::<Target>().unwrap(),
+        Target {
+            repo: "../deploy/examples/system".to_string(),
+            node: None,
+            profile: None,
+        }
+    );
+
+    assert_eq!(
+        "../deploy/examples/system#computer.\"something.nix\"".parse::<Target>().unwrap(),
+        Target {
+            repo: "../deploy/examples/system".to_string(),
+            node: Some("computer".to_string()),
+            profile: Some("something.nix".to_string()),
+        }
+    );
+
+    assert_eq!(
+        "../deploy/examples/system#\"example.com\".system".parse::<Target>().unwrap(),
+        Target {
+            repo: "../deploy/examples/system".to_string(),
+            node: Some("example.com".to_string()),
+            profile: Some("system".to_string()),
+        }
+    );
+
+    assert_eq!(
+        "../deploy/examples/system#example".parse::<Target>().unwrap(),
+        Target {
+            repo: "../deploy/examples/system".to_string(),
+            node: Some("example".to_string()),
+            profile: None
+        }
+    );
+
+    assert_eq!(
+        "../deploy/examples/system#example.system".parse::<Target>().unwrap(),
+        Target {
+            repo: "../deploy/examples/system".to_string(),
+            node: Some("example".to_string()),
+            profile: Some("system".to_string())
+        }
+    );
+
+    assert_eq!(
+        "../deploy/examples/system".parse::<Target>().unwrap(),
+        Target {
+            repo: "../deploy/examples/system".to_string(),
+            node: None,
+            profile: None,
+        }
+    );
+}
+
+#[derive(Debug)]
+pub struct CmdOverrides {
     pub ssh_user: Option<String>,
-    pub user: Option<String>,
-    #[serde(
-        skip_serializing_if = "Vec::is_empty",
-        default,
-        rename(deserialize = "sshOpts")
-    )]
-    #[merge(strategy = merge::vec::append)]
-    pub ssh_opts: Vec<String>,
-    #[serde(rename(deserialize = "fastConnection"))]
+    pub profile_user: Option<String>,
+    pub ssh_opts: Option<String>,
     pub fast_connection: Option<bool>,
-    #[serde(rename(deserialize = "autoRollback"))]
     pub auto_rollback: Option<bool>,
-    #[serde(rename(deserialize = "confirmTimeout"))]
-    pub confirm_timeout: Option<u16>,
-    #[serde(rename(deserialize = "tempPath"))]
-    pub temp_path: Option<String>,
-    #[serde(rename(deserialize = "magicRollback"))]
+    pub hostname: Option<String>,
     pub magic_rollback: Option<bool>,
+    pub temp_path: Option<String>,
+    pub confirm_timeout: Option<u16>,
+    pub dry_activate: bool,
 }
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct NodeSettings {
-    pub hostname: String,
-    pub profiles: HashMap<String, Profile>,
-    #[serde(
-        skip_serializing_if = "Vec::is_empty",
-        default,
-        rename(deserialize = "profilesOrder")
-    )]
-    pub profiles_order: Vec<String>,
+#[derive(Debug, Clone)]
+pub struct DeployData<'a> {
+    pub node_name: &'a str,
+    pub node: &'a settings::Node,
+    pub profile_name: &'a str,
+    pub profile: &'a settings::Profile,
+
+    pub cmd_overrides: &'a CmdOverrides,
+
+    pub merged_settings: settings::GenericSettings,
+
+    pub debug_logs: bool,
+    pub log_dir: Option<&'a str>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct ProfileSettings {
-    pub path: String,
-    #[serde(rename(deserialize = "profilePath"))]
-    pub profile_path: Option<String>,
+#[derive(Debug)]
+pub struct DeployDefs {
+    pub ssh_user: String,
+    pub profile_user: String,
+    pub profile_path: String,
+    pub sudo: Option<String>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct Profile {
-    #[serde(flatten)]
-    pub profile_settings: ProfileSettings,
-    #[serde(flatten)]
-    pub generic_settings: GenericSettings,
+#[derive(Error, Debug)]
+pub enum DeployDataDefsError {
+    #[error("Neither `user` nor `sshUser` are set for profile {0} of node {1}")]
+    NoProfileUser(String, String),
 }
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct Node {
-    #[serde(flatten)]
-    pub generic_settings: GenericSettings,
-    #[serde(flatten)]
-    pub node_settings: NodeSettings,
+impl<'a> DeployData<'a> {
+    pub fn defs(&'a self) -> Result<DeployDefs, DeployDataDefsError> {
+        let ssh_user = match self.merged_settings.ssh_user {
+            Some(ref u) => u.clone(),
+            None => whoami::username(),
+        };
+
+        let profile_user = self.get_profile_user()?;
+
+        let profile_path = self.get_profile_path()?;
+
+        let sudo: Option<String> = match self.merged_settings.user {
+            Some(ref user) if user != &ssh_user => Some(format!("sudo -u {}", user)),
+            _ => None,
+        };
+
+        Ok(DeployDefs {
+            ssh_user,
+            profile_user,
+            profile_path,
+            sudo,
+        })
+    }
+
+    pub fn get_profile_path(&'a self) -> Result<String, DeployDataDefsError> {
+        let profile_user = self.get_profile_user()?;
+        let profile_path = match self.profile.profile_settings.profile_path {
+            None => match &profile_user[..] {
+                "root" => format!("/nix/var/nix/profiles/{}", self.profile_name),
+                _ => format!(
+                    "/nix/var/nix/profiles/per-user/{}/{}",
+                    profile_user, self.profile_name
+                ),
+            },
+            Some(ref x) => x.clone(),
+        };
+        Ok(profile_path)
+    }
+
+    pub fn get_profile_user(&'a self) -> Result<String, DeployDataDefsError> {
+        let profile_user = match self.merged_settings.user {
+            Some(ref x) => x.clone(),
+            None => match self.merged_settings.ssh_user {
+                Some(ref x) => x.clone(),
+                None => {
+                    return Err(DeployDataDefsError::NoProfileUser(
+                        self.profile_name.to_owned(),
+                        self.node_name.to_owned(),
+                    ))
+                }
+            },
+        };
+        Ok(profile_user)
+    }
 }
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct Data {
-    #[serde(flatten)]
-    pub generic_settings: GenericSettings,
-    pub nodes: HashMap<String, Node>,
+pub fn make_deploy_data<'a, 's>(
+    top_settings: &'s settings::GenericSettings,
+    node: &'a settings::Node,
+    node_name: &'a str,
+    profile: &'a settings::Profile,
+    profile_name: &'a str,
+    cmd_overrides: &'a CmdOverrides,
+    debug_logs: bool,
+    log_dir: Option<&'a str>,
+) -> DeployData<'a> {
+    let mut merged_settings = profile.generic_settings.clone();
+    merged_settings.merge(node.generic_settings.clone());
+    merged_settings.merge(top_settings.clone());
+
+    if cmd_overrides.ssh_user.is_some() {
+        merged_settings.ssh_user = cmd_overrides.ssh_user.clone();
+    }
+    if cmd_overrides.profile_user.is_some() {
+        merged_settings.user = cmd_overrides.profile_user.clone();
+    }
+    if let Some(ref ssh_opts) = cmd_overrides.ssh_opts {
+        merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
+    }
+    if let Some(fast_connection) = cmd_overrides.fast_connection {
+        merged_settings.fast_connection = Some(fast_connection);
+    }
+    if let Some(auto_rollback) = cmd_overrides.auto_rollback {
+        merged_settings.auto_rollback = Some(auto_rollback);
+    }
+    if let Some(magic_rollback) = cmd_overrides.magic_rollback {
+        merged_settings.magic_rollback = Some(magic_rollback);
+    }
+
+    DeployData {
+        node_name,
+        node,
+        profile_name,
+        profile,
+        cmd_overrides,
+        merged_settings,
+        debug_logs,
+        log_dir,
+    }
 }
