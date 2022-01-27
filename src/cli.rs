@@ -10,8 +10,7 @@ use clap::{ArgMatches, Clap, FromArgMatches};
 
 use crate as deploy;
 
-use self::deploy::{DeployFlake, ParseFlakeError};
-use futures_util::stream::{StreamExt, TryStreamExt};
+use self::deploy::{data, settings, flake};
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use std::process::Stdio;
@@ -107,160 +106,6 @@ async fn test_flake_support() -> Result<bool, std::io::Error> {
         .success())
 }
 
-#[derive(Error, Debug)]
-pub enum CheckDeploymentError {
-    #[error("Failed to execute Nix checking command: {0}")]
-    NixCheck(#[from] std::io::Error),
-    #[error("Nix checking command resulted in a bad exit code: {0:?}")]
-    NixCheckExit(Option<i32>),
-}
-
-async fn check_deployment(
-    supports_flakes: bool,
-    repo: &str,
-    extra_build_args: &[String],
-) -> Result<(), CheckDeploymentError> {
-    info!("Running checks for flake in {}", repo);
-
-    let mut check_command = match supports_flakes {
-        true => Command::new("nix"),
-        false => Command::new("nix-build"),
-    };
-
-    if supports_flakes {
-        check_command.arg("flake").arg("check").arg(repo);
-    } else {
-        check_command.arg("-E")
-                .arg("--no-out-link")
-                .arg(format!("let r = import {}/.; x = (if builtins.isFunction r then (r {{}}) else r); in if x ? checks then x.checks.${{builtins.currentSystem}} else {{}}", repo));
-    }
-
-    for extra_arg in extra_build_args {
-        check_command.arg(extra_arg);
-    }
-
-    let check_status = check_command.status().await?;
-
-    match check_status.code() {
-        Some(0) => (),
-        a => return Err(CheckDeploymentError::NixCheckExit(a)),
-    };
-
-    Ok(())
-}
-
-#[derive(Error, Debug)]
-pub enum GetDeploymentDataError {
-    #[error("Failed to execute nix eval command: {0}")]
-    NixEval(std::io::Error),
-    #[error("Failed to read output from evaluation: {0}")]
-    NixEvalOut(std::io::Error),
-    #[error("Evaluation resulted in a bad exit code: {0:?}")]
-    NixEvalExit(Option<i32>),
-    #[error("Error converting evaluation output to utf8: {0}")]
-    DecodeUtf8(#[from] std::string::FromUtf8Error),
-    #[error("Error decoding the JSON from evaluation: {0}")]
-    DecodeJson(#[from] serde_json::error::Error),
-    #[error("Impossible happened: profile is set but node is not")]
-    ProfileNoNode,
-}
-
-/// Evaluates the Nix in the given `repo` and return the processed Data from it
-async fn get_deployment_data(
-    supports_flakes: bool,
-    flakes: &[deploy::DeployFlake<'_>],
-    extra_build_args: &[String],
-) -> Result<Vec<deploy::data::Data>, GetDeploymentDataError> {
-    futures_util::stream::iter(flakes).then(|flake| async move {
-
-    info!("Evaluating flake in {}", flake.repo);
-
-    let mut c = if supports_flakes {
-        Command::new("nix")
-    } else {
-        Command::new("nix-instantiate")
-    };
-
-    if supports_flakes {
-        c.arg("eval")
-            .arg("--json")
-            .arg(format!("{}#deploy", flake.repo))
-            // We use --apply instead of --expr so that we don't have to deal with builtins.getFlake
-            .arg("--apply");
-        match (&flake.node, &flake.profile) {
-            (Some(node), Some(profile)) => {
-                // Ignore all nodes and all profiles but the one we're evaluating
-                c.arg(format!(
-                    r#"
-                      deploy:
-                      (deploy // {{
-                        nodes = {{
-                          "{0}" = deploy.nodes."{0}" // {{
-                            profiles = {{
-                              inherit (deploy.nodes."{0}".profiles) "{1}";
-                            }};
-                          }};
-                        }};
-                      }})
-                     "#,
-                    node, profile
-                ))
-            }
-            (Some(node), None) => {
-                // Ignore all nodes but the one we're evaluating
-                c.arg(format!(
-                    r#"
-                      deploy:
-                      (deploy // {{
-                        nodes = {{
-                          inherit (deploy.nodes) "{}";
-                        }};
-                      }})
-                    "#,
-                    node
-                ))
-            }
-            (None, None) => {
-                // We need to evaluate all profiles of all nodes anyway, so just do it strictly
-                c.arg("deploy: deploy")
-            }
-            (None, Some(_)) => return Err(GetDeploymentDataError::ProfileNoNode),
-        }
-    } else {
-        c
-            .arg("--strict")
-            .arg("--read-write-mode")
-            .arg("--json")
-            .arg("--eval")
-            .arg("-E")
-            .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", flake.repo))
-    };
-
-    for extra_arg in extra_build_args {
-        c.arg(extra_arg);
-    }
-
-    let build_child = c
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(GetDeploymentDataError::NixEval)?;
-
-    let build_output = build_child
-        .wait_with_output()
-        .await
-        .map_err(GetDeploymentDataError::NixEvalOut)?;
-
-    match build_output.status.code() {
-        Some(0) => (),
-        a => return Err(GetDeploymentDataError::NixEvalExit(a)),
-    };
-
-    let data_json = String::from_utf8(build_output.stdout)?;
-
-    Ok(serde_json::from_str(&data_json)?)
-}).try_collect().await
-}
-
 #[derive(Serialize)]
 struct PromptPart<'a> {
     user: &'a str,
@@ -272,9 +117,9 @@ struct PromptPart<'a> {
 
 fn print_deployment(
     parts: &[(
-        &deploy::DeployFlake<'_>,
-        deploy::DeployData,
-        deploy::DeployDefs,
+        &data::Target,
+        data::DeployData,
+        data::DeployDefs,
     )],
 ) -> Result<(), toml::ser::Error> {
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
@@ -315,9 +160,9 @@ pub enum PromptDeploymentError {
 
 fn prompt_deployment(
     parts: &[(
-        &deploy::DeployFlake<'_>,
-        deploy::DeployData,
-        deploy::DeployDefs,
+        &data::Target,
+        data::DeployData,
+        data::DeployDefs,
     )],
 ) -> Result<(), PromptDeploymentError> {
     print_deployment(parts)?;
@@ -378,7 +223,7 @@ pub enum RunDeployError {
     #[error("Profile was provided without a node name")]
     ProfileWithoutNode,
     #[error("Error processing deployment definitions: {0}")]
-    DeployDataDefs(#[from] deploy::DeployDataDefsError),
+    InvalidDeployDataDefs(#[from] data::DeployDataDefsError),
     #[error("Failed to make printable TOML of deployment: {0}")]
     TomlFormat(#[from] toml::ser::Error),
     #[error("{0}")]
@@ -388,19 +233,19 @@ pub enum RunDeployError {
 }
 
 type ToDeploy<'a> = Vec<(
-    &'a deploy::DeployFlake<'a>,
-    &'a deploy::data::Data,
-    (&'a str, &'a deploy::data::Node),
-    (&'a str, &'a deploy::data::Profile),
+    &'a data::Target,
+    &'a settings::Root,
+    (&'a str, &'a settings::Node),
+    (&'a str, &'a settings::Profile),
 )>;
 
 async fn run_deploy(
-    deploy_flakes: Vec<deploy::DeployFlake<'_>>,
-    data: Vec<deploy::data::Data>,
+    deploy_targets: Vec<data::Target>,
+    data: Vec<settings::Root>,
     supports_flakes: bool,
     check_sigs: bool,
     interactive: bool,
-    cmd_overrides: &deploy::CmdOverrides,
+    cmd_overrides: &data::CmdOverrides,
     keep_result: bool,
     result_path: Option<&str>,
     extra_build_args: &[String],
@@ -409,11 +254,11 @@ async fn run_deploy(
     log_dir: &Option<String>,
     rollback_succeeded: bool,
 ) -> Result<(), RunDeployError> {
-    let to_deploy: ToDeploy = deploy_flakes
+    let to_deploy: ToDeploy = deploy_targets
         .iter()
         .zip(&data)
-        .map(|(deploy_flake, data)| {
-            let to_deploys: ToDeploy = match (&deploy_flake.node, &deploy_flake.profile) {
+        .map(|(deploy_target, data)| {
+            let to_deploys: ToDeploy = match (&deploy_target.node, &deploy_target.profile) {
                 (Some(node_name), Some(profile_name)) => {
                     let node = match data.nodes.get(node_name) {
                         Some(x) => x,
@@ -425,7 +270,7 @@ async fn run_deploy(
                     };
 
                     vec![(
-                        deploy_flake,
+                        deploy_target,
                         data,
                         (node_name.as_str(), node),
                         (profile_name.as_str(), profile),
@@ -437,7 +282,7 @@ async fn run_deploy(
                         None => return Err(RunDeployError::NodeNotFound(node_name.clone())),
                     };
 
-                    let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
+                    let mut profiles_list: Vec<(&str, &settings::Profile)> = Vec::new();
 
                     for profile_name in [
                         node.node_settings.profiles_order.iter().collect(),
@@ -459,14 +304,14 @@ async fn run_deploy(
 
                     profiles_list
                         .into_iter()
-                        .map(|x| (deploy_flake, data, (node_name.as_str(), node), x))
+                        .map(|x| (deploy_target, data, (node_name.as_str(), node), x))
                         .collect()
                 }
                 (None, None) => {
                     let mut l = Vec::new();
 
                     for (node_name, node) in &data.nodes {
-                        let mut profiles_list: Vec<(&str, &deploy::data::Profile)> = Vec::new();
+                        let mut profiles_list: Vec<(&str, &settings::Profile)> = Vec::new();
 
                         for profile_name in [
                             node.node_settings.profiles_order.iter().collect(),
@@ -490,7 +335,7 @@ async fn run_deploy(
 
                         let ll: ToDeploy = profiles_list
                             .into_iter()
-                            .map(|x| (deploy_flake, data, (node_name.as_str(), node), x))
+                            .map(|x| (deploy_target, data, (node_name.as_str(), node), x))
                             .collect();
 
                         l.extend(ll);
@@ -508,13 +353,13 @@ async fn run_deploy(
         .collect();
 
     let mut parts: Vec<(
-        &deploy::DeployFlake<'_>,
-        deploy::DeployData,
-        deploy::DeployDefs,
+        &data::Target,
+        data::DeployData,
+        data::DeployDefs,
     )> = Vec::new();
 
-    for (deploy_flake, data, (node_name, node), (profile_name, profile)) in to_deploy {
-        let deploy_data = deploy::make_deploy_data(
+    for (deploy_target, data, (node_name, node), (profile_name, profile)) in to_deploy {
+        let deploy_data = data::make_deploy_data(
             &data.generic_settings,
             node,
             node_name,
@@ -527,7 +372,7 @@ async fn run_deploy(
 
         let deploy_defs = deploy_data.defs()?;
 
-        parts.push((deploy_flake, deploy_data, deploy_defs));
+        parts.push((deploy_target, deploy_data, deploy_defs));
     }
 
     if interactive {
@@ -536,11 +381,11 @@ async fn run_deploy(
         print_deployment(&parts[..])?;
     }
 
-    for (deploy_flake, deploy_data, deploy_defs) in &parts {
+    for (deploy_target, deploy_data, deploy_defs) in &parts {
         deploy::push::push_profile(deploy::push::PushProfileData {
             supports_flakes,
             check_sigs,
-            repo: deploy_flake.repo,
+            repo: &deploy_target.repo,
             deploy_data,
             deploy_defs,
             keep_result,
@@ -550,7 +395,7 @@ async fn run_deploy(
         .await?;
     }
 
-    let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
+    let mut succeeded: Vec<(&data::DeployData, &data::DeployDefs)> = vec![];
 
     // Run all deployments
     // In case of an error rollback any previoulsy made deployment.
@@ -591,11 +436,11 @@ pub enum RunError {
     #[error("Failed to test for flake support: {0}")]
     FlakeTest(std::io::Error),
     #[error("Failed to check deployment: {0}")]
-    CheckDeployment(#[from] CheckDeploymentError),
+    CheckDeployment(#[from] flake::CheckDeploymentError),
     #[error("Failed to evaluate deployment data: {0}")]
-    GetDeploymentData(#[from] GetDeploymentDataError),
+    GetDeploymentData(#[from] flake::GetDeploymentDataError),
     #[error("Error parsing flake: {0}")]
-    ParseFlake(#[from] deploy::ParseFlakeError),
+    ParseFlake(#[from] data::ParseTargetError),
     #[error("Error initiating logger: {0}")]
     Logger(#[from] flexi_logger::FlexiLoggerError),
     #[error("{0}")]
@@ -619,12 +464,12 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         .targets
         .unwrap_or_else(|| vec![opts.clone().target.unwrap_or_else(|| ".".to_string())]);
 
-    let deploy_flakes: Vec<DeployFlake> = deploys
+    let deploy_targets: Vec<data::Target> = deploys
         .iter()
-        .map(|f| deploy::parse_flake(f.as_str()))
-        .collect::<Result<Vec<DeployFlake>, ParseFlakeError>>()?;
+        .map(|f| f.parse::<data::Target>())
+        .collect::<Result<Vec<data::Target>, data::ParseTargetError>>()?;
 
-    let cmd_overrides = deploy::CmdOverrides {
+    let cmd_overrides = data::CmdOverrides {
         ssh_user: opts.ssh_user,
         profile_user: opts.profile_user,
         ssh_opts: opts.ssh_opts,
@@ -644,14 +489,14 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     }
 
     if !opts.skip_checks {
-        for deploy_flake in &deploy_flakes {
-            check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
+        for deploy_target in deploy_targets.iter() {
+            flake::check_deployment(supports_flakes, &deploy_target.repo, &opts.extra_build_args).await?;
         }
     }
     let result_path = opts.result_path.as_deref();
-    let data = get_deployment_data(supports_flakes, &deploy_flakes, &opts.extra_build_args).await?;
+    let data = flake::get_deployment_data(supports_flakes, &deploy_targets, &opts.extra_build_args).await?;
     run_deploy(
-        deploy_flakes,
+        deploy_targets,
         data,
         supports_flakes,
         opts.checksigs,
