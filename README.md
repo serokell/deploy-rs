@@ -159,6 +159,11 @@ This is a set of options that can be put in any of the above definitions, with t
   # If `sshUser` is specified, this will be the default (though it will _not_ default to your own username)
   user = "root";
 
+  # Which sudo command to use. Must accept at least two arguments:
+  # the user name to execute commands as and the rest is the command to execute
+  # This will default to "sudo -u" if not specified anywhere.
+  sudo = "doas -u";
+
   # This is an optional list of arguments that will be passed to SSH.
   sshOpts = [ "-p" "2121" ];
 
