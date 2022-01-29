@@ -89,6 +89,9 @@ pub struct Opts {
     /// Revoke all previously succeeded deploys when deploying multiple profiles
     #[clap(long)]
     rollback_succeeded: Option<bool>,
+    /// Which sudo command to use. Must accept at least two arguments: user name to execute commands as and the rest is the command to execute
+    #[clap(long)]
+    sudo: Option<String>,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -635,6 +638,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         temp_path: opts.temp_path,
         confirm_timeout: opts.confirm_timeout,
         dry_activate: opts.dry_activate,
+        sudo: opts.sudo,
     };
 
     let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;

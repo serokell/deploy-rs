@@ -161,6 +161,7 @@ pub struct CmdOverrides {
     pub magic_rollback: Option<bool>,
     pub temp_path: Option<String>,
     pub confirm_timeout: Option<u16>,
+    pub sudo: Option<String>,
     pub dry_activate: bool,
 }
 
@@ -350,7 +351,7 @@ impl<'a> DeployData<'a> {
         let profile_path = self.get_profile_path()?;
 
         let sudo: Option<String> = match self.merged_settings.user {
-            Some(ref user) if user != &ssh_user => Some(format!("sudo -u {}", user)),
+            Some(ref user) if user != &ssh_user => Some(format!("{} {}", self.get_sudo(), user)),
             _ => None,
         };
 
@@ -391,6 +392,13 @@ impl<'a> DeployData<'a> {
             },
         };
         Ok(profile_user)
+    }
+
+    fn get_sudo(&'a self) -> String {
+        return match self.merged_settings.sudo {
+           Some(ref x) => x.clone(),
+           None => "sudo -u".to_string()
+        };
     }
 }
 
