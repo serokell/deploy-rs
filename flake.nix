@@ -7,13 +7,16 @@
   description = "A Simple multi-profile Nix-flake deploy tool.";
 
   inputs = {
-    nixpkgs.follows = "fenix/nixpkgs";
     utils.url = "github:numtide/flake-utils";
     flake-compat = {
       url = "github:edolstra/flake-compat";
       flake = false;
     };
-    fenix.url = "github:nix-community/fenix";
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nixpkgs.url = "nixpkgs/nixos-unstable";
   };
 
   outputs = { self, nixpkgs, utils, fenix, ... }:
