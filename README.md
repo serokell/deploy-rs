@@ -21,7 +21,7 @@ Using this method all profiles specified in the given `<flake>` will be deployed
 
  Optionally the flake can be constrained to deploy just a single node (`my-flake#my-node`) or a profile (`my-flake#my-node.my-profile`).
 
-If your profile or node name has a . in it, simply wrap it in quotes, and the flake path in quotes (to avoid shell escaping), for example 'my-flake."myserver.com".system'.
+If your profile or node name has a . in it, simply wrap it in quotes, and the flake path in quotes (to avoid shell escaping), for example 'my-flake#"myserver.com".system'.
 
 Any "extra" arguments will be passed into the Nix calls, so for instance to deploy an impure profile, you may use `deploy . -- --impure` (note the explicit flake path is necessary for doing this).
 
