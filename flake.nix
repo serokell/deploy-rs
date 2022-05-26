@@ -74,7 +74,7 @@
                             name = base.name + "-activate-rs";
                             text = ''
                             #!${final.runtimeShell}
-                            exec ${self.defaultPackage.${system}}/bin/activate "$@"
+                            exec ${self.packages.${system}.default}/bin/activate "$@"
                           '';
                           executable = true;
                           destination = "/activate-rs";
@@ -133,12 +133,14 @@
       in
       {
         defaultPackage = self.packages."${system}".deploy-rs;
+        packages.default = self.packages."${system}".deploy-rs;
         packages.deploy-rs = pkgs.deploy-rs.deploy-rs;
 
         defaultApp = self.apps."${system}".deploy-rs;
+        apps.default = self.apps."${system}".deploy-rs;
         apps.deploy-rs = {
           type = "app";
-          program = "${self.defaultPackage."${system}"}/bin/deploy";
+          program = "${self.packages."${system}".default}/bin/deploy";
         };
 
         devShell = pkgs.mkShell {
@@ -157,7 +159,7 @@
         };
 
         checks = {
-          deploy-rs = self.defaultPackage.${system}.overrideAttrs (super: { doCheck = true; });
+          deploy-rs = self.packages.${system}.default.overrideAttrs (super: { doCheck = true; });
         };
 
         lib = pkgs.deploy-rs.lib;
