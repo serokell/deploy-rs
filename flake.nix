@@ -36,8 +36,14 @@
 
           src = ./.;
 
+          preBuild = "cargoBuildFlags=('--bin=deploy')";
+
           cargoLock.lockFile = ./Cargo.lock;
         }) // { meta.description = "A Simple multi-profile Nix-flake deploy tool"; };
+
+        activate = final.deploy-rs.deploy-rs.overrideAttrs (_: {
+          preBuild = "cargoBuildFlags=('--bin=activate')";
+        });
 
         lib = rec {
 
@@ -74,7 +80,7 @@
                             name = base.name + "-activate-rs";
                             text = ''
                             #!${final.runtimeShell}
-                            exec ${self.packages.${system}.default}/bin/activate "$@"
+                            exec ${self.packages.${system}.activate}/bin/activate "$@"
                           '';
                           executable = true;
                           destination = "/activate-rs";
@@ -135,6 +141,7 @@
         defaultPackage = self.packages."${system}".deploy-rs;
         packages.default = self.packages."${system}".deploy-rs;
         packages.deploy-rs = pkgs.deploy-rs.deploy-rs;
+        packages.activate = pkgs.deploy-rs.activate;
 
         defaultApp = self.apps."${system}".deploy-rs;
         apps.default = self.apps."${system}".deploy-rs;
