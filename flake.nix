@@ -19,7 +19,7 @@
   {
     overlay = final: prev:
     let
-      system = final.system;
+      system = final.stdenv.hostPlatform.system;
       darwinOptions = final.lib.optionalAttrs final.stdenv.isDarwin {
         buildInputs = with final.darwin.apple_sdk.frameworks; [
           SystemConfiguration
