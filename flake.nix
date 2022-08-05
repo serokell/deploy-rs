@@ -19,7 +19,7 @@
   {
     overlay = final: prev:
     let
-      system = final.system;
+      system = final.stdenv.hostPlatform.system;
       darwinOptions = final.lib.optionalAttrs final.stdenv.isDarwin {
         buildInputs = with final.darwin.apple_sdk.frameworks; [
           SystemConfiguration
@@ -101,7 +101,7 @@
           };
 
           deployChecks = deploy: builtins.mapAttrs (_: check: check deploy) {
-            schema = deploy: final.runCommandNoCC "jsonschema-deploy-system" { } ''
+            schema = deploy: final.runCommand "jsonschema-deploy-system" { } ''
               ${final.python3.pkgs.jsonschema}/bin/jsonschema -i ${final.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface.json} && touch $out
             '';
 
@@ -109,7 +109,7 @@
               let
                 profiles = builtins.concatLists (final.lib.mapAttrsToList (nodeName: node: final.lib.mapAttrsToList (profileName: profile: [ (toString profile.path) nodeName profileName ]) node.profiles) deploy.nodes);
               in
-              final.runCommandNoCC "deploy-rs-check-activate" { } ''
+              final.runCommand "deploy-rs-check-activate" { } ''
                 for x in ${builtins.concatStringsSep " " (map (p: builtins.concatStringsSep ":" p) profiles)}; do
                   profile_path=$(echo $x | cut -f1 -d:)
                   node_name=$(echo $x | cut -f2 -d:)
