@@ -4,7 +4,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use log::{debug, info};
+use log::{debug, error, info};
 use thiserror::Error;
 use tokio::process::Command;
 
@@ -316,7 +316,7 @@ pub async fn confirm_profile(
 
     match ssh_confirm_cmd_handle.status.code() {
         Some(0) => (),
-        a => return Err(ConfirmProfileError::SSHConfirmExit(a)),
+        a => error!("{}", ConfirmProfileError::SSHConfirmExit(a)),
     };
 
     info!("Deployment confirmed.");
@@ -379,7 +379,7 @@ pub async fn deploy_profile(
             .code()
         {
             Some(0) => (),
-            a => return Err(DeployProfileError::SSHActivateExit(a)),
+            a => error!("{}", DeployProfileError::SSHActivateExit(a)),
         };
 
         if *dry_activate {
@@ -422,7 +422,7 @@ pub async fn deploy_profile(
                 debug!("Wait command ended");
                 match x.map_err(DeployProfileError::SSHWait)?.status.code() {
                     Some(0) => (),
-                    a => return Err(DeployProfileError::SSHWaitExit(a)),
+                    a => error!("{}",DeployProfileError::SSHWaitExit(a)),
                 };
             },
             x = recv_activate => {

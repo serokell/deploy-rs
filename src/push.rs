@@ -217,7 +217,7 @@ pub async fn push_profile(
 
     match show_derivation_output.status.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::ShowDerivationExit(a)),
+        a => error!("{}", PushProfileError::ShowDerivationExit(a)),
     };
 
     let derivation_info: HashMap<&str, serde_json::value::Value> = serde_json::from_str(
@@ -246,15 +246,15 @@ pub async fn push_profile(
 
     match build_cmd_handle.map_err(PushProfileError::Build)?.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::BuildExit(a)),
+        a => error!("{}", PushProfileError::BuildExit(a)),
     };
 
     if !Path::new(format!("{}/deploy-rs-activate", closure).as_str()).exists() {
-        return Err(PushProfileError::DeployRsActivateDoesntExist);
+        error!("{}", PushProfileError::DeployRsActivateDoesntExist);
     }
 
     if !Path::new(format!("{}/activate-rs", closure).as_str()).exists() {
-        return Err(PushProfileError::ActivateRsDoesntExist);
+        error!("{}", PushProfileError::ActivateRsDoesntExist);
     }
 
     if let Ok(local_key) = std::env::var("LOCAL_KEY") {
@@ -268,7 +268,7 @@ pub async fn push_profile(
 
         match sign_cmd_handle.status.code() {
             Some(0) => (),
-            a => return Err(PushProfileError::SignExit(a)),
+            a => error!("{}", PushProfileError::SignExit(a)),
         };
     }
 
@@ -284,7 +284,7 @@ pub async fn push_profile(
 
     match copy_exit_cmd_handle.map_err(PushProfileError::Copy)?.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::CopyExit(a)),
+        a => error!("{}", PushProfileError::CopyExit(a)),
     };
 
     Ok(())
