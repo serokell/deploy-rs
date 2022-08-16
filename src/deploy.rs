@@ -39,9 +39,9 @@ pub struct ActivateCommand<'a> {
     profile_path: &'a str,
     temp_path: &'a str,
     closure: &'a str,
-    no_auto_rollback: bool,
+    auto_rollback: bool,
     confirm_timeout: u16,
-    no_magic_rollback: bool,
+    magic_rollback: bool,
     debug_logs: bool,
     log_dir: Option<&'a str>,
     dry_activate: bool,
@@ -54,9 +54,9 @@ impl<'a> ActivateCommand<'a> {
             profile_path: &d.profile_path,
             temp_path: &d.temp_path,
             closure: &d.profile.profile_settings.path,
-            no_auto_rollback: d.merged_settings.no_auto_rollback,
+            auto_rollback: d.merged_settings.auto_rollback,
             confirm_timeout: d.merged_settings.confirm_timeout.unwrap_or(30),
-            no_magic_rollback: d.merged_settings.no_magic_rollback,
+            magic_rollback: d.merged_settings.magic_rollback,
             debug_logs: d.flags.debug_logs,
             log_dir: d.flags.log_dir.as_deref(),
             dry_activate: d.flags.dry_activate,
@@ -81,11 +81,11 @@ impl<'a> ActivateCommand<'a> {
 
         cmd = format!("{} --confirm-timeout {}", cmd, self.confirm_timeout);
 
-        if !self.no_magic_rollback {
+        if self.magic_rollback {
             cmd = format!("{} --magic-rollback", cmd);
         }
 
-        if !self.no_auto_rollback {
+        if self.auto_rollback {
             cmd = format!("{} --auto-rollback", cmd);
         }
 
@@ -107,11 +107,11 @@ fn test_activation_command_builder() {
     let sudo = Some("sudo -u test");
     let profile_path = "/blah/profiles/test";
     let closure = "/nix/store/blah/etc";
-    let no_auto_rollback = false;
+    let auto_rollback = true;
     let dry_activate = false;
     let temp_path = "/tmp";
     let confirm_timeout = 30;
-    let no_magic_rollback = false;
+    let magic_rollback = true;
     let debug_logs = true;
     let log_dir = Some("/tmp/something.txt");
 
@@ -120,10 +120,10 @@ fn test_activation_command_builder() {
             sudo,
             profile_path,
             closure,
-            no_auto_rollback,
+            auto_rollback,
             temp_path,
             confirm_timeout,
-            no_magic_rollback,
+            magic_rollback,
             debug_logs,
             log_dir,
             dry_activate
@@ -360,13 +360,13 @@ pub async fn deploy_profile(
         );
     }
     let dry_activate = &activate.dry_activate.clone();
-    let no_magic_rollback = &activate.no_magic_rollback.clone();
+    let magic_rollback = &activate.magic_rollback.clone();
 
     let activate_cmd = activate.build();
 
     let mut ssh_activate_cmd = ssh.build();
 
-    if *no_magic_rollback || *dry_activate {
+    if !*magic_rollback || *dry_activate {
         let ssh_activate_cmd_handle = ssh_activate_cmd
             .arg(activate_cmd)
             .spawn()

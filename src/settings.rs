@@ -35,8 +35,8 @@ pub struct GenericSettings {
     /// Do not attempt rollback if activation fails
     #[clap(long)]
     #[serde(rename(deserialize = "noAutoRollback"), default)]
-    #[merge(strategy = merge::bool::overwrite_false)]
-    pub no_auto_rollback: bool,
+    #[merge(strategy = merge::bool::overwrite_true)]
+    pub auto_rollback: bool,
     /// How long activation should wait for confirmation (if using magic-rollback)
     #[clap(long)]
     #[serde(rename(deserialize = "confirmTimeout"))]
@@ -48,8 +48,8 @@ pub struct GenericSettings {
     /// Do not do a magic rollback (see documentation)
     #[clap(long)]
     #[serde(rename(deserialize = "noMagicRollback"), default)]
-    #[merge(strategy = merge::bool::overwrite_false)]
-    pub no_magic_rollback: bool,
+    #[merge(strategy = merge::bool::overwrite_true)]
+    pub magic_rollback: bool,
 }
 
 impl GenericSettings {
