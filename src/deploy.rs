@@ -369,11 +369,15 @@ pub async fn deploy_profile(
     if *no_magic_rollback || *dry_activate {
         let ssh_activate_cmd_handle = ssh_activate_cmd
             .arg(activate_cmd)
-            .output()
-            .await
-            .map_err(DeployProfileError::SSHActivate)?;
+            .spawn()
+            .map_err(DeployProfileError::SSHActivate)?
+            .wait()
+            .await;
 
-        match ssh_activate_cmd_handle.status.code() {
+        match ssh_activate_cmd_handle
+            .map_err(DeployProfileError::SSHActivate)?
+            .code()
+        {
             Some(0) => (),
             a => return Err(DeployProfileError::SSHActivateExit(a)),
         };

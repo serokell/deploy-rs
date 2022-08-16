@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use log::{debug, info};
+use log::{debug, error, info};
 use std::collections::HashMap;
 use std::path::Path;
 use thiserror::Error;
@@ -127,7 +127,7 @@ impl<'a> CopyCommand<'a> {
     fn build(self) -> Command {
         let mut cmd = Command::new("nix");
 
-        cmd.arg("copy");
+        cmd.arg("-L").arg("copy");
 
         if !self.fast_connection {
             cmd.arg("--substitute-on-destination");
@@ -174,7 +174,7 @@ impl<'a> BuildCommand<'a> {
         };
 
         if supports_flakes {
-            cmd.arg("build").arg(derivation_name)
+            cmd.arg("-L").arg("build").arg(derivation_name)
         } else {
             cmd.arg(derivation_name)
         };
@@ -238,9 +238,13 @@ pub async fn push_profile(
 
     let mut build_cmd = build.build(*derivation_name, supports_flakes);
 
-    let build_cmd_handle = build_cmd.output().await.map_err(PushProfileError::Build)?;
+    let build_cmd_handle = build_cmd
+        .spawn()
+        .map_err(PushProfileError::Build)?
+        .wait()
+        .await;
 
-    match build_cmd_handle.status.code() {
+    match build_cmd_handle.map_err(PushProfileError::Build)?.code() {
         Some(0) => (),
         a => return Err(PushProfileError::BuildExit(a)),
     };
@@ -272,9 +276,13 @@ pub async fn push_profile(
 
     let mut copy_cmd = copy.build();
 
-    let copy_exit_cmd_handle = copy_cmd.status().await.map_err(PushProfileError::Copy)?;
+    let copy_exit_cmd_handle = copy_cmd
+        .spawn()
+        .map_err(PushProfileError::Copy)?
+        .wait()
+        .await;
 
-    match copy_exit_cmd_handle.code() {
+    match copy_exit_cmd_handle.map_err(PushProfileError::Copy)?.code() {
         Some(0) => (),
         a => return Err(PushProfileError::CopyExit(a)),
     };
