@@ -377,9 +377,9 @@ pub struct Flags {
     #[clap(short, long)]
     pub result_path: Option<String>,
 
-    /// Skip the automatic pre-build checks
-    #[clap(short, long, env = "DEPLOY_SKIP_CHECKS")]
-    pub skip_checks: bool,
+    /// Do the automatic pre-build checks
+    #[clap(short = 's', long, env = "DEPLOY_SKIP_CHECKS")]
+    pub do_checks: bool,
     /// Make activation wait for confirmation, or roll back after a period of time
     /// Show what will be activated on the machines
     #[clap(long)]

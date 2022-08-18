@@ -298,7 +298,7 @@ pub async fn run(args: Option<Opts>) -> Result<(), RunError> {
         .collect::<Result<Vec<data::Target>, data::ParseTargetError>>(
     )?;
 
-    if !opts.flags.skip_checks {
+    if opts.flags.do_checks {
         for target in targets.iter() {
             flake::check_deployment(supports_flakes, &target.repo, &opts.flags.extra_build_args)
                 .await?;

@@ -32,7 +32,7 @@ pub struct GenericSettings {
     #[serde(rename(deserialize = "fastConnection"), default)]
     #[merge(strategy = merge::bool::overwrite_false)]
     pub fast_connection: bool,
-    /// Do not attempt rollback if activation fails
+    /// Attempt rollback if activation fails
     #[clap(long)]
     #[serde(rename(deserialize = "noAutoRollback"), default)]
     #[merge(strategy = merge::bool::overwrite_true)]
@@ -45,7 +45,7 @@ pub struct GenericSettings {
     #[clap(long)]
     #[serde(rename(deserialize = "tempPath"))]
     pub temp_path: Option<String>,
-    /// Do not do a magic rollback (see documentation)
+    /// Do a magic rollback (see documentation)
     #[clap(long)]
     #[serde(rename(deserialize = "noMagicRollback"), default)]
     #[merge(strategy = merge::bool::overwrite_true)]
