@@ -13,9 +13,12 @@ use crate as deploy;
 use self::deploy::{data, flake, settings};
 use log::{debug, error, info, warn};
 use serde::Serialize;
+use std::env;
 use std::process::Stdio;
 use thiserror::Error;
 use tokio::process::Command;
+
+use std::path::{Path, PathBuf};
 
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
 #[derive(Parser, Debug, Clone, Default)]
@@ -45,9 +48,7 @@ async fn test_flake_support() -> Result<bool, std::io::Error> {
     debug!("Checking for flake support");
 
     Ok(Command::new("nix")
-        .arg("eval")
-        .arg("--expr")
-        .arg("builtins.getFlake")
+        .args(vec!["eval", "--expr", "builtins.getFlake"])
         // This will error on some machines "intentionally", and we don't really need that printing
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -154,7 +155,10 @@ pub enum RunDeployError {
     PushProfile(#[from] deploy::push::PushProfileError),
     #[error("Failed to resolve target: {0}")]
     ResolveTarget(#[from] data::ResolveTargetError),
-
+    #[error("Failed run Nix")]
+    Nix(#[from] std::io::Error),
+    #[error("Failed to parse JSON")]
+    JSON(#[from] serde_json::Error),
     #[error("Error processing deployment definitions: {0}")]
     DeployData(#[from] data::DeployDataError),
     #[error("Failed to make printable TOML of deployment: {0}")]
@@ -165,6 +169,23 @@ pub enum RunDeployError {
     RevokeProfile(#[from] deploy::deploy::RevokeProfileError),
 }
 
+fn find_flake(starting_directory: &Path) -> Option<PathBuf> {
+    let mut path: PathBuf = starting_directory.into();
+    let file = Path::new("flake.nix");
+
+    loop {
+        path.push(file);
+
+        if path.is_file() {
+            break Some(path);
+        }
+
+        if !(path.pop() && path.pop()) {
+            // remove file && remove parent
+            break None;
+        }
+    }
+}
 async fn run_deploy(
     targets: Vec<data::Target>,
     settings: Vec<settings::Root>,
@@ -173,6 +194,23 @@ async fn run_deploy(
     cmd_settings: settings::GenericSettings,
     cmd_flags: data::Flags,
 ) -> Result<(), RunDeployError> {
+    if supports_flakes {
+        let path = find_flake(Path::new(&env::current_dir()?)).unwrap_or_default();
+        let flake = path.to_str().unwrap_or_default();
+        let config_cmd = Command::new("nix")
+            .args(vec!["eval", "--raw", "--impure", "--expr"])
+            .arg(format!(
+                "let flake = import {}; in if flake ? nixConfig then flake.nixConfig else {}",
+                flake, "{}"
+            ))
+            .arg("--apply")
+            .arg(include_str!("../lib/nix_config.nix"))
+            .output()
+            .await?;
+        if config_cmd.status.success() {
+            env::set_var("NIX_CONFIG", &*String::from_utf8_lossy(&config_cmd.stdout));
+        }
+    }
     let deploy_datas_ = targets
         .into_iter()
         .zip(&settings)
