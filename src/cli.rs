@@ -56,6 +56,10 @@ pub struct Opts {
     #[clap(short, long)]
     skip_checks: bool,
 
+    /// Build on remote host
+    #[clap(long)]
+    remote_build: bool,
+
     /// Override the SSH user with the given value
     #[clap(long)]
     ssh_user: Option<String>,
@@ -138,9 +142,7 @@ async fn check_deployment(
                 .arg(format!("let r = import {}/.; x = (if builtins.isFunction r then (r {{}}) else r); in if x ? checks then x.checks.${{builtins.currentSystem}} else {{}}", repo));
     }
 
-    for extra_arg in extra_build_args {
-        check_command.arg(extra_arg);
-    }
+    check_command.args(extra_build_args);
 
     let check_status = check_command.status().await?;
 
@@ -239,9 +241,7 @@ async fn get_deployment_data(
             .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", flake.repo))
     };
 
-    for extra_arg in extra_build_args {
-        c.arg(extra_arg);
-    }
+    c.args(extra_build_args);
 
     let build_child = c
         .stdout(Stdio::piped())
@@ -640,6 +640,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         temp_path: opts.temp_path,
         confirm_timeout: opts.confirm_timeout,
         dry_activate: opts.dry_activate,
+        remote_build: opts.remote_build,
         sudo: opts.sudo,
     };
 
