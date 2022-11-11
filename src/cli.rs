@@ -388,6 +388,8 @@ pub enum RunDeployError {
     PromptDeployment(#[from] PromptDeploymentError),
     #[error("Failed to revoke profile: {0}")]
     RevokeProfile(#[from] deploy::deploy::RevokeProfileError),
+    #[error("Deployment failed, rolled back to previous generation")]
+    Rollback
 }
 
 type ToDeploy<'a> = Vec<(
@@ -577,7 +579,7 @@ async fn run_deploy(
                     }
                 }
             }
-            break;
+            return Err(RunDeployError::Rollback);
         }
         succeeded.push((deploy_data, deploy_defs))
     }
