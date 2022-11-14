@@ -101,11 +101,11 @@
           };
 
           deployChecks = deploy: builtins.mapAttrs (_: check: check deploy) {
-            schema = deploy: final.runCommand "jsonschema-deploy-system" { } ''
+            deploy-schema = deploy: final.runCommand "jsonschema-deploy-system" { } ''
               ${final.python3.pkgs.jsonschema}/bin/jsonschema -i ${final.writeText "deploy.json" (builtins.toJSON deploy)} ${./interface.json} && touch $out
             '';
 
-            activate = deploy:
+            deploy-activate = deploy:
               let
                 profiles = builtins.concatLists (final.lib.mapAttrsToList (nodeName: node: final.lib.mapAttrsToList (profileName: profile: [ (toString profile.path) nodeName profileName ]) node.profiles) deploy.nodes);
               in
