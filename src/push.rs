@@ -41,6 +41,8 @@ pub enum PushProfileError {
     Copy(std::io::Error),
     #[error("Nix copy command resulted in a bad exit code: {0:?}")]
     CopyExit(Option<i32>),
+    #[error("The remote building option is not supported when using legacy nix")]
+    RemoteBuildWithLegacyNix,
 }
 
 pub struct PushProfileData<'a> {
@@ -54,40 +56,7 @@ pub struct PushProfileData<'a> {
     pub extra_build_args: &'a [String],
 }
 
-pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
-    debug!(
-        "Finding the deriver of store path for {}",
-        &data.deploy_data.profile.profile_settings.path
-    );
-
-    // `nix-store --query --deriver` doesn't work on invalid paths, so we parse output of show-derivation :(
-    let mut show_derivation_command = Command::new("nix");
-
-    show_derivation_command
-        .arg("show-derivation")
-        .arg(&data.deploy_data.profile.profile_settings.path);
-
-    let show_derivation_output = show_derivation_command
-        .output()
-        .await
-        .map_err(PushProfileError::ShowDerivation)?;
-
-    match show_derivation_output.status.code() {
-        Some(0) => (),
-        a => return Err(PushProfileError::ShowDerivationExit(a)),
-    };
-
-    let derivation_info: HashMap<&str, serde_json::value::Value> = serde_json::from_str(
-        std::str::from_utf8(&show_derivation_output.stdout)
-            .map_err(PushProfileError::ShowDerivationUtf8)?,
-    )
-    .map_err(PushProfileError::ShowDerivationParse)?;
-
-    let derivation_name = derivation_info
-        .keys()
-        .next()
-        .ok_or(PushProfileError::ShowDerivationEmpty)?;
-
+pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: &str) -> Result<(), PushProfileError> {
     info!(
         "Building profile `{}` for node `{}`",
         data.deploy_data.profile_name, data.deploy_data.node_name
@@ -118,9 +87,7 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         (false, true) => build_command.arg("--no-link"),
     };
 
-    for extra_arg in data.extra_build_args {
-        build_command.arg(extra_arg);
-    }
+    build_command.args(data.extra_build_args);
 
     let build_exit_status = build_command
         // Logging should be in stderr, this just stops the store path from printing for no reason
@@ -179,22 +146,77 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
             a => return Err(PushProfileError::SignExit(a)),
         };
     }
+    Ok(())
+}
 
+pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name: &str) -> Result<(), PushProfileError> {
     info!(
-        "Copying profile `{}` to node `{}`",
+        "Building profile `{}` for node `{}` on remote host",
         data.deploy_data.profile_name, data.deploy_data.node_name
     );
 
-    let mut copy_command = Command::new("nix");
-    copy_command.arg("copy");
+    let store_address = format!("ssh-ng://{}@{}",
+        if data.deploy_data.profile.generic_settings.ssh_user.is_some() {
+            &data.deploy_data.profile.generic_settings.ssh_user.as_ref().unwrap()
+        } else {
+            &data.deploy_defs.ssh_user
+        },
+        data.deploy_data.node.node_settings.hostname
+    );
 
-    if data.deploy_data.merged_settings.fast_connection != Some(true) {
-        copy_command.arg("--substitute-on-destination");
-    }
+    let ssh_opts_str = data.deploy_data.merged_settings.ssh_opts.join(" ");
 
-    if !data.check_sigs {
-        copy_command.arg("--no-check-sigs");
-    }
+
+    // copy the derivation to remote host so it can be built there
+    let copy_command_status = Command::new("nix").arg("copy")
+        .arg("-s")  // fetch dependencies from substitures, not localhost
+        .arg("--to").arg(&store_address)
+        .arg("--derivation").arg(derivation_name)
+        .env("NIX_SSHOPTS", ssh_opts_str.clone())
+        .stdout(Stdio::null())
+        .status()
+        .await
+        .map_err(PushProfileError::Copy)?;
+
+    match copy_command_status.code() {
+        Some(0) => (),
+        a => return Err(PushProfileError::CopyExit(a)),
+    };
+
+    let mut build_command = Command::new("nix");
+    build_command
+        .arg("build").arg(derivation_name)
+        .arg("--eval-store").arg("auto")
+        .arg("--store").arg(&store_address)
+        .args(data.extra_build_args)
+        .env("NIX_SSHOPTS", ssh_opts_str.clone());
+
+    debug!("build command: {:?}", build_command);
+
+    let build_exit_status = build_command
+        // Logging should be in stderr, this just stops the store path from printing for no reason
+        .stdout(Stdio::null())
+        .status()
+        .await
+        .map_err(PushProfileError::Build)?;
+
+    match build_exit_status.code() {
+        Some(0) => (),
+        a => return Err(PushProfileError::BuildExit(a)),
+    };
+
+
+    Ok(())
+}
+
+pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
+    debug!(
+        "Finding the deriver of store path for {}",
+        &data.deploy_data.profile.profile_settings.path
+    );
+
+    // `nix-store --query --deriver` doesn't work on invalid paths, so we parse output of show-derivation :(
+    let mut show_derivation_command = Command::new("nix");
 
     let ssh_opts_str = data
         .deploy_data
@@ -206,24 +228,78 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         // .collect::<Vec<String>>()
         .join(" ");
 
-    let hostname = match data.deploy_data.cmd_overrides.hostname {
-        Some(ref x) => x,
-        None => &data.deploy_data.node.node_settings.hostname,
-    };
 
-    let copy_exit_status = copy_command
-        .arg("--to")
-        .arg(format!("ssh://{}@{}", data.deploy_defs.ssh_user, hostname))
-        .arg(&data.deploy_data.profile.profile_settings.path)
-        .env("NIX_SSHOPTS", ssh_opts_str)
-        .status()
+    show_derivation_command
+        .arg("show-derivation")
+        .arg(&data.deploy_data.profile.profile_settings.path);
+
+    let show_derivation_output = show_derivation_command
+        .output()
         .await
-        .map_err(PushProfileError::Copy)?;
+        .map_err(PushProfileError::ShowDerivation)?;
 
-    match copy_exit_status.code() {
+    match show_derivation_output.status.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::CopyExit(a)),
+        a => return Err(PushProfileError::ShowDerivationExit(a)),
     };
+
+    let derivation_info: HashMap<&str, serde_json::value::Value> = serde_json::from_str(
+        std::str::from_utf8(&show_derivation_output.stdout)
+            .map_err(PushProfileError::ShowDerivationUtf8)?,
+    )
+    .map_err(PushProfileError::ShowDerivationParse)?;
+
+    let derivation_name = derivation_info
+        .keys()
+        .next()
+        .ok_or(PushProfileError::ShowDerivationEmpty)?;
+
+    if data.deploy_data.merged_settings.remote_build.unwrap_or(false) {
+        if !data.supports_flakes {
+            return Err(PushProfileError::RemoteBuildWithLegacyNix)
+        }
+
+        // remote building guarantees that the resulting derivation is stored on the target system
+        // no need to copy after building
+        build_profile_remotely(&data, derivation_name).await?;
+    } else {
+        build_profile_locally(&data, derivation_name).await?;
+
+        info!(
+            "Copying profile `{}` to node `{}`",
+            data.deploy_data.profile_name, data.deploy_data.node_name
+        );
+
+        let mut copy_command = Command::new("nix");
+        copy_command.arg("copy");
+
+        if data.deploy_data.merged_settings.fast_connection != Some(true) {
+            copy_command.arg("--substitute-on-destination");
+        }
+
+        if !data.check_sigs {
+            copy_command.arg("--no-check-sigs");
+        }
+
+        let hostname = match data.deploy_data.cmd_overrides.hostname {
+            Some(ref x) => x,
+            None => &data.deploy_data.node.node_settings.hostname,
+        };
+
+        let copy_exit_status = copy_command
+            .arg("--to")
+            .arg(format!("ssh://{}@{}", data.deploy_defs.ssh_user, hostname))
+            .arg(&data.deploy_data.profile.profile_settings.path)
+            .env("NIX_SSHOPTS", ssh_opts_str)
+            .status()
+            .await
+            .map_err(PushProfileError::Copy)?;
+
+        match copy_exit_status.code() {
+            Some(0) => (),
+            a => return Err(PushProfileError::CopyExit(a)),
+        };
+    }
 
     Ok(())
 }

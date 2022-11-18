@@ -163,6 +163,7 @@ pub struct CmdOverrides {
     pub confirm_timeout: Option<u16>,
     pub sudo: Option<String>,
     pub dry_activate: bool,
+    pub remote_build: bool,
 }
 
 #[derive(PartialEq, Debug)]
@@ -395,10 +396,10 @@ impl<'a> DeployData<'a> {
     }
 
     fn get_sudo(&'a self) -> String {
-        return match self.merged_settings.sudo {
-           Some(ref x) => x.clone(),
-           None => "sudo -u".to_string()
-        };
+        match self.merged_settings.sudo {
+            Some(ref x) => x.clone(),
+            None => "sudo -u".to_string(),
+        }
     }
 }
 
@@ -416,6 +417,10 @@ pub fn make_deploy_data<'a, 's>(
     merged_settings.merge(node.generic_settings.clone());
     merged_settings.merge(top_settings.clone());
 
+    // build all machines remotely when the command line flag is set
+    if cmd_overrides.remote_build {
+        merged_settings.remote_build = Some(cmd_overrides.remote_build);
+    }
     if cmd_overrides.ssh_user.is_some() {
         merged_settings.ssh_user = cmd_overrides.ssh_user.clone();
     }

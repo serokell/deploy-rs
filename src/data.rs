@@ -30,6 +30,8 @@ pub struct GenericSettings {
     pub magic_rollback: Option<bool>,
     #[serde(rename(deserialize = "sudo"))]
     pub sudo: Option<String>,
+    #[serde(default,rename(deserialize = "remoteBuild"))]
+    pub remote_build: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
