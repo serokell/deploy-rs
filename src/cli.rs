@@ -545,18 +545,27 @@ async fn run_deploy(
         print_deployment(&parts[..])?;
     }
 
-    for (deploy_flake, deploy_data, deploy_defs) in &parts {
-        deploy::push::push_profile(deploy::push::PushProfileData {
-            supports_flakes,
-            check_sigs,
-            repo: deploy_flake.repo,
-            deploy_data,
-            deploy_defs,
-            keep_result,
-            result_path,
-            extra_build_args,
-        })
-        .await?;
+    let data_iter = || {
+        parts.iter().map(
+            |(deploy_flake, deploy_data, deploy_defs)| deploy::push::PushProfileData {
+                supports_flakes,
+                check_sigs,
+                repo: deploy_flake.repo,
+                deploy_data,
+                deploy_defs,
+                keep_result,
+                result_path,
+                extra_build_args,
+            },
+        )
+    };
+
+    for data in data_iter() {
+        deploy::push::build_profile(data).await?;
+    }
+
+    for data in data_iter() {
+        deploy::push::push_profile(data).await?;
     }
 
     let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];

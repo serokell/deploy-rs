@@ -209,7 +209,7 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
     Ok(())
 }
 
-pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
+pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
     debug!(
         "Finding the deriver of store path for {}",
         &data.deploy_data.profile.profile_settings.path
@@ -217,17 +217,6 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
 
     // `nix-store --query --deriver` doesn't work on invalid paths, so we parse output of show-derivation :(
     let mut show_derivation_command = Command::new("nix");
-
-    let ssh_opts_str = data
-        .deploy_data
-        .merged_settings
-        .ssh_opts
-        // This should provide some extra safety, but it also breaks for some reason, oh well
-        // .iter()
-        // .map(|x| format!("'{}'", x))
-        // .collect::<Vec<String>>()
-        .join(" ");
-
 
     show_derivation_command
         .arg("show-derivation")
@@ -259,12 +248,28 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
             return Err(PushProfileError::RemoteBuildWithLegacyNix)
         }
 
-        // remote building guarantees that the resulting derivation is stored on the target system
-        // no need to copy after building
         build_profile_remotely(&data, derivation_name).await?;
     } else {
         build_profile_locally(&data, derivation_name).await?;
+    }
 
+    Ok(())
+}
+
+pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
+    let ssh_opts_str = data
+        .deploy_data
+        .merged_settings
+        .ssh_opts
+        // This should provide some extra safety, but it also breaks for some reason, oh well
+        // .iter()
+        // .map(|x| format!("'{}'", x))
+        // .collect::<Vec<String>>()
+        .join(" ");
+
+    // remote building guarantees that the resulting derivation is stored on the target system
+    // no need to copy after building
+    if !data.deploy_data.merged_settings.remote_build.unwrap_or(false) {
         info!(
             "Copying profile `{}` to node `{}`",
             data.deploy_data.profile_name, data.deploy_data.node_name
