@@ -22,6 +22,7 @@ struct ActivateCommandData<'a> {
     debug_logs: bool,
     log_dir: Option<&'a str>,
     dry_activate: bool,
+    boot: bool,
 }
 
 fn build_activate_command(data: &ActivateCommandData) -> String {
@@ -57,6 +58,10 @@ fn build_activate_command(data: &ActivateCommandData) -> String {
         self_activate_command = format!("{} --dry-activate", self_activate_command);
     }
 
+    if data.boot {
+        self_activate_command = format!("{} --boot", self_activate_command);
+    }
+
     if let Some(sudo_cmd) = &data.sudo {
         self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
     }
@@ -71,6 +76,7 @@ fn test_activation_command_builder() {
     let closure = "/nix/store/blah/etc";
     let auto_rollback = true;
     let dry_activate = false;
+    let boot = false;
     let temp_path = "/tmp";
     let confirm_timeout = 30;
     let magic_rollback = true;
@@ -88,7 +94,8 @@ fn test_activation_command_builder() {
             magic_rollback,
             debug_logs,
             log_dir,
-            dry_activate
+            dry_activate,
+            boot,
         }),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt activate '/nix/store/blah/etc' '/blah/profiles/test' --temp-path '/tmp' --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
@@ -270,6 +277,7 @@ pub async fn deploy_profile(
     deploy_data: &super::DeployData<'_>,
     deploy_defs: &super::DeployDefs,
     dry_activate: bool,
+    boot: bool,
 ) -> Result<(), DeployProfileError> {
     if !dry_activate {
         info!(
@@ -300,6 +308,7 @@ pub async fn deploy_profile(
         debug_logs: deploy_data.debug_logs,
         log_dir: deploy_data.log_dir,
         dry_activate,
+        boot,
     });
 
     debug!("Constructed activation command: {}", self_activate_command);
@@ -318,7 +327,7 @@ pub async fn deploy_profile(
         ssh_activate_command.arg(&ssh_opt);
     }
 
-    if !magic_rollback || dry_activate {
+    if !magic_rollback || dry_activate || boot {
         let ssh_activate_exit_status = ssh_activate_command
             .arg(self_activate_command)
             .status()
@@ -332,6 +341,8 @@ pub async fn deploy_profile(
 
         if dry_activate {
             info!("Completed dry-activate!");
+        } else if boot {
+            info!("Success activating for next boot, done!");
         } else {
             info!("Success activating, done!");
         }

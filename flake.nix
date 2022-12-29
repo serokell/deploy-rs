@@ -63,6 +63,9 @@
                             if [[ "''${DRY_ACTIVATE:-}" == "1" ]]
                             then
                                 ${customSelf.dryActivate or "echo ${final.writeScript "activate" activate}"}
+                            elif [[ "''${BOOT:-}" == "1" ]]
+                            then
+                                ${customSelf.boot or "echo ${final.writeScript "activate" activate}"}
                             else
                                 ${activate}
                             fi
@@ -83,17 +86,23 @@
                   };
               };
 
-            nixos = base: (custom // { dryActivate = "$PROFILE/bin/switch-to-configuration dry-activate"; }) base.config.system.build.toplevel ''
-              # work around https://github.com/NixOS/nixpkgs/issues/73404
-              cd /tmp
+            nixos = base:
+              (custom // {
+                dryActivate = "$PROFILE/bin/switch-to-configuration dry-activate";
+                boot = "$PROFILE/bin/switch-to-configuration boot";
+              })
+              base.config.system.build.toplevel
+              ''
+                # work around https://github.com/NixOS/nixpkgs/issues/73404
+                cd /tmp
 
-              $PROFILE/bin/switch-to-configuration switch
+                $PROFILE/bin/switch-to-configuration switch
 
-              # https://github.com/serokell/deploy-rs/issues/31
-              ${with base.config.boot.loader;
-              final.lib.optionalString systemd-boot.enable
-              "sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
-            '';
+                # https://github.com/serokell/deploy-rs/issues/31
+                ${with base.config.boot.loader;
+                final.lib.optionalString systemd-boot.enable
+                "sed -i '/^default /d' ${efi.efiSysMountPoint}/loader/loader.conf"}
+              '';
 
             home-manager = base: custom base.activationPackage "$PROFILE/activate";
 

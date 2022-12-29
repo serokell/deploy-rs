@@ -90,6 +90,9 @@ pub struct Opts {
     /// Show what will be activated on the machines
     #[clap(long)]
     dry_activate: bool,
+    /// Don't activate, but update the boot loader to boot into the new profile
+    #[clap(long)]
+    boot: bool,
     /// Revoke all previously succeeded deploys when deploying multiple profiles
     #[clap(long)]
     rollback_succeeded: Option<bool>,
@@ -411,6 +414,7 @@ async fn run_deploy(
     extra_build_args: &[String],
     debug_logs: bool,
     dry_activate: bool,
+    boot: bool,
     log_dir: &Option<String>,
     rollback_succeeded: bool,
 ) -> Result<(), RunDeployError> {
@@ -562,7 +566,7 @@ async fn run_deploy(
     // Rollbacks adhere to the global seeting to auto_rollback and secondary
     // the profile's configuration
     for (_, deploy_data, deploy_defs) in &parts {
-        if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, dry_activate).await
+        if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, dry_activate, boot).await
         {
             error!("{}", e);
             if dry_activate {
@@ -619,6 +623,10 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         &deploy::LoggerType::Deploy,
     )?;
 
+    if opts.dry_activate && opts.boot {
+        error!("Cannot use both --dry-activate & --boot!");
+    }
+
     let deploys = opts
         .clone()
         .targets
@@ -669,6 +677,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         &opts.extra_build_args,
         opts.debug_logs,
         opts.dry_activate,
+        opts.boot,
         &opts.log_dir,
         opts.rollback_succeeded.unwrap_or(true),
     )

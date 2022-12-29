@@ -69,6 +69,10 @@ struct ActivateOpts {
     #[clap(long)]
     dry_activate: bool,
 
+    /// Don't activate, but update the boot loader to boot into the new profile
+    #[clap(long)]
+    boot: bool,
+
     /// Path for any temporary files that may be needed during activation
     #[clap(long)]
     temp_path: String,
@@ -363,6 +367,7 @@ pub async fn activate(
     confirm_timeout: u16,
     magic_rollback: bool,
     dry_activate: bool,
+    boot: bool,
 ) -> Result<(), ActivateError> {
     if !dry_activate {
         info!("Activating profile");
@@ -396,6 +401,7 @@ pub async fn activate(
     let activate_status = match Command::new(format!("{}/deploy-rs-activate", activation_location))
         .env("PROFILE", activation_location)
         .env("DRY_ACTIVATE", if dry_activate { "1" } else { "0" })
+        .env("BOOT", if boot { "1" } else { "0" })
         .current_dir(activation_location)
         .status()
         .await
@@ -425,7 +431,7 @@ pub async fn activate(
             info!("Activation succeeded!");
         }
 
-        if magic_rollback {
+        if magic_rollback && !boot {
             info!("Magic rollback is enabled, setting up confirmation hook...");
 
             match activation_confirmation(profile_path.clone(), temp_path, confirm_timeout, closure)
@@ -479,6 +485,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             activate_opts.confirm_timeout,
             activate_opts.magic_rollback,
             activate_opts.dry_activate,
+            activate_opts.boot,
         )
         .await
         .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
