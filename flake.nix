@@ -55,33 +55,23 @@
                       set -euo pipefail
                       ${nixpkgs.lib.concatStringsSep "\n" (map (outputName:
                         let
-                          activatePath = final.writeTextFile {
-                            name = base.name + "-activate-path";
-                            text = ''
-                              #!${final.runtimeShell}
-                              set -euo pipefail
+                          activatePath = final.writeShellScript (base.name + "-activate-path") ''
+                            set -euo pipefail
 
-                              if [[ "''${DRY_ACTIVATE:-}" == "1" ]]
-                              then
-                                  ${customSelf.dryActivate or "echo ${final.writeScript "activate" activate}"}
-                              elif [[ "''${BOOT:-}" == "1" ]]
-                              then
-                                  ${customSelf.boot or "echo ${final.writeScript "activate" activate}"}
-                              else
-                                  ${activate}
-                              fi
-                            '';
-                            executable = true;
-                          };
+                            if [[ "''${DRY_ACTIVATE:-}" == "1" ]]
+                            then
+                                ${customSelf.dryActivate or "echo ${final.writeScript "activate" activate}"}
+                            elif [[ "''${BOOT:-}" == "1" ]]
+                            then
+                                ${customSelf.boot or "echo ${final.writeScript "activate" activate}"}
+                            else
+                                ${activate}
+                            fi
+                          '';
 
-                          activateRs = final.writeTextFile {
-                            name = base.name + "-activate-rs";
-                            text = ''
-                              #!${final.runtimeShell}
-                              exec ${self.packages.${system}.default}/bin/activate "$@"
-                            '';
-                            executable = true;
-                          };
+                          activateRs = final.writeShellScript (base.name + "-activate-rs") ''
+                            exec ${self.packages.${system}.default}/bin/activate "$@"
+                          '';
                         in (''
                           ${final.coreutils}/bin/mkdir "''$${outputName}"
 
