@@ -1,8 +1,0 @@
-# SPDX-FileCopyrightText: 2020 Serokell <https://serokell.io/>
-#
-# SPDX-License-Identifier: MPL-2.0
-
-steps:
-  - label: Check Nix flake
-    commands:
-      - nix-unstable flake check -L
