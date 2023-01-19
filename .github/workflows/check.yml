@@ -1,0 +1,11 @@
+name: Nix flake check
+on: push
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: check flake
+        run: nix flake check -L
