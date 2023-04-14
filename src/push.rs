@@ -155,14 +155,12 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
         data.deploy_data.profile_name, data.deploy_data.node_name
     );
 
-    let store_address = format!("ssh-ng://{}@{}",
-        if data.deploy_data.profile.generic_settings.ssh_user.is_some() {
-            &data.deploy_data.profile.generic_settings.ssh_user.as_ref().unwrap()
-        } else {
-            &data.deploy_defs.ssh_user
-        },
-        data.deploy_data.node.node_settings.hostname
-    );
+    // TODO: this should probably be handled more nicely during 'data' construction
+    let hostname = match data.deploy_data.cmd_overrides.hostname {
+        Some(ref x) => x,
+        None => &data.deploy_data.node.node_settings.hostname,
+    };
+    let store_address = format!("ssh-ng://{}@{}", data.deploy_defs.ssh_user, hostname);
 
     let ssh_opts_str = data.deploy_data.merged_settings.ssh_opts.join(" ");
 
