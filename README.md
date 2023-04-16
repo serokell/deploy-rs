@@ -86,6 +86,33 @@ A basic example of a flake that works with `deploy-rs` and deploys a simple NixO
 }
 ```
 
+In the above configuration, `deploy-rs` is built from the flake, not from nixpkgs. To take advantage of the nixpkgs binary cache, the deploy-rs package can be overwritten in an overlay:
+
+```nix
+{
+  # ...
+  outputs = { self, nixpkgs, deploy-rs }: let
+    system = "x86_64-linux";
+    # Unmodified nixpkgs
+    pkgs = import nixpkgs { inherit system; };
+    # nixpkgs with deploy-rs overlay but force the nixpkgs package
+    deployPkgs = import nixpkgs {
+      inherit system;
+      overlays = [
+        deploy-rs.overlay
+        (self: super: { deploy-rs = { inherit (pkgs) deploy-rs; lib = super.deploy-rs.lib; }; })
+      ];
+    };
+  in {
+    # ...
+    deploy.nodes.some-random-system.profiles.system = {
+        user = "root";
+        path = deployPkgs.deploy-rs.lib.activate.nixos self.nixosConfigurations.some-random-system;
+    };
+  };
+}
+```
+
 ### Profile
 
 This is the core of how `deploy-rs` was designed, any number of these can run on a node, as any user (see further down for specifying user information). If you want to mimic the behaviour of traditional tools like NixOps or Morph, try just defining one `profile` called `system`, as root, containing a nixosSystem, and you can even similarly use [home-manager](https://github.com/nix-community/home-manager) on any non-privileged user.

@@ -77,7 +77,7 @@
                             name = base.name + "-activate-rs";
                             text = ''
                             #!${final.runtimeShell}
-                            exec ${self.packages.${system}.default}/bin/activate "$@"
+                            exec ${final.deploy-rs.deploy-rs}/bin/activate "$@"
                           '';
                           executable = true;
                           destination = "/activate-rs";
