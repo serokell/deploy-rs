@@ -12,10 +12,12 @@ use thiserror::Error;
 
 use flexi_logger::*;
 
-pub fn make_lock_path(temp_path: &str, closure: &str) -> String {
+use std::path::{Path, PathBuf};
+
+pub fn make_lock_path(temp_path: &Path, closure: &str) -> PathBuf {
     let lock_hash =
         &closure["/nix/store/".len()..closure.find('-').unwrap_or_else(|| closure.len())];
-    format!("{}/deploy-rs-canary-{}", temp_path, lock_hash)
+    temp_path.join(format!("deploy-rs-canary-{}", lock_hash))
 }
 
 const fn make_emoji(level: log::Level) -> &'static str {
@@ -159,7 +161,7 @@ pub struct CmdOverrides {
     pub auto_rollback: Option<bool>,
     pub hostname: Option<String>,
     pub magic_rollback: Option<bool>,
-    pub temp_path: Option<String>,
+    pub temp_path: Option<PathBuf>,
     pub confirm_timeout: Option<u16>,
     pub sudo: Option<String>,
     pub dry_activate: bool,

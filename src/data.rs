@@ -5,6 +5,7 @@
 use merge::Merge;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Deserialize, Debug, Clone, Merge)]
 pub struct GenericSettings {
@@ -25,7 +26,7 @@ pub struct GenericSettings {
     #[serde(rename(deserialize = "confirmTimeout"))]
     pub confirm_timeout: Option<u16>,
     #[serde(rename(deserialize = "tempPath"))]
-    pub temp_path: Option<String>,
+    pub temp_path: Option<PathBuf>,
     #[serde(rename(deserialize = "magicRollback"))]
     pub magic_rollback: Option<bool>,
     #[serde(rename(deserialize = "sudo"))]

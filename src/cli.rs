@@ -14,6 +14,7 @@ use self::deploy::{DeployFlake, ParseFlakeError};
 use futures_util::stream::{StreamExt, TryStreamExt};
 use log::{debug, error, info, warn};
 use serde::Serialize;
+use std::path::PathBuf;
 use std::process::Stdio;
 use thiserror::Error;
 use tokio::process::Command;
@@ -86,7 +87,7 @@ pub struct Opts {
     confirm_timeout: Option<u16>,
     /// Where to store temporary files (only used by magic-rollback)
     #[clap(long)]
-    temp_path: Option<String>,
+    temp_path: Option<PathBuf>,
     /// Show what will be activated on the machines
     #[clap(long)]
     dry_activate: bool,
