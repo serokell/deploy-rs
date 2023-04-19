@@ -69,7 +69,11 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
     };
 
     if data.supports_flakes {
-        build_command.arg("build").arg(derivation_name)
+        // Use flake based path over derivation_name to let nixConfig options be used for build
+        build_command.arg("build").arg(format!(
+            "{}#deploy.nodes.{}.profiles.{}.path",
+            data.repo, data.deploy_data.node_name, data.deploy_data.profile_name
+        ))
     } else {
         build_command.arg(derivation_name)
     };
