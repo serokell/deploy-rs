@@ -137,6 +137,7 @@ name = "deploy-rs"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "envmnt",
  "flexi_logger",
  "fork",
  "futures-util",
@@ -153,6 +154,16 @@ dependencies = [
  "toml",
  "whoami",
  "yn",
+]
+
+[[package]]
+name = "envmnt"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbfac51e9996e41d78a943227b7f313efcebf545b21584a0e213b956a062e11e"
+dependencies = [
+ "fsio",
+ "indexmap",
 ]
 
 [[package]]
@@ -210,6 +221,12 @@ checksum = "77a29c77f1ca394c3e73a9a5d24cfcabb734682d9634fc398f2204a63c994120"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "fsio"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a50045aa8931ae01afbc5d72439e8f57f326becb8c70d07dfc816778eff3d167"
 
 [[package]]
 name = "fuchsia-zircon"
