@@ -43,6 +43,9 @@ pub enum PushProfileError {
     CopyExit(Option<i32>),
     #[error("The remote building option is not supported when using legacy nix")]
     RemoteBuildWithLegacyNix,
+
+    #[error("Failed to run Nix path-info command: {0}")]
+    PathInfo(std::io::Error),
 }
 
 pub struct PushProfileData<'a> {
@@ -251,18 +254,23 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
         .arg("--experimental-features").arg("nix-command")
         .arg("path-info")
         .arg(&deriver)
-        .output().await;
+        .output().await
+        .map_err(PushProfileError::PathInfo)?;
 
-    let deriver = match path_info_output {
+    let deriver = if std::str::from_utf8(&path_info_output.stdout).map(|s| s.trim()) == Ok(deriver) {
         // In this case we're on 2.15.0 or newer, because 'nix path-infonix path-info <...>.drv'
         // returns the same '<...>.drv' path.
         // If 'nix path-info <...>.drv' returns a different path, then we're on pre 2.15.0 nix and
         // derivation build result is already present in the /nix/store.
-        Ok(path) if std::str::from_utf8(&path.stdout).map(|s| s.trim()) == Ok(deriver) => new_deriver,
-        // At this point, we're sure that derivation path is valid, but
-        // the result of the derivation build is not yet present in the /nix/store.
-        // In this case, 'nix path-info' returns 'error: path '...' is not valid'.
-        _ => deriver,
+        new_deriver
+    } else {
+        // If 'nix path-info <...>.drv' returns a different path, then we're on pre 2.15.0 nix and
+        // derivation build result is already present in the /nix/store.
+        //
+        // Alternatively, the result of the derivation build may not be yet present
+        // in the /nix/store. In this case, 'nix path-info' returns
+        // 'error: path '...' is not valid'.
+        deriver
     };
     if data.deploy_data.merged_settings.remote_build.unwrap_or(false) {
         if !data.supports_flakes {
