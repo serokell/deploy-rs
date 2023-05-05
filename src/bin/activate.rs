@@ -15,9 +15,9 @@ use tokio::time::timeout;
 
 use std::time::Duration;
 
-use std::path::Path;
+use std::path::PathBuf;
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher, recommended_watcher};
 
 use thiserror::Error;
 
@@ -75,7 +75,7 @@ struct ActivateOpts {
 
     /// Path for any temporary files that may be needed during activation
     #[clap(long)]
-    temp_path: String,
+    temp_path: PathBuf,
 }
 
 /// Activate a profile
@@ -86,7 +86,7 @@ struct WaitOpts {
 
     /// Path for any temporary files that may be needed during activation
     #[clap(long)]
-    temp_path: String,
+    temp_path: PathBuf,
 }
 
 /// Activate a profile
@@ -232,7 +232,7 @@ async fn danger_zone(
 
 pub async fn activation_confirmation(
     profile_path: String,
-    temp_path: String,
+    temp_path: PathBuf,
     confirm_timeout: u16,
     closure: String,
 ) -> Result<(), ActivationConfirmationError> {
@@ -240,7 +240,7 @@ pub async fn activation_confirmation(
 
     debug!("Ensuring parent directory exists for canary file");
 
-    if let Some(parent) = Path::new(&lock_path).parent() {
+    if let Some(parent) = lock_path.parent() {
         fs::create_dir_all(parent)
             .await
             .map_err(ActivationConfirmationError::CreateConfirmDir)?;
@@ -257,7 +257,7 @@ pub async fn activation_confirmation(
     let (deleted, done) = mpsc::channel(1);
 
     let mut watcher: RecommendedWatcher =
-        Watcher::new_immediate(move |res: Result<notify::event::Event, notify::Error>| {
+        recommended_watcher(move |res: Result<notify::event::Event, notify::Error>| {
             let send_result = match res {
                 Ok(e) if e.kind == notify::EventKind::Remove(notify::event::RemoveKind::File) => {
                     debug!("Got worthy removal event, sending on channel");
@@ -298,7 +298,7 @@ pub enum WaitError {
     #[error("Error waiting for activation: {0}")]
     Waiting(#[from] DangerZoneError),
 }
-pub async fn wait(temp_path: String, closure: String) -> Result<(), WaitError> {
+pub async fn wait(temp_path: PathBuf, closure: String) -> Result<(), WaitError> {
     let lock_path = deploy::make_lock_path(&temp_path, &closure);
 
     let (created, done) = mpsc::channel(1);
@@ -307,11 +307,16 @@ pub async fn wait(temp_path: String, closure: String) -> Result<(), WaitError> {
         // TODO: fix wasteful clone
         let lock_path = lock_path.clone();
 
-        Watcher::new_immediate(move |res: Result<notify::event::Event, notify::Error>| {
+        recommended_watcher(move |res: Result<notify::event::Event, notify::Error>| {
             let send_result = match res {
                 Ok(e) if e.kind == notify::EventKind::Create(notify::event::CreateKind::File) => {
                     match &e.paths[..] {
-                        [x] if x == Path::new(&lock_path) => created.try_send(Ok(())),
+                        [x] => match lock_path.canonicalize() {
+                            // 'lock_path' may not exist yet when some other files are created in 'temp_path'
+                            // x is already supposed to be canonical path
+                            Ok(lock_path) if x == &lock_path => created.try_send(Ok(())),
+                            _ => Ok (())
+                        }
                         _ => Ok(()),
                     }
                 }
@@ -363,7 +368,7 @@ pub async fn activate(
     profile_path: String,
     closure: String,
     auto_rollback: bool,
-    temp_path: String,
+    temp_path: PathBuf,
     confirm_timeout: u16,
     magic_rollback: bool,
     dry_activate: bool,

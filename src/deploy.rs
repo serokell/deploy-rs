@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use log::{debug, info};
-use std::borrow::Cow;
+use std::path::Path;
 use thiserror::Error;
 use tokio::process::Command;
 
@@ -16,7 +16,7 @@ struct ActivateCommandData<'a> {
     profile_path: &'a str,
     closure: &'a str,
     auto_rollback: bool,
-    temp_path: &'a str,
+    temp_path: &'a Path,
     confirm_timeout: u16,
     magic_rollback: bool,
     debug_logs: bool,
@@ -38,7 +38,7 @@ fn build_activate_command(data: &ActivateCommandData) -> String {
 
     self_activate_command = format!(
         "{} activate '{}' '{}' --temp-path '{}'",
-        self_activate_command, data.closure, data.profile_path, data.temp_path
+        self_activate_command, data.closure, data.profile_path, data.temp_path.display()
     );
 
     self_activate_command = format!(
@@ -77,7 +77,7 @@ fn test_activation_command_builder() {
     let auto_rollback = true;
     let dry_activate = false;
     let boot = false;
-    let temp_path = "/tmp";
+    let temp_path = Path::new("/tmp");
     let confirm_timeout = 30;
     let magic_rollback = true;
     let debug_logs = true;
@@ -105,7 +105,7 @@ fn test_activation_command_builder() {
 struct WaitCommandData<'a> {
     sudo: &'a Option<String>,
     closure: &'a str,
-    temp_path: &'a str,
+    temp_path: &'a Path,
     debug_logs: bool,
     log_dir: Option<&'a str>,
 }
@@ -123,7 +123,7 @@ fn build_wait_command(data: &WaitCommandData) -> String {
 
     self_activate_command = format!(
         "{} wait '{}' --temp-path '{}'",
-        self_activate_command, data.closure, data.temp_path,
+        self_activate_command, data.closure, data.temp_path.display(),
     );
 
     if let Some(sudo_cmd) = &data.sudo {
@@ -137,7 +137,7 @@ fn build_wait_command(data: &WaitCommandData) -> String {
 fn test_wait_command_builder() {
     let sudo = Some("sudo -u test".to_string());
     let closure = "/nix/store/blah/etc";
-    let temp_path = "/tmp";
+    let temp_path = Path::new("/tmp");
     let debug_logs = true;
     let log_dir = Some("/tmp/something.txt");
 
@@ -216,7 +216,7 @@ pub enum ConfirmProfileError {
 pub async fn confirm_profile(
     deploy_data: &super::DeployData<'_>,
     deploy_defs: &super::DeployDefs,
-    temp_path: Cow<'_, str>,
+    temp_path: &Path,
     ssh_addr: &str,
 ) -> Result<(), ConfirmProfileError> {
     let mut ssh_confirm_command = Command::new("ssh");
@@ -226,9 +226,9 @@ pub async fn confirm_profile(
         ssh_confirm_command.arg(ssh_opt);
     }
 
-    let lock_path = super::make_lock_path(&temp_path, &deploy_data.profile.profile_settings.path);
+    let lock_path = super::make_lock_path(temp_path, &deploy_data.profile.profile_settings.path);
 
-    let mut confirm_command = format!("rm {}", lock_path);
+    let mut confirm_command = format!("rm {}", lock_path.display());
     if let Some(sudo_cmd) = &deploy_defs.sudo {
         confirm_command = format!("{} {}", sudo_cmd, confirm_command);
     }
@@ -286,9 +286,9 @@ pub async fn deploy_profile(
         );
     }
 
-    let temp_path: Cow<str> = match &deploy_data.merged_settings.temp_path {
-        Some(x) => x.into(),
-        None => "/tmp".into(),
+    let temp_path: &Path = match &deploy_data.merged_settings.temp_path {
+        Some(x) => x,
+        None => Path::new("/tmp"),
     };
 
     let confirm_timeout = deploy_data.merged_settings.confirm_timeout.unwrap_or(30);
@@ -302,7 +302,7 @@ pub async fn deploy_profile(
         profile_path: &deploy_defs.profile_path,
         closure: &deploy_data.profile.profile_settings.path,
         auto_rollback,
-        temp_path: &temp_path,
+        temp_path: temp_path,
         confirm_timeout,
         magic_rollback,
         debug_logs: deploy_data.debug_logs,
@@ -350,7 +350,7 @@ pub async fn deploy_profile(
         let self_wait_command = build_wait_command(&WaitCommandData {
             sudo: &deploy_defs.sudo,
             closure: &deploy_data.profile.profile_settings.path,
-            temp_path: &temp_path,
+            temp_path: temp_path,
             debug_logs: deploy_data.debug_logs,
             log_dir: deploy_data.log_dir,
         });
