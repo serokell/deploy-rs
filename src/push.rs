@@ -43,6 +43,9 @@ pub enum PushProfileError {
     CopyExit(Option<i32>),
     #[error("The remote building option is not supported when using legacy nix")]
     RemoteBuildWithLegacyNix,
+
+    #[error("Failed to run Nix path-info command: {0}")]
+    PathInfo(std::io::Error),
 }
 
 pub struct PushProfileData<'a> {
@@ -236,19 +239,45 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
     )
     .map_err(PushProfileError::ShowDerivationParse)?;
 
-    let derivation_name = derivation_info
+    let &deriver = derivation_info
         .keys()
         .next()
         .ok_or(PushProfileError::ShowDerivationEmpty)?;
 
+    // Since nix 2.15.0 'nix build <path>.drv' will build only the .drv file itself, not the
+    // derivation outputs, '^out' is used to refer to outputs explicitly
+    let new_deriver = &(deriver.to_owned().to_string() + "^out");
+
+    let path_info_output = Command::new("nix")
+        .arg("--experimental-features").arg("nix-command")
+        .arg("path-info")
+        .arg(&deriver)
+        .output().await
+        .map_err(PushProfileError::PathInfo)?;
+
+    let deriver = if std::str::from_utf8(&path_info_output.stdout).map(|s| s.trim()) == Ok(deriver) {
+        // In this case we're on 2.15.0 or newer, because 'nix path-infonix path-info <...>.drv'
+        // returns the same '<...>.drv' path.
+        // If 'nix path-info <...>.drv' returns a different path, then we're on pre 2.15.0 nix and
+        // derivation build result is already present in the /nix/store.
+        new_deriver
+    } else {
+        // If 'nix path-info <...>.drv' returns a different path, then we're on pre 2.15.0 nix and
+        // derivation build result is already present in the /nix/store.
+        //
+        // Alternatively, the result of the derivation build may not be yet present
+        // in the /nix/store. In this case, 'nix path-info' returns
+        // 'error: path '...' is not valid'.
+        deriver
+    };
     if data.deploy_data.merged_settings.remote_build.unwrap_or(false) {
         if !data.supports_flakes {
             return Err(PushProfileError::RemoteBuildWithLegacyNix)
         }
 
-        build_profile_remotely(&data, derivation_name).await?;
+        build_profile_remotely(&data, &deriver).await?;
     } else {
-        build_profile_locally(&data, derivation_name).await?;
+        build_profile_locally(&data, &deriver).await?;
     }
 
     Ok(())
