@@ -49,15 +49,13 @@
             custom =
               {
                 __functor = customSelf: base: activate:
-                  final.buildEnv {
-                    name = ("activatable-" + base.name);
-                    paths =
-                      [
-                        base
-                        (final.writeTextFile {
-                          name = base.name + "-activate-path";
-                          text = ''
-                            #!${final.runtimeShell}
+                  base.overrideAttrs (oldAttrs: {
+                    name = "activatable-${base.name}";
+                    buildCommand = ''
+                      set -euo pipefail
+                      ${nixpkgs.lib.concatStringsSep "\n" (map (outputName:
+                        let
+                          activatePath = final.writeShellScript (base.name + "-activate-path") ''
                             set -euo pipefail
 
                             if [[ "''${DRY_ACTIVATE:-}" == "1" ]]
@@ -70,20 +68,32 @@
                                 ${activate}
                             fi
                           '';
-                          executable = true;
-                          destination = "/deploy-rs-activate";
-                        })
-                        (final.writeTextFile {
-                            name = base.name + "-activate-rs";
-                            text = ''
-                            #!${final.runtimeShell}
+
+                          activateRs = final.writeShellScript (base.name + "-activate-rs") ''
                             exec ${self.packages.${system}.default}/bin/activate "$@"
                           '';
-                          executable = true;
-                          destination = "/activate-rs";
-                        })
-                      ];
-                  };
+                        in (''
+                          ${final.coreutils}/bin/mkdir "''$${outputName}"
+
+                          echo "Linking activation components in ${outputName}"
+                          ${final.coreutils}/bin/ln -s "${activatePath}" "''$${outputName}/deploy-rs-activate"
+                          ${final.coreutils}/bin/ln -s "${activateRs}" "''$${outputName}/activate-rs"
+
+                          echo "Linking output contents of ${outputName}"
+                          ${final.findutils}/bin/find "${base.${outputName}}" -maxdepth 1 | while read -r file; do
+                            ${final.coreutils}/bin/ln -s "$file" "''$${outputName}/$(${final.coreutils}/bin/basename "$file")"
+                          done
+                        '' + nixpkgs.lib.optionalString
+                          (outputName == "out") ''
+                            # Workaround for https://github.com/serokell/deploy-rs/issues/185
+                            if [ -x "${base.${outputName}}/prepare-root" ]; then
+                              echo "Copying prepare-root"
+                              rm "$out/prepare-root" || :
+                              cp "${base.${outputName}}/prepare-root" "$out/prepare-root"
+                            fi
+                          '')) (base.outputs or [ "out" ]))}
+                    '';
+                  });
               };
 
             nixos = base:
