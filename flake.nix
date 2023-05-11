@@ -106,6 +106,13 @@
 
             home-manager = base: custom base.activationPackage "$PROFILE/activate";
 
+            # Activation script for 'darwinSystem' from nix-darwin.
+            # 'HOME=/var/root' is needed because 'sudo' on darwin doesn't change 'HOME' directory,
+            # while 'darwin-rebuild' (which is invoked under the hood) performs some nix-channel
+            # checks that rely on 'HOME'. As a result, if 'sshUser' is different from root,
+            # deployment may fail without explicit 'HOME' redefinition.
+            darwin = base: custom base.config.system.build.toplevel "HOME=/var/root $PROFILE/activate";
+
             noop = base: custom base ":";
           };
 
