@@ -147,10 +147,10 @@ pub fn init_logger(
     Ok(())
 }
 
+pub mod cli;
 pub mod data;
 pub mod deploy;
 pub mod push;
-pub mod cli;
 
 #[derive(Debug)]
 pub struct CmdOverrides {
@@ -440,6 +440,9 @@ pub fn make_deploy_data<'a, 's>(
     }
     if let Some(magic_rollback) = cmd_overrides.magic_rollback {
         merged_settings.magic_rollback = Some(magic_rollback);
+    }
+    if let Some(confirm_timeout) = cmd_overrides.confirm_timeout {
+        merged_settings.confirm_timeout = Some(confirm_timeout);
     }
 
     DeployData {
