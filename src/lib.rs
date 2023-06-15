@@ -157,6 +157,7 @@ pub struct CmdOverrides {
     pub ssh_user: Option<String>,
     pub profile_user: Option<String>,
     pub ssh_opts: Option<String>,
+    pub extra_ssh_opts: Option<String>,
     pub fast_connection: Option<bool>,
     pub auto_rollback: Option<bool>,
     pub hostname: Option<String>,
@@ -431,6 +432,16 @@ pub fn make_deploy_data<'a, 's>(
     }
     if let Some(ref ssh_opts) = cmd_overrides.ssh_opts {
         merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
+    }
+    if let Some(ref extra_ssh_opts) = cmd_overrides.extra_ssh_opts {
+        let mut ssh_opts = merged_settings.ssh_opts;
+        ssh_opts.extend(
+            extra_ssh_opts
+                .split(' ')
+                .map(|x| x.to_owned())
+                .collect::<Vec<String>>(),
+        );
+        merged_settings.ssh_opts = ssh_opts;
     }
     if let Some(fast_connection) = cmd_overrides.fast_connection {
         merged_settings.fast_connection = Some(fast_connection);

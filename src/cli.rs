@@ -70,6 +70,9 @@ pub struct Opts {
     /// Override the SSH options used
     #[clap(long)]
     ssh_opts: Option<String>,
+    /// Additional SSH options to be used
+    #[clap(long)]
+    extra_ssh_opts: Option<String>,
     /// Override if the connecting to the target node should be considered fast
     #[clap(long)]
     fast_connection: Option<bool>,
@@ -651,6 +654,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         ssh_user: opts.ssh_user,
         profile_user: opts.profile_user,
         ssh_opts: opts.ssh_opts,
+        extra_ssh_opts: opts.extra_ssh_opts,
         fast_connection: opts.fast_connection,
         auto_rollback: opts.auto_rollback,
         hostname: opts.hostname,
