@@ -332,8 +332,16 @@ pub struct DeployData<'a> {
 pub struct DeployDefs {
     pub ssh_user: String,
     pub profile_user: String,
-    pub profile_path: String,
     pub sudo: Option<String>,
+}
+enum ProfileInfo {
+    ProfilePath {
+        profile_path: String,
+    },
+    ProfileUserAndName {
+        profile_user: String,
+        profile_name: String,
+    },
 }
 
 #[derive(Error, Debug)]
@@ -351,8 +359,6 @@ impl<'a> DeployData<'a> {
 
         let profile_user = self.get_profile_user()?;
 
-        let profile_path = self.get_profile_path()?;
-
         let sudo: Option<String> = match self.merged_settings.user {
             Some(ref user) if user != &ssh_user => Some(format!("{} {}", self.get_sudo(), user)),
             _ => None,
@@ -361,24 +367,8 @@ impl<'a> DeployData<'a> {
         Ok(DeployDefs {
             ssh_user,
             profile_user,
-            profile_path,
             sudo,
         })
-    }
-
-    fn get_profile_path(&'a self) -> Result<String, DeployDataDefsError> {
-        let profile_user = self.get_profile_user()?;
-        let profile_path = match self.profile.profile_settings.profile_path {
-            None => match &profile_user[..] {
-                "root" => format!("/nix/var/nix/profiles/{}", self.profile_name),
-                _ => format!(
-                    "/nix/var/nix/profiles/per-user/{}/{}",
-                    profile_user, self.profile_name
-                ),
-            },
-            Some(ref x) => x.clone(),
-        };
-        Ok(profile_path)
     }
 
     fn get_profile_user(&'a self) -> Result<String, DeployDataDefsError> {
@@ -401,6 +391,16 @@ impl<'a> DeployData<'a> {
         match self.merged_settings.sudo {
             Some(ref x) => x.clone(),
             None => "sudo -u".to_string(),
+        }
+    }
+
+    fn get_profile_info(&'a self) -> Result<ProfileInfo, DeployDataDefsError> {
+        match self.profile.profile_settings.profile_path {
+            Some(ref profile_path) => Ok(ProfileInfo::ProfilePath { profile_path: profile_path.to_string() }),
+            None => {
+                let profile_user = self.get_profile_user()?;
+                Ok(ProfileInfo::ProfileUserAndName { profile_user, profile_name: self.profile_name.to_string() })
+            },
         }
     }
 }
