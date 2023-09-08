@@ -44,7 +44,7 @@ There is also an `activate` binary though this should be ignored, it is only use
 
 ### Multi-profile
 
-This type of design (as opposed to more traditional tools like NixOps or morph) allows for lesser-privileged deployments, and the ability to update different things independently of eachother. You can deploy any type of profile to any user, not just a NixOS profile to `root`.
+This type of design (as opposed to more traditional tools like NixOps or morph) allows for lesser-privileged deployments, and the ability to update different things independently of each other. You can deploy any type of profile to any user, not just a NixOS profile to `root`.
 
 ### Magic Rollback
 
