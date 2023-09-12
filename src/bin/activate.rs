@@ -15,9 +15,10 @@ use tokio::time::timeout;
 
 use std::time::Duration;
 
-use std::path::PathBuf;
+use std::env;
+use std::path::{Path, PathBuf};
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher, recommended_watcher};
+use notify::{recommended_watcher, RecommendedWatcher, RecursiveMode, Watcher};
 
 use thiserror::Error;
 
@@ -47,11 +48,24 @@ enum SubCommand {
 
 /// Activate a profile
 #[derive(Clap, Debug)]
+#[clap(group(
+    clap::ArgGroup::new("profile")
+        .required(true)
+        .multiple(false)
+        .args(&["profile-path","profile-user"])
+))]
 struct ActivateOpts {
     /// The closure to activate
     closure: String,
     /// The profile path to install into
-    profile_path: String,
+    #[clap(long)]
+    profile_path: Option<String>,
+    /// The profile user if explicit profile path is not specified
+    #[clap(long, requires = "profile-name")]
+    profile_user: Option<String>,
+    /// The profile name
+    #[clap(long, requires = "profile-user")]
+    profile_name: Option<String>,
 
     /// Maximum time to wait for confirmation after activation
     #[clap(long)]
@@ -78,7 +92,7 @@ struct ActivateOpts {
     temp_path: PathBuf,
 }
 
-/// Activate a profile
+/// Wait for profile activation
 #[derive(Clap, Debug)]
 struct WaitOpts {
     /// The closure to wait for
@@ -89,11 +103,18 @@ struct WaitOpts {
     temp_path: PathBuf,
 }
 
-/// Activate a profile
+/// Revoke profile activation
 #[derive(Clap, Debug)]
 struct RevokeOpts {
-    /// The profile path to revoke
-    profile_path: String,
+    /// The profile path to install into
+    #[clap(long)]
+    profile_path: Option<String>,
+    /// The profile user if explicit profile path is not specified
+    #[clap(long, requires = "profile-name")]
+    profile_user: Option<String>,
+    /// The profile name
+    #[clap(long, requires = "profile-user")]
+    profile_name: Option<String>,
 }
 
 #[derive(Error, Debug)]
@@ -315,8 +336,8 @@ pub async fn wait(temp_path: PathBuf, closure: String) -> Result<(), WaitError> 
                             // 'lock_path' may not exist yet when some other files are created in 'temp_path'
                             // x is already supposed to be canonical path
                             Ok(lock_path) if x == &lock_path => created.try_send(Ok(())),
-                            _ => Ok (())
-                        }
+                            _ => Ok(()),
+                        },
                         _ => Ok(()),
                     }
                 }
@@ -459,6 +480,61 @@ async fn revoke(profile_path: String) -> Result<(), DeactivateError> {
     Ok(())
 }
 
+#[derive(Error, Debug)]
+pub enum GetProfilePathError {
+    #[error("Failed to deduce HOME directory for user {0}")]
+    NoUserHome(String),
+}
+
+fn get_profile_path(
+    profile_path: Option<String>,
+    profile_user: Option<String>,
+    profile_name: Option<String>,
+) -> Result<String, GetProfilePathError> {
+    match (profile_path, profile_user, profile_name) {
+        (Some(profile_path), None, None) => Ok(profile_path),
+        (None, Some(profile_user), Some(profile_name)) => {
+            let nix_state_dir = env::var("NIX_STATE_DIR").unwrap_or("/nix/var/nix".to_string());
+            // As per https://nixos.org/manual/nix/stable/command-ref/files/profiles#profiles
+            match &profile_user[..] {
+                "root" => {
+                    match &profile_name[..] {
+                        // NixOS system profile belongs to the root user, but isn't stored in the 'per-user/root'
+                        "system" => Ok(format!("{}/profiles/system", nix_state_dir)),
+                        _ => Ok(format!(
+                            "{}/profiles/per-user/root/{}",
+                            nix_state_dir, profile_name
+                        )),
+                    }
+                }
+                _ => {
+                    let old_user_profiles_dir =
+                        format!("{}/profiles/per-user/{}", nix_state_dir, profile_user);
+                    // To stay backward compatible
+                    if Path::new(&old_user_profiles_dir).exists() {
+                        Ok(format!("{}/{}", old_user_profiles_dir, profile_name))
+                    } else {
+                        // https://github.com/NixOS/nix/blob/2.17.0/src/libstore/profiles.cc#L308
+                        // This is basically the equivalent of calling 'dirs::state_dir()'.
+                        // However, this function returns 'None' on macOS, while nix will actually
+                        // check env variables, so we imitate nix implementation below instead of
+                        // using 'dirs::state_dir()' directly.
+                        let state_dir = env::var("XDG_STATE_HOME").or_else(|_| {
+                            dirs::home_dir()
+                                .map(|h| {
+                                    format!("{}/.local/state", h.as_path().display().to_string())
+                                })
+                                .ok_or(GetProfilePathError::NoUserHome(profile_user))
+                        })?;
+                        Ok(format!("{}/nix/profiles/{}", state_dir, profile_name))
+                    }
+                }
+            }
+        }
+        _ => panic!("impossible"),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Ensure that this process stays alive after the SSH connection dies
@@ -483,7 +559,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let r = match opts.subcmd {
         SubCommand::Activate(activate_opts) => activate(
-            activate_opts.profile_path,
+            get_profile_path(
+                activate_opts.profile_path,
+                activate_opts.profile_user,
+                activate_opts.profile_name,
+            )?,
             activate_opts.closure,
             activate_opts.auto_rollback,
             activate_opts.temp_path,
@@ -499,9 +579,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
 
-        SubCommand::Revoke(revoke_opts) => revoke(revoke_opts.profile_path)
-            .await
-            .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
+        SubCommand::Revoke(revoke_opts) => revoke(get_profile_path(
+            revoke_opts.profile_path,
+            revoke_opts.profile_user,
+            revoke_opts.profile_name,
+        )?)
+        .await
+        .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
     };
 
     match r {
