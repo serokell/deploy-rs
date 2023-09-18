@@ -1,5 +1,5 @@
 name: Nix flake check
-on: push
+on: pull_request
 
 jobs:
   check:
