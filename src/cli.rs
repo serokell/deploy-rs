@@ -100,6 +100,9 @@ pub struct Opts {
     /// Which sudo command to use. Must accept at least two arguments: user name to execute commands as and the rest is the command to execute
     #[clap(long)]
     sudo: Option<String>,
+    /// Call nom (nix-output-monitor) when building the configuration.
+    #[clap(long)]
+    nom: bool,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -418,6 +421,7 @@ async fn run_deploy(
     boot: bool,
     log_dir: &Option<String>,
     rollback_succeeded: bool,
+    use_nom: bool,
 ) -> Result<(), RunDeployError> {
     let to_deploy: ToDeploy = deploy_flakes
         .iter()
@@ -557,6 +561,7 @@ async fn run_deploy(
                 keep_result,
                 result_path,
                 extra_build_args,
+                use_nom,
             },
         )
     };
@@ -690,6 +695,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         opts.boot,
         &opts.log_dir,
         opts.rollback_succeeded.unwrap_or(true),
+        opts.nom,
     )
     .await?;
 
