@@ -446,7 +446,7 @@ pub fn make_deploy_data<'a, 's>(
         merged_settings.confirm_timeout = Some(confirm_timeout);
     }
     if let Some(activation_timeout) = cmd_overrides.activation_timeout {
-        merged_settings.confirm_timeout = Some(activation_timeout);
+        merged_settings.activation_timeout = Some(activation_timeout);
     }
 
     DeployData {
