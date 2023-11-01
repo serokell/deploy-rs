@@ -101,6 +101,10 @@ struct WaitOpts {
     /// Path for any temporary files that may be needed during activation
     #[clap(long)]
     temp_path: PathBuf,
+
+    /// Timeout to wait for activation
+    #[clap(long)]
+    activation_timeout: Option<u16>,
 }
 
 /// Revoke profile activation
@@ -319,7 +323,7 @@ pub enum WaitError {
     #[error("Error waiting for activation: {0}")]
     Waiting(#[from] DangerZoneError),
 }
-pub async fn wait(temp_path: PathBuf, closure: String) -> Result<(), WaitError> {
+pub async fn wait(temp_path: PathBuf, closure: String, activation_timeout: Option<u16>) -> Result<(), WaitError> {
     let lock_path = deploy::make_lock_path(&temp_path, &closure);
 
     let (created, done) = mpsc::channel(1);
@@ -359,7 +363,7 @@ pub async fn wait(temp_path: PathBuf, closure: String) -> Result<(), WaitError> 
         return Ok(());
     }
 
-    danger_zone(done, 240).await?;
+    danger_zone(done, activation_timeout.unwrap_or(240)).await?;
 
     info!("Found canary file, done waiting!");
 
@@ -575,7 +579,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
 
-        SubCommand::Wait(wait_opts) => wait(wait_opts.temp_path, wait_opts.closure)
+        SubCommand::Wait(wait_opts) => wait(wait_opts.temp_path, wait_opts.closure, wait_opts.activation_timeout)
             .await
             .map_err(|x| Box::new(x) as Box<dyn std::error::Error>),
 

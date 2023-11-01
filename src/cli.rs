@@ -85,6 +85,9 @@ pub struct Opts {
     /// How long activation should wait for confirmation (if using magic-rollback)
     #[clap(long)]
     confirm_timeout: Option<u16>,
+    /// How long we should wait for profile activation (if using magic-rollback)
+    #[clap(long)]
+    activation_timeout: Option<u16>,
     /// Where to store temporary files (only used by magic-rollback)
     #[clap(long)]
     temp_path: Option<PathBuf>,
@@ -658,6 +661,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         magic_rollback: opts.magic_rollback,
         temp_path: opts.temp_path,
         confirm_timeout: opts.confirm_timeout,
+        activation_timeout: opts.activation_timeout,
         dry_activate: opts.dry_activate,
         remote_build: opts.remote_build,
         sudo: opts.sudo,
