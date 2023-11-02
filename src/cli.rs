@@ -582,8 +582,8 @@ async fn run_deploy(
             if dry_activate {
                 info!("dry run, not rolling back");
             }
-            info!("Revoking previous deploys");
             if rollback_succeeded && cmd_overrides.auto_rollback.unwrap_or(true) {
+                info!("Revoking previous deploys");
                 // revoking all previous deploys
                 // (adheres to profile configuration if not set explicitely by
                 //  the command line)
@@ -592,8 +592,9 @@ async fn run_deploy(
                         deploy::deploy::revoke(*deploy_data, *deploy_defs).await?;
                     }
                 }
+                return Err(RunDeployError::Rollback);
             }
-            return Err(RunDeployError::Rollback);
+            return Err(RunDeployError::DeployProfile(e))
         }
         succeeded.push((deploy_data, deploy_defs))
     }
