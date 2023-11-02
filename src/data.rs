@@ -25,6 +25,8 @@ pub struct GenericSettings {
     pub auto_rollback: Option<bool>,
     #[serde(rename(deserialize = "confirmTimeout"))]
     pub confirm_timeout: Option<u16>,
+    #[serde(rename(deserialize = "activationTimeout"))]
+    pub activation_timeout: Option<u16>,
     #[serde(rename(deserialize = "tempPath"))]
     pub temp_path: Option<PathBuf>,
     #[serde(rename(deserialize = "magicRollback"))]

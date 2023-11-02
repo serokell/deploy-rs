@@ -30,6 +30,9 @@
                 "confirmTimeout": {
                     "type": "integer"
                 },
+                "activationTimeout": {
+                    "type": "integer"
+                },
                 "tempPath": {
                     "type": "string"
                 }

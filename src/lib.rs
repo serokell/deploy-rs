@@ -163,6 +163,7 @@ pub struct CmdOverrides {
     pub magic_rollback: Option<bool>,
     pub temp_path: Option<PathBuf>,
     pub confirm_timeout: Option<u16>,
+    pub activation_timeout: Option<u16>,
     pub sudo: Option<String>,
     pub dry_activate: bool,
     pub remote_build: bool,
@@ -443,6 +444,9 @@ pub fn make_deploy_data<'a, 's>(
     }
     if let Some(confirm_timeout) = cmd_overrides.confirm_timeout {
         merged_settings.confirm_timeout = Some(confirm_timeout);
+    }
+    if let Some(activation_timeout) = cmd_overrides.activation_timeout {
+        merged_settings.activation_timeout = Some(activation_timeout);
     }
 
     DeployData {

@@ -121,6 +121,7 @@ struct WaitCommandData<'a> {
     sudo: &'a Option<String>,
     closure: &'a str,
     temp_path: &'a Path,
+    activation_timeout: Option<u16>,
     debug_logs: bool,
     log_dir: Option<&'a str>,
 }
@@ -142,6 +143,9 @@ fn build_wait_command(data: &WaitCommandData) -> String {
         data.closure,
         data.temp_path.display(),
     );
+    if let Some(activation_timeout) = data.activation_timeout {
+        self_activate_command = format!("{} --activation-timeout {}", self_activate_command, activation_timeout);
+    }
 
     if let Some(sudo_cmd) = &data.sudo {
         self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
@@ -155,6 +159,7 @@ fn test_wait_command_builder() {
     let sudo = Some("sudo -u test".to_string());
     let closure = "/nix/store/blah/etc";
     let temp_path = Path::new("/tmp");
+    let activation_timeout = Some(600);
     let debug_logs = true;
     let log_dir = Some("/tmp/something.txt");
 
@@ -163,10 +168,11 @@ fn test_wait_command_builder() {
             sudo: &sudo,
             closure,
             temp_path,
+            activation_timeout,
             debug_logs,
             log_dir
         }),
-        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt wait '/nix/store/blah/etc' --temp-path '/tmp'"
+        "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt wait '/nix/store/blah/etc' --temp-path '/tmp' --activation-timeout 600"
             .to_string(),
     );
 }
@@ -328,6 +334,8 @@ pub async fn deploy_profile(
 
     let confirm_timeout = deploy_data.merged_settings.confirm_timeout.unwrap_or(30);
 
+    let activation_timeout = deploy_data.merged_settings.activation_timeout;
+
     let magic_rollback = deploy_data.merged_settings.magic_rollback.unwrap_or(true);
 
     let auto_rollback = deploy_data.merged_settings.auto_rollback.unwrap_or(true);
@@ -386,6 +394,7 @@ pub async fn deploy_profile(
             sudo: &deploy_defs.sudo,
             closure: &deploy_data.profile.profile_settings.path,
             temp_path: temp_path,
+            activation_timeout: activation_timeout,
             debug_logs: deploy_data.debug_logs,
             log_dir: deploy_data.log_dir,
         });
