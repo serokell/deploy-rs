@@ -229,6 +229,8 @@ pub enum ActivationConfirmationError {
     CreateConfirmFile(std::io::Error),
     #[error("Could not watch for activation sentinel: {0}")]
     Watcher(#[from] notify::Error),
+    #[error("Error waiting for confirmation event: {0}")]
+    WaitingError(#[from] DangerZoneError),
 }
 
 #[derive(Error, Debug)]
@@ -256,7 +258,6 @@ async fn danger_zone(
 }
 
 pub async fn activation_confirmation(
-    profile_path: String,
     temp_path: PathBuf,
     confirm_timeout: u16,
     closure: String,
@@ -302,18 +303,9 @@ pub async fn activation_confirmation(
 
     watcher.watch(&lock_path, RecursiveMode::NonRecursive)?;
 
-    if let Err(err) = danger_zone(done, confirm_timeout).await {
-        error!("Error waiting for confirmation event: {}", err);
-
-        if let Err(err) = deactivate(&profile_path).await {
-            error!(
-                "Error de-activating due to another error waiting for confirmation, oh no...: {}",
-                err
-            );
-        }
-    }
-
-    Ok(())
+    danger_zone(done, confirm_timeout)
+        .await
+        .map_err(|err| ActivationConfirmationError::WaitingError(err))
 }
 
 #[derive(Error, Debug)]
@@ -463,16 +455,10 @@ pub async fn activate(
 
         if magic_rollback && !boot {
             info!("Magic rollback is enabled, setting up confirmation hook...");
-
-            match activation_confirmation(profile_path.clone(), temp_path, confirm_timeout, closure)
-                .await
-            {
-                Ok(()) => {}
-                Err(err) => {
-                    deactivate(&profile_path).await?;
-                    return Err(ActivateError::ActivationConfirmation(err));
-                }
-            };
+            if let Err(err) = activation_confirmation(temp_path, confirm_timeout, closure).await {
+                deactivate(&profile_path).await?;
+                return Err(ActivateError::ActivationConfirmation(err));
+            }
         }
     }
 
