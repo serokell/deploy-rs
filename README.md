@@ -218,8 +218,18 @@ This is a set of options that can be put in any of the above definitions, with t
   # Will also fetch all external dependencies from the target system's substituters.
   # This default to `false`
   remoteBuild = true;
+
+  # Timeout for profile activation.
+  # This defaults to 240 seconds.
+  activationTimeout = 600;
+
+  # Timeout for profile activation confirmation.
+  # This defaults to 30 seconds.
+  confirmTimeout = 60;
 }
 ```
+
+Some of these options can be provided during `deploy` invocation to override default values or values provided in your flake, see `deploy --help`.
 
 ## About Serokell
 
