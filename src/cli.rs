@@ -85,7 +85,7 @@ pub struct Opts {
     /// How long activation should wait for confirmation (if using magic-rollback)
     #[clap(long)]
     confirm_timeout: Option<u16>,
-    /// How long we should wait for profile activation (if using magic-rollback)
+    /// How long we should wait for profile activation
     #[clap(long)]
     activation_timeout: Option<u16>,
     /// Where to store temporary files (only used by magic-rollback)
