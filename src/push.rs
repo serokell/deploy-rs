@@ -57,6 +57,7 @@ pub struct PushProfileData<'a> {
     pub keep_result: bool,
     pub result_path: Option<&'a str>,
     pub extra_build_args: &'a [String],
+    pub use_nom: bool,
 }
 
 pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: &str) -> Result<(), PushProfileError> {
@@ -66,9 +67,9 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
     );
 
     let mut build_command = if data.supports_flakes {
-        Command::new("nix")
+        Command::new(if data.use_nom {"nom"} else {"nix"})
     } else {
-        Command::new("nix-build")
+        Command::new(if data.use_nom {"nom-build"} else {"nix-build"})
     };
 
     if data.supports_flakes {
@@ -184,7 +185,7 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
         a => return Err(PushProfileError::CopyExit(a)),
     };
 
-    let mut build_command = Command::new("nix");
+    let mut build_command = Command::new(if data.use_nom {"nom"} else {"nix"});
     build_command
         .arg("build").arg(derivation_name)
         .arg("--eval-store").arg("auto")
