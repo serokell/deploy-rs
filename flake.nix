@@ -163,7 +163,7 @@
           inputsFrom = [ self.packages.${system}.deploy-rs ];
           RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
           buildInputs = with pkgs; [
-            nixUnstable
+            nixVersions.unstable
             cargo
             rustc
             rust-analyzer
