@@ -26,6 +26,7 @@
       sshOpts = [ "-p" "2221" ];
       hostname = "localhost";
       fastConnection = true;
+      interactiveSudo = true;
       profiles = {
         system = {
           sshUser = "admin";

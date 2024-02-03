@@ -35,6 +35,9 @@
                 },
                 "tempPath": {
                     "type": "string"
+                },
+                "interactiveSudo": {
+                    "type": "boolean"
                 }
             }
         },

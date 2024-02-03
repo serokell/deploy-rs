@@ -103,6 +103,9 @@ pub struct Opts {
     /// Which sudo command to use. Must accept at least two arguments: user name to execute commands as and the rest is the command to execute
     #[clap(long)]
     sudo: Option<String>,
+    /// Prompt for sudo password during activation.
+    #[clap(long)]
+    interactive_sudo: Option<bool>,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -538,7 +541,25 @@ async fn run_deploy(
             log_dir.as_deref(),
         );
 
-        let deploy_defs = deploy_data.defs()?;
+        let mut deploy_defs = deploy_data.defs()?;
+
+        if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) {
+            warn!("Interactive sudo is enabled! Using a sudo password is less secure than correctly configured SSH keys.\nPlease use keys in production environments.");
+            
+            if deploy_data.merged_settings.sudo.is_some() {
+                warn!("Custom sudo commands should be configured to accept password input from stdin when using the 'interactive sudo' option. Deployment may fail if the custom command ignores stdin.");
+            } else {
+                // this configures sudo to hide the password prompt and accept input from stdin
+                // at the time of writing, deploy_defs.sudo defaults to 'sudo -u root' when using user=root and sshUser as non-root
+                let original = deploy_defs.sudo.unwrap_or("sudo".to_string());
+                deploy_defs.sudo = Some(format!("{} -S -p \"\"", original));
+            }
+
+            info!("You will now be prompted for the sudo password for {}.", node.node_settings.hostname);
+            let sudo_password = rpassword::prompt_password(format!("(sudo for {}) Password: ", node.node_settings.hostname)).unwrap_or("".to_string());
+
+            deploy_defs.sudo_password = Some(sudo_password);
+        }
 
         parts.push((deploy_flake, deploy_data, deploy_defs));
     }
@@ -665,6 +686,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         dry_activate: opts.dry_activate,
         remote_build: opts.remote_build,
         sudo: opts.sudo,
+        interactive_sudo: opts.interactive_sudo
     };
 
     let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;
