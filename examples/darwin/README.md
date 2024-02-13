@@ -17,3 +17,20 @@ SPDX-License-Identifier: MPL-2.0
 ## Deploying
 
 Run `nix run github:serokell/deploy-rs -- --ssh-user <user>`.
+
+## Troubleshooting
+
+If you are running into a problem similar to this:
+
+```
+🚀 ℹ️ [deploy] [INFO] Building profile `system` for node `vm1`
+🚀 ℹ️ [deploy] [INFO] Copying profile `system` to node `vm1`
+(user@users-virtual-machine.local) Password:
+🚀 ℹ️ [deploy] [INFO] Activating profile `system` for node `vm1`
+🚀 ℹ️ [deploy] [INFO] Creating activation waiter
+(user@users-virtual-machine.local) Password:
+(user@users-virtual-machine.local) Password:
+Received disconnect from fe80::1474:6f61:3c9b:a540%bridge100 port 22:2: Too many authentication failures
+```
+
+Try setting up **passwordless SSH login to the remote darwin guest** by adding your *host's public SSH key* to the *guest's `.ssh/authorized_keys`* file. Make sure to run `chmod -R go-rwx ~/.ssh` on the *guest*.
