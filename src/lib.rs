@@ -165,6 +165,7 @@ pub struct CmdOverrides {
     pub confirm_timeout: Option<u16>,
     pub activation_timeout: Option<u16>,
     pub sudo: Option<String>,
+    pub interactive_sudo: Option<bool>,
     pub dry_activate: bool,
     pub remote_build: bool,
 }
@@ -334,6 +335,7 @@ pub struct DeployDefs {
     pub ssh_user: String,
     pub profile_user: String,
     pub sudo: Option<String>,
+    pub sudo_password: Option<String>,
 }
 enum ProfileInfo {
     ProfilePath {
@@ -369,6 +371,7 @@ impl<'a> DeployData<'a> {
             ssh_user,
             profile_user,
             sudo,
+            sudo_password: None,
         })
     }
 
@@ -447,6 +450,9 @@ pub fn make_deploy_data<'a, 's>(
     }
     if let Some(activation_timeout) = cmd_overrides.activation_timeout {
         merged_settings.activation_timeout = Some(activation_timeout);
+    }
+    if let Some(interactive_sudo) = cmd_overrides.interactive_sudo {
+        merged_settings.interactive_sudo = Some(interactive_sudo);
     }
 
     DeployData {

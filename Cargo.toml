@@ -24,7 +24,7 @@ serde = { version = "1.0.104", features = [ "derive" ] }
 serde_json = "1.0.48"
 signal-hook = "0.3"
 thiserror = "1.0"
-tokio = { version = "1.9.0", features = [ "process", "macros", "sync", "rt-multi-thread", "fs", "time" ] }
+tokio = { version = "1.9.0", features = [ "process", "macros", "sync", "rt-multi-thread", "fs", "time", "io-util" ] }
 toml = "0.5"
 whoami = "0.9.0"
 yn = "0.1"
@@ -33,6 +33,7 @@ yn = "0.1"
 # 1.45.2 (shipped in nixos-20.09); it requires rustc 1.46.0. See
 # <https://github.com/serokell/deploy-rs/issues/27>:
 smol_str = "=0.1.16"
+rpassword = "7.3.1"
 
 
 [lib]
