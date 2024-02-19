@@ -96,7 +96,10 @@
                 # work around https://github.com/NixOS/nixpkgs/issues/73404
                 cd /tmp
 
-                $PROFILE/bin/switch-to-configuration switch
+                # Explicitly test then boot instead of switch (which works the other way round),
+                # so that a reboot will recover after a failure
+                $PROFILE/bin/switch-to-configuration test
+                $PROFILE/bin/switch-to-configuration boot
 
                 # https://github.com/serokell/deploy-rs/issues/31
                 ${with base.config.boot.loader;
