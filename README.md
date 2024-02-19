@@ -75,9 +75,12 @@ A basic example of a flake that works with `deploy-rs` and deploys a simple NixO
       modules = [ ./some-random-system/configuration.nix ];
     };
 
-    deploy.nodes.some-random-system.profiles.system = {
-        user = "root";
-        path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.some-random-system;
+    deploy.nodes.some-random-system = {
+        hostname = "some-random-system";
+        profiles.system = {
+          user = "root";
+          path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.some-random-system;
+        };
     };
 
     # This is highly advised, and will prevent many possible mistakes
@@ -214,7 +217,7 @@ This is a set of options that can be put in any of the above definitions, with t
   # (if `magicRollback` is in use, this _must_ be writable by `user`)
   tempPath = "/home/someuser/.deploy-rs";
 
-  # Build the derivation on the target system. 
+  # Build the derivation on the target system.
   # Will also fetch all external dependencies from the target system's substituters.
   # This default to `false`
   remoteBuild = true;
