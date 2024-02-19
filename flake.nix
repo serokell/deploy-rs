@@ -34,7 +34,13 @@
           pname = "deploy-rs";
           version = "0.1.0";
 
-          src = ./.;
+          src = final.lib.sourceByRegex ./. [
+            "Cargo\.lock"
+            "Cargo\.toml"
+            "src"
+            "src/bin"
+            ".*\.rs$"
+          ];
 
           cargoLock.lockFile = ./Cargo.lock;
         }) // { meta.description = "A Simple multi-profile Nix-flake deploy tool"; };
