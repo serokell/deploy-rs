@@ -7,5 +7,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: check flake
-        run: nix flake check -L
+      - name: deploy-rs
+        run: nix build -L .#checks.x86_64-linux.deploy-rs
+
+      - name: Deploy with client-side build
+        run: nix build -L .#checks.x86_64-linux.local-build
+
+      - name: Deploy with server-side build
+        run: nix build -L .#checks.x86_64-linux.remote-build
+
+      - name: Deploy user profile
+        run: nix build -L .#checks.x86_64-linux.profile
