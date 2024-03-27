@@ -15,10 +15,9 @@
     };
   };
 
-  outputs = { self, nixpkgs, utils, ... }:
+  outputs = { self, nixpkgs, utils, ... }@inputs:
   {
-    overlay = final: prev:
-    let
+    overlays.default = final: prev: let
       system = final.stdenv.hostPlatform.system;
       darwinOptions = final.lib.optionalAttrs final.stdenv.isDarwin {
         buildInputs = with final.darwin.apple_sdk.frameworks; [
@@ -34,7 +33,13 @@
           pname = "deploy-rs";
           version = "0.1.0";
 
-          src = ./.;
+          src = final.lib.sourceByRegex ./. [
+            "Cargo\.lock"
+            "Cargo\.toml"
+            "src"
+            "src/bin"
+            ".*\.rs$"
+          ];
 
           cargoLock.lockFile = ./Cargo.lock;
         }) // { meta.description = "A Simple multi-profile Nix-flake deploy tool"; };
@@ -145,7 +150,15 @@
   } //
     utils.lib.eachSystem (utils.lib.defaultSystems ++ ["aarch64-darwin"]) (system:
       let
-        pkgs = import nixpkgs { inherit system; overlays = [ self.overlay ]; };
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ self.overlays.default ];
+        };
+
+        # make a matrix to use in GitHub pipeline
+        mkMatrix = name: attrs: {
+          include = map (v: { ${name} = v; }) (pkgs.lib.attrNames attrs);
+        };
       in
       {
         defaultPackage = self.packages."${system}".deploy-rs;
@@ -176,8 +189,12 @@
 
         checks = {
           deploy-rs = self.packages.${system}.default.overrideAttrs (super: { doCheck = true; });
-        };
+        } // (pkgs.lib.optionalAttrs (pkgs.lib.elem system ["x86_64-linux"]) (import ./nix/tests {
+          inherit inputs pkgs;
+        }));
 
-        lib = pkgs.deploy-rs.lib;
+        inherit (pkgs.deploy-rs) lib;
+
+        check-matrix = mkMatrix "check" self.checks.${system};
       });
 }
