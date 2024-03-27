@@ -29,6 +29,12 @@ You can try out this tool easily with `nix run`:
 - `nix run github:serokell/deploy-rs your-flake`
 
 If you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `deploy <flake>` you can issue `deploy --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
+Alternatively, you can use `<flake>#<node>.{<profile1>,<profile2> ...}` syntax.  
+Examples:
+```
+deploy --targets .#my-node.system .#my-node.app
+deploy .#my-node.{system,app}
+```
 
 Running in this mode, if any of the deploys fails, the deploy will be aborted and all successful deploys rolled back. `--rollback-succeeded false` can be used to override this behavior, otherwise the `auto-rollback` argument takes precedent.
 
