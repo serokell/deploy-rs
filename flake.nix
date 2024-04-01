@@ -16,8 +16,8 @@
   };
 
   outputs = { self, nixpkgs, utils, ... }@inputs:
-  {
-    overlays.default = final: prev: let
+  rec {
+    overlay = final: prev: let
       system = final.stdenv.hostPlatform.system;
       darwinOptions = final.lib.optionalAttrs final.stdenv.isDarwin {
         buildInputs = with final.darwin.apple_sdk.frameworks; [
@@ -147,6 +147,7 @@
         };
       };
     };
+    overlays.default = overlay;
   } //
     utils.lib.eachSystem (utils.lib.defaultSystems ++ ["aarch64-darwin"]) (system:
       let
