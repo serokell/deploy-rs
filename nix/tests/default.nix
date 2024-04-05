@@ -20,7 +20,27 @@ let
     done <$refs
   '';
 
-  mkTest = { name ? "", user ? "root", isLocal ? true, deployArgs }: let
+  flakeInputs = ''
+    deploy-rs.url = "${../..}";
+    deploy-rs.inputs.utils.follows = "utils";
+    deploy-rs.inputs.flake-compat.follows = "flake-compat";
+
+    nixpkgs.url = "${inputs.nixpkgs}";
+    utils.url = "${inputs.utils}";
+    utils.inputs.systems.follows = "systems";
+    flake-parts.url = "${inputs.flake-parts}";
+    flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
+    systems.url = "${inputs.utils.inputs.systems}";
+    flake-compat.url = "${inputs.flake-compat}";
+    flake-compat.flake = false;
+  '';
+
+  deployFlake = builtins.toFile "flake.nix"
+    (lib.replaceStrings [ "##inputs##" ] [ flakeInputs ] (builtins.readFile ./deploy-flake.nix));
+  partsFlake = builtins.toFile "flake.nix"
+    (lib.replaceStrings [ "##inputs##" ] [ flakeInputs ] (builtins.readFile ./parts-flake.nix));
+
+  mkTest = { name ? "", user ? "root", isLocal ? true, deployArgs, flake }: let
     nodes = {
       server = { nodes, ... }: {
         imports = [
@@ -44,22 +64,6 @@ let
         ];
       };
     };
-
-    flakeInputs = ''
-      deploy-rs.url = "${../..}";
-      deploy-rs.inputs.utils.follows = "utils";
-      deploy-rs.inputs.flake-compat.follows = "flake-compat";
-
-      nixpkgs.url = "${inputs.nixpkgs}";
-      utils.url = "${inputs.utils}";
-      utils.inputs.systems.follows = "systems";
-      systems.url = "${inputs.utils.inputs.systems}";
-      flake-compat.url = "${inputs.flake-compat}";
-      flake-compat.flake = false;
-    '';
-
-    flake = builtins.toFile "flake.nix"
-      (lib.replaceStrings [ "##inputs##" ] [ flakeInputs ] (builtins.readFile ./deploy-flake.nix));
 
   in pkgs.nixosTest {
     inherit nodes name;
@@ -107,12 +111,14 @@ in {
   local-build = mkTest {
     name = "local-build";
     deployArgs = "-s .#server -- --offline";
+    flake = deployFlake;
   };
   # Deployment with server-side build
   remote-build = mkTest {
     name = "remote-build";
     isLocal = false;
     deployArgs = "-s .#server --remote-build -- --offline";
+    flake = deployFlake;
   };
   # Deployment with overridden options
   options-overriding = mkTest {
@@ -124,11 +130,19 @@ in {
       " --confirm-timeout 30 --activation-timeout 30"
       " -- --offline"
     ];
+    flake = deployFlake;
   };
   # User profile deployment
   profile = mkTest {
     name = "profile";
     user = "deploy";
     deployArgs = "-s .#profile -- --offline";
+    flake = deployFlake;
+  };
+  # Deployment with client-side build
+  local-build-parts = mkTest {
+    name = "local-build";
+    deployArgs = "-s .#server -- --offline";
+    flake = partsFlake;
   };
 }
