@@ -2,8 +2,12 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-{lib, ...}: let
+{config, inputs, lib, ...}: let
   inherit (lib) mkOption types;
+  inherit (inputs) deploy-rs;
+
+  cfg = config.flake.deploy;
+
   genericSettings = {
     options = {
       sshUser = mkOption {
@@ -102,5 +106,10 @@
 in {
   options.flake.deploy = mkOption {
     type = rootModule;
+  };
+  config = {
+    perSystem = {system, ...}: {
+      checks = lib.mkIf (deploy-rs.lib ? ${system}) (deploy-rs.lib.${system}.deployChecks cfg);
+    };
   };
 }
