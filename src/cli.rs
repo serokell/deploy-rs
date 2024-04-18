@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
 use clap::{ArgMatches, Clap, FromArgMatches};
+use futures_util::future::{join_all, try_join_all};
+use tokio::try_join;
 
 use crate as deploy;
 
@@ -587,19 +589,35 @@ async fn run_deploy(
         )
     };
 
-    for data in data_iter() {
-        let node_name: String = data.deploy_data.node_name.to_string();
-        deploy::push::build_profile(data).await.map_err(|e| {
-            RunDeployError::BuildProfile(node_name, e)
-        })?;
-    }
+    let (remote_builds, local_builds): (Vec<_>, Vec<_>) = data_iter().partition(|data| {
+        data.deploy_data.merged_settings.remote_build.unwrap_or_default()
+    });
 
-    for data in data_iter() {
-        let node_name: String = data.deploy_data.node_name.to_string();
-        deploy::push::push_profile(data).await.map_err(|e| {
-            RunDeployError::PushProfile(node_name, e)
-        })?;
-    }
+    // await both the remote builds and the local builds to speed up deployment times
+    try_join!(
+        // remote builds can be run asynchronously since they do not affect the local machine
+        try_join_all(remote_builds.into_iter().map(|data| async {
+            let data = data;
+            deploy::push::build_profile(&data).await
+        })),
+        async {
+            // run local builds synchronously to prevent hardware deadlocks
+            for data in &local_builds {
+                deploy::push::build_profile(data).await?;
+            }
+
+
+            // push all profiles asynchronously
+            join_all(local_builds.into_iter().map(|data| async {
+                let data = data;
+                deploy::push::push_profile(&data).await
+            })).await;
+            Ok(())
+        }
+    ).map_err(|e| {
+        RunDeployError::BuildProfile(node_name, e)
+    })?;
+
 
     let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
 
