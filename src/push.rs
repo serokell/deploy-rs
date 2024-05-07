@@ -244,9 +244,13 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
         .next()
         .ok_or(PushProfileError::ShowDerivationEmpty)?;
 
-    // Since nix 2.15.0 'nix build <path>.drv' will build only the .drv file itself, not the
-    // derivation outputs, '^out' is used to refer to outputs explicitly
-    let new_deriver = &(deriver.to_owned().to_string() + "^out");
+    let new_deriver = &if data.supports_flakes {
+        // Since nix 2.15.0 'nix build <path>.drv' will build only the .drv file itself, not the
+        // derivation outputs, '^out' is used to refer to outputs explicitly
+        deriver.to_owned().to_string() + "^out"
+    } else {
+        deriver.to_owned()
+    };
 
     let path_info_output = Command::new("nix")
         .arg("--experimental-features").arg("nix-command")
