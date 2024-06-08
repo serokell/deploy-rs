@@ -68,7 +68,7 @@ pub struct Opts {
     #[clap(long)]
     profile_user: Option<String>,
     /// Override the SSH options used
-    #[clap(long)]
+    #[clap(long, allow_hyphen_values = true)]
     ssh_opts: Option<String>,
     /// Override if the connecting to the target node should be considered fast
     #[clap(long)]
