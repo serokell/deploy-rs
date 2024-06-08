@@ -54,7 +54,7 @@ There is a built-in feature to prevent you making changes that might render your
 
 ### Overall usage
 
-`deploy-rs` is designed to be used with Nix flakes. There is a Flake-less mode of operation which will automatically be used if your available Nix version does not support flakes, however you will likely want to use a flake anyway, just with `flake-compat` (see [this wiki page](https://nixos.wiki/wiki/Flakes) for usage).
+`deploy-rs` is designed to be used with Nix flakes. There is a Flake-less mode of operation which will automatically be used if your available Nix version does not support flakes, however you will likely want to use a flake anyway, just with `flake-compat` (see [this wiki page](https://wiki.nixos.org/wiki/Flakes)) for usage).
 
 `deploy-rs` also outputs a `lib` attribute, with tools used to make your definitions simpler and safer, including `deploy-rs.lib.${system}.activate` (see later section "Profile"), and `deploy-rs.lib.${system}.deployChecks` which will let `nix flake check` ensure your deployment is defined correctly.
 
