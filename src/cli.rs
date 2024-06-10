@@ -7,8 +7,11 @@ use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
 use clap::{ArgMatches, Clap, FromArgMatches};
+use futures_util::future::{join_all, try_join_all};
+use tokio::try_join;
 
 use crate as deploy;
+use crate::push::{PushProfileData, PushProfileError};
 
 use self::deploy::{DeployFlake, ParseFlakeError};
 use futures_util::stream::{StreamExt, TryStreamExt};
@@ -545,7 +548,7 @@ async fn run_deploy(
 
         if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) {
             warn!("Interactive sudo is enabled! Using a sudo password is less secure than correctly configured SSH keys.\nPlease use keys in production environments.");
-            
+
             if deploy_data.merged_settings.sudo.is_some() {
                 warn!("Custom sudo commands should be configured to accept password input from stdin when using the 'interactive sudo' option. Deployment may fail if the custom command ignores stdin.");
             } else {
@@ -585,13 +588,37 @@ async fn run_deploy(
         )
     };
 
-    for data in data_iter() {
-        deploy::push::build_profile(data).await?;
-    }
+    let (remote_builds, local_builds): (Vec<_>, Vec<_>) = data_iter().partition(|data| {
+        data.deploy_data.merged_settings.remote_build.unwrap_or_default()
+    });
 
-    for data in data_iter() {
-        deploy::push::push_profile(data).await?;
-    }
+    // the grouping by host will retain each hosts ordering by profiles_order since the fold is synchronous
+    let remote_build_map: HashMap<_, Vec<_>> = remote_builds.iter().fold(HashMap::new(), |mut accum, elem| {
+        match accum.get_mut(elem.deploy_data.node_name) {
+            Some(v) => { v.push(elem); accum },
+            None => { accum.insert(elem.deploy_data.node_name, vec![elem]); accum }
+        }
+    });
+
+    try_join!(
+        // remote builds can be run asynchronously (per host)
+        try_join_all(remote_build_map.into_iter().map(deploy_profiles_to_host)),
+        async {
+            // run local builds synchronously to prevent hardware deadlocks
+            for data in &local_builds {
+                deploy::push::build_profile(data).await.unwrap();
+            }
+
+            // push all profiles asynchronously
+            join_all(local_builds.into_iter().map(|data| async {
+                let data = data;
+                deploy::push::push_profile(&data).await
+            })).await;
+
+            Ok(())
+        }
+    )?;
+
 
     let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
 
@@ -720,5 +747,12 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     )
     .await?;
 
+    Ok(())
+}
+
+async fn deploy_profiles_to_host<'a>((_host, profiles): (&str, Vec<&'a PushProfileData<'a>>)) -> Result<(), PushProfileError> {
+    for profile in &profiles {
+        deploy::push::build_profile(profile).await?;
+    };
     Ok(())
 }

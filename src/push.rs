@@ -210,7 +210,7 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
     Ok(())
 }
 
-pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
+pub async fn build_profile(data: &PushProfileData<'_>) -> Result<(), PushProfileError> {
     debug!(
         "Finding the deriver of store path for {}",
         &data.deploy_data.profile.profile_settings.path
@@ -283,7 +283,7 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
     Ok(())
 }
 
-pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
+pub async fn push_profile(data: &PushProfileData<'_>) -> Result<(), PushProfileError> {
     let ssh_opts_str = data
         .deploy_data
         .merged_settings
