@@ -11,6 +11,7 @@ use futures_util::future::{join_all, try_join_all};
 use tokio::try_join;
 
 use crate as deploy;
+use crate::push::{PushProfileData, PushProfileError};
 
 use self::deploy::{DeployFlake, ParseFlakeError};
 use futures_util::stream::{StreamExt, TryStreamExt};
@@ -593,17 +594,21 @@ async fn run_deploy(
         data.deploy_data.merged_settings.remote_build.unwrap_or_default()
     });
 
-    // await both the remote builds and the local builds to speed up deployment times
+    // the grouping by host will retain each hosts ordering by profiles_order since the fold is synchronous
+    let remote_build_map: HashMap<_, Vec<_>> = remote_builds.iter().fold(HashMap::new(), |mut accum, elem| {
+        match accum.get_mut(elem.deploy_data.node_name) {
+            Some(v) => { v.push(elem); accum },
+            None => { accum.insert(elem.deploy_data.node_name, vec![elem]); accum }
+        }
+    });
+
     try_join!(
-        // remote builds can be run asynchronously since they do not affect the local machine
-        try_join_all(remote_builds.into_iter().map(|data| async {
-            let data = data;
-            deploy::push::build_profile(&data).await
-        })),
+        // remote builds can be run asynchronously (per host)
+        try_join_all(remote_build_map.into_iter().map(deploy_profiles_to_host)),
         async {
             // run local builds synchronously to prevent hardware deadlocks
             for data in &local_builds {
-                deploy::push::build_profile(data).await?;
+                deploy::push::build_profile(data).await.unwrap();
             }
 
 
@@ -748,5 +753,12 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     )
     .await?;
 
+    Ok(())
+}
+
+async fn deploy_profiles_to_host<'a>((_host, profiles): (&str, Vec<&'a PushProfileData<'a>>)) -> Result<(), PushProfileError> {
+    for profile in &profiles {
+        deploy::push::build_profile(profile).await?;
+    };
     Ok(())
 }
