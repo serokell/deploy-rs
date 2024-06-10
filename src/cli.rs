@@ -380,10 +380,12 @@ fn prompt_deployment(
 
 #[derive(Error, Debug)]
 pub enum RunDeployError {
-    #[error("Failed to deploy profile: {0}")]
-    DeployProfile(#[from] deploy::deploy::DeployProfileError),
-    #[error("Failed to push profile: {0}")]
-    PushProfile(#[from] deploy::push::PushProfileError),
+    #[error("Failed to deploy profile to node {0}: {1}")]
+    DeployProfile(String, deploy::deploy::DeployProfileError),
+    #[error("Failed to build profile on node {0}: {0}")]
+    BuildProfile(String,  deploy::push::PushProfileError),
+    #[error("Failed to push profile to node {0}: {0}")]
+    PushProfile(String,  deploy::push::PushProfileError),
     #[error("No profile named `{0}` was found")]
     ProfileNotFound(String),
     #[error("No node named `{0}` was found")]
@@ -396,10 +398,10 @@ pub enum RunDeployError {
     TomlFormat(#[from] toml::ser::Error),
     #[error("{0}")]
     PromptDeployment(#[from] PromptDeploymentError),
-    #[error("Failed to revoke profile: {0}")]
-    RevokeProfile(#[from] deploy::deploy::RevokeProfileError),
-    #[error("Deployment failed, rolled back to previous generation")]
-    Rollback
+    #[error("Failed to revoke profile for node {0}: {1}")]
+    RevokeProfile(String, deploy::deploy::RevokeProfileError),
+    #[error("Deployment to node {0} failed, rolled back to previous generation")]
+    Rollback(String)
 }
 
 type ToDeploy<'a> = Vec<(
@@ -545,7 +547,7 @@ async fn run_deploy(
 
         if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) {
             warn!("Interactive sudo is enabled! Using a sudo password is less secure than correctly configured SSH keys.\nPlease use keys in production environments.");
-            
+
             if deploy_data.merged_settings.sudo.is_some() {
                 warn!("Custom sudo commands should be configured to accept password input from stdin when using the 'interactive sudo' option. Deployment may fail if the custom command ignores stdin.");
             } else {
@@ -586,11 +588,17 @@ async fn run_deploy(
     };
 
     for data in data_iter() {
-        deploy::push::build_profile(data).await?;
+        let node_name: String = data.deploy_data.node_name.to_string();
+        deploy::push::build_profile(data).await.map_err(|e| {
+            RunDeployError::BuildProfile(node_name, e)
+        })?;
     }
 
     for data in data_iter() {
-        deploy::push::push_profile(data).await?;
+        let node_name: String = data.deploy_data.node_name.to_string();
+        deploy::push::push_profile(data).await.map_err(|e| {
+            RunDeployError::PushProfile(node_name, e)
+        })?;
     }
 
     let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
@@ -613,12 +621,14 @@ async fn run_deploy(
                 //  the command line)
                 for (deploy_data, deploy_defs) in &succeeded {
                     if deploy_data.merged_settings.auto_rollback.unwrap_or(true) {
-                        deploy::deploy::revoke(*deploy_data, *deploy_defs).await?;
+                        deploy::deploy::revoke(*deploy_data, *deploy_defs).await.map_err(|e| {
+                            RunDeployError::RevokeProfile(deploy_data.node_name.to_string(), e)
+                        })?;
                     }
                 }
-                return Err(RunDeployError::Rollback);
+                return Err(RunDeployError::Rollback(deploy_data.node_name.to_string()));
             }
-            return Err(RunDeployError::DeployProfile(e))
+            return Err(RunDeployError::DeployProfile(deploy_data.node_name.to_string(), e))
         }
         succeeded.push((deploy_data, deploy_defs))
     }
