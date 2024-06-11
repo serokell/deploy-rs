@@ -13,10 +13,13 @@
       url = "github:edolstra/flake-compat";
       flake = false;
     };
+    flake-parts.url = "github:hercules-ci/flake-parts";
   };
 
   outputs = { self, nixpkgs, utils, ... }@inputs:
   rec {
+    flakeModule = ./nix/flake-module.nix;
+
     overlay = final: prev: let
       system = final.stdenv.hostPlatform.system;
       darwinOptions = final.lib.optionalAttrs final.stdenv.isDarwin {
