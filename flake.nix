@@ -42,7 +42,11 @@
           ];
 
           cargoLock.lockFile = ./Cargo.lock;
-        }) // { meta.description = "A Simple multi-profile Nix-flake deploy tool"; };
+	  meta = {
+	    description = "A Simple multi-profile Nix-flake deploy tool"; 
+            mainProgram = "deploy";
+	  };
+        });
 
         lib = rec {
 
