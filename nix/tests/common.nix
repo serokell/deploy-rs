@@ -2,11 +2,12 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-{inputs, pkgs, ...}: {
+{inputs, pkgs, flakes, ...}: {
   nix = {
     registry.nixpkgs.flake = inputs.nixpkgs;
+    nixPath = [ "nixpkgs=${inputs.nixpkgs}" ];
     extraOptions = ''
-      experimental-features = nix-command flakes
+      experimental-features = ${if flakes then "nix-command flakes" else "nix-command"}
     '';
     settings = {
       trusted-users = [ "root" "@wheel" ];

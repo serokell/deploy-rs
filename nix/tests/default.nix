@@ -20,12 +20,12 @@ let
     done <$refs
   '';
 
-  mkTest = { name ? "", user ? "root", isLocal ? true, deployArgs }: let
+  mkTest = { name ? "", user ? "root", flakes ? true, isLocal ? true, deployArgs }: let
     nodes = {
       server = { nodes, ... }: {
         imports = [
          ./server.nix
-         (import ./common.nix { inherit inputs pkgs; })
+         (import ./common.nix { inherit inputs pkgs flakes; })
         ];
         virtualisation.additionalPaths = lib.optionals (!isLocal) [
           pkgs.hello
@@ -35,8 +35,10 @@ let
         ];
       };
       client = { nodes, ... }: {
-        imports = [ (import ./common.nix { inherit inputs pkgs; }) ];
+        imports = [ (import ./common.nix { inherit inputs pkgs flakes; }) ];
         environment.systemPackages = [ pkgs.deploy-rs.deploy-rs ];
+        # nix evaluation takes a lot of memory, especially in non-flake usage
+        virtualisation.memorySize = lib.mkForce 4096;
         virtualisation.additionalPaths = lib.optionals isLocal [
           pkgs.hello
           pkgs.figlet
@@ -56,10 +58,28 @@ let
       systems.url = "${inputs.utils.inputs.systems}";
       flake-compat.url = "${inputs.flake-compat}";
       flake-compat.flake = false;
+
+      enable-flakes.url = "${builtins.toFile "use-flakes" (if flakes then "true" else "false")}";
+      enable-flakes.flake = false;
     '';
 
     flake = builtins.toFile "flake.nix"
       (lib.replaceStrings [ "##inputs##" ] [ flakeInputs ] (builtins.readFile ./deploy-flake.nix));
+
+    flakeCompat = builtins.toFile "default.nix" ''
+      (import
+        (
+          let
+            lock = builtins.fromJSON (builtins.readFile ./flake.lock);
+          in
+          fetchTarball {
+            url = "https://not-used-we-fetch-by-hash";
+            sha256 = lock.nodes.flake-compat.locked.narHash;
+          }
+        )
+        { src = ./.; }
+      ).defaultNix
+    '';
 
   in pkgs.nixosTest {
     inherit nodes name;
@@ -73,11 +93,11 @@ let
       # Prepare
       client.succeed("mkdir tmp && cd tmp")
       client.succeed("cp ${flake} ./flake.nix")
+      client.succeed("cp ${flakeCompat} ./default.nix")
       client.succeed("cp ${./server.nix} ./server.nix")
       client.succeed("cp ${./common.nix} ./common.nix")
       client.succeed("cp ${serverNetworkJSON} ./network.json")
-      client.succeed("nix flake lock")
-
+      client.succeed("nix --extra-experimental-features flakes flake lock")
 
       # Setup SSH key
       client.succeed("mkdir -m 700 /root/.ssh")
@@ -135,5 +155,11 @@ in {
     name = "profile";
     user = "deploy";
     deployArgs = "-s .#profile --ssh-opts '-p 22 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' -- --offline";
+  };
+  # Deployment using a non-flake nix
+  non-flake-build = mkTest {
+    name = "local-build";
+    flakes = false;
+    deployArgs = "-s .#server";
   };
 }

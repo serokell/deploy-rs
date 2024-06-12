@@ -15,7 +15,7 @@
   in {
     nixosConfigurations.server = nixpkgs.lib.nixosSystem {
       inherit system pkgs;
-      specialArgs = { inherit inputs; };
+      specialArgs = { inherit inputs; flakes = import inputs.enable-flakes; };
       modules = [
         ./server.nix
         ./common.nix
