@@ -152,7 +152,7 @@ pub mod data;
 pub mod deploy;
 pub mod push;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CmdOverrides {
     pub ssh_user: Option<String>,
     pub profile_user: Option<String>,
@@ -330,7 +330,7 @@ pub struct DeployData<'a> {
     pub log_dir: Option<&'a str>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DeployDefs {
     pub ssh_user: String,
     pub profile_user: String,

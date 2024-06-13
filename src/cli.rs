@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
 use clap::{ArgMatches, Clap, FromArgMatches};
-use futures_util::future::{join_all, try_join_all};
-use tokio::try_join;
+use futures_util::future::join_all;
+use tokio::join;
 
-use crate as deploy;
+use crate::{self as deploy, CmdOverrides, DeployDefs};
 use crate::push::{PushProfileData, PushProfileError};
 
 use self::deploy::{DeployFlake, ParseFlakeError};
@@ -602,27 +602,113 @@ async fn run_deploy(
         }
     });
 
-    try_join!(
+    async fn deploy_profiles_to_host<'a>((host, profiles): (&str, Vec<&'a PushProfileData<'a>>)) -> Result<(), (String, String, PushProfileError)> {
+        for profile in &profiles {
+            deploy::push::build_profile(profile).await.map_err(|e| (host.to_string(), profile.deploy_data.profile_name.to_string(), e))?;
+        };
+        Ok(())
+    }
+
+    let (remote_results, local_results) = join!(
         // remote builds can be run asynchronously (per host)
-        try_join_all(remote_build_map.into_iter().map(deploy_profiles_to_host)),
-        async {
+        join_all(remote_build_map.into_iter().map(deploy_profiles_to_host)),
+
+        // remote builds can be run asynchronously (per host)
+        async move {
+            let mut build_results = Vec::new();
+            let mut push_futures = Vec::new();
+
             // run local builds synchronously to prevent hardware deadlocks
-            for data in &local_builds {
-                deploy::push::build_profile(data).await.unwrap();
+            for data in local_builds {
+                let res = deploy::push::build_profile(&data).await;
+                if res.is_ok() {
+                    // unfortunately, all of this is necessary to please the borrow checker
+                    // since deploy_data is a nested struct of references, the spawned process
+                    // could outlive the scope of this function where the references' values are
+                    // defined
+                    let node_name = data.deploy_data.node_name.to_string();
+                    let node = data.deploy_data.node.clone();
+                    let profile_name = data.deploy_data.profile_name.to_string();
+                    let profile = data.deploy_data.profile.clone();
+                    let cmd_overrides = data.deploy_data.cmd_overrides.clone();
+                    let merged_settings = data.deploy_data.merged_settings.clone();
+                    let debug_logs = data.deploy_data.debug_logs.clone();
+                    let log_dir = data.deploy_data.log_dir.map(|x| x.to_string());
+                    let extra_build_args: Vec<String> = data.extra_build_args.iter().cloned().collect();
+                    let result_path = data.result_path.map(|x| x.to_string());
+                    let keep_result = data.keep_result.clone();
+                    let deploy_defs = data.deploy_defs.clone();
+                    let repo = data.repo.to_string();
+                    let check_sigs = data.check_sigs.clone();
+
+                    let handle = tokio::spawn(async move {
+                        let deploy_data = deploy::DeployData {
+                            node_name: &node_name,
+                            node: &node,
+                            profile_name: &profile_name,
+                            profile: &profile,
+                            cmd_overrides: &cmd_overrides,
+                            merged_settings,
+                            debug_logs,
+                            log_dir: log_dir.as_deref()
+                        };
+
+                        let data = PushProfileData {
+                            check_sigs,
+                            repo: &repo,
+                            deploy_data: &deploy_data,
+                            deploy_defs: &deploy_defs,
+                            keep_result,
+                            result_path: result_path.as_deref(),
+                            extra_build_args: &extra_build_args,
+                            supports_flakes: true,
+                        };
+
+                        deploy::push::push_profile(&data).await
+                    });
+                    push_futures.push(handle);
+                }
+                build_results.push(res);
             }
 
+            let push_results = join_all(push_futures).await;
 
-            // push all profiles asynchronously
-            join_all(local_builds.into_iter().map(|data| async {
-                let data = data;
-                deploy::push::push_profile(&data).await
-            })).await;
-            Ok(())
+            (build_results, push_results)
         }
     ).map_err(|e| {
         RunDeployError::BuildProfile(node_name, e)
     })?;
 
+    for result in local_results.0 {
+        match result {
+            Err(e) => {
+                error!("failed building profile locally: {:?}", e);
+                return Err(RunDeployError::PushProfile(e));
+            },
+            _ => (),
+        }
+    }
+
+    for result in local_results.1 {
+        match result {
+            Err(e) => panic!("failed to join future: {}, please open a bug report", e),
+            Ok(Err(e)) => {
+                error!("failed pushing profile: {:?}", e);
+                return Err(RunDeployError::PushProfile(e));
+            },
+            _ => (),
+        }
+    }
+
+    for result in remote_results {
+        match result {
+            Err((host, profile, e)) => {
+                error!("failed building profile {} on host {}: {:?}", profile, host, e);
+                return Err(RunDeployError::PushProfile(e));
+            },
+            _ => (),
+        }
+    }
 
     let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
 
@@ -756,9 +842,3 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     Ok(())
 }
 
-async fn deploy_profiles_to_host<'a>((_host, profiles): (&str, Vec<&'a PushProfileData<'a>>)) -> Result<(), PushProfileError> {
-    for profile in &profiles {
-        deploy::push::build_profile(profile).await?;
-    };
-    Ok(())
-}
