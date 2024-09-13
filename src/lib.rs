@@ -316,18 +316,20 @@ fn test_parse_flake() {
 }
 
 #[derive(Debug, Clone)]
-pub struct DeployData<'a> {
-    pub node_name: &'a str,
-    pub node: &'a data::Node,
-    pub profile_name: &'a str,
-    pub profile: &'a data::Profile,
+pub struct DeployData {
+    pub node_name: String,
+    pub node: data::Node,
+    pub profile_name: String,
+    pub profile: data::Profile,
 
-    pub cmd_overrides: &'a CmdOverrides,
+    pub cmd_overrides: CmdOverrides,
 
     pub merged_settings: data::GenericSettings,
 
     pub debug_logs: bool,
-    pub log_dir: Option<&'a str>,
+    pub log_dir: Option<String>,
+
+    pub progressbar: Option<indicatif::ProgressBar>,
 }
 
 #[derive(Debug, Clone)]
@@ -353,8 +355,8 @@ pub enum DeployDataDefsError {
     NoProfileUser(String, String),
 }
 
-impl<'a> DeployData<'a> {
-    pub fn defs(&'a self) -> Result<DeployDefs, DeployDataDefsError> {
+impl DeployData {
+    pub fn defs(&self) -> Result<DeployDefs, DeployDataDefsError> {
         let ssh_user = match self.merged_settings.ssh_user {
             Some(ref u) => u.clone(),
             None => whoami::username(),
@@ -375,7 +377,7 @@ impl<'a> DeployData<'a> {
         })
     }
 
-    fn get_profile_user(&'a self) -> Result<String, DeployDataDefsError> {
+    fn get_profile_user(&self) -> Result<String, DeployDataDefsError> {
         let profile_user = match self.merged_settings.user {
             Some(ref x) => x.clone(),
             None => match self.merged_settings.ssh_user {
@@ -391,14 +393,14 @@ impl<'a> DeployData<'a> {
         Ok(profile_user)
     }
 
-    fn get_sudo(&'a self) -> String {
+    fn get_sudo(&self) -> String {
         match self.merged_settings.sudo {
             Some(ref x) => x.clone(),
             None => "sudo -u".to_string(),
         }
     }
 
-    fn get_profile_info(&'a self) -> Result<ProfileInfo, DeployDataDefsError> {
+    fn get_profile_info(&self) -> Result<ProfileInfo, DeployDataDefsError> {
         match self.profile.profile_settings.profile_path {
             Some(ref profile_path) => Ok(ProfileInfo::ProfilePath { profile_path: profile_path.to_string() }),
             None => {
@@ -409,16 +411,16 @@ impl<'a> DeployData<'a> {
     }
 }
 
-pub fn make_deploy_data<'a, 's>(
-    top_settings: &'s data::GenericSettings,
-    node: &'a data::Node,
-    node_name: &'a str,
-    profile: &'a data::Profile,
-    profile_name: &'a str,
-    cmd_overrides: &'a CmdOverrides,
+pub fn make_deploy_data(
+    top_settings: &data::GenericSettings,
+    node: &data::Node,
+    node_name: String,
+    profile: &data::Profile,
+    profile_name: String,
+    cmd_overrides: &CmdOverrides,
     debug_logs: bool,
-    log_dir: Option<&'a str>,
-) -> DeployData<'a> {
+    log_dir: Option<String>,
+) -> DeployData {
     let mut merged_settings = profile.generic_settings.clone();
     merged_settings.merge(node.generic_settings.clone());
     merged_settings.merge(top_settings.clone());
@@ -457,12 +459,13 @@ pub fn make_deploy_data<'a, 's>(
 
     DeployData {
         node_name,
-        node,
+        node: node.clone(),
         profile_name,
-        profile,
-        cmd_overrides,
+        profile: profile.clone(),
+        cmd_overrides: cmd_overrides.clone(),
         merged_settings,
         debug_logs,
         log_dir,
+        progressbar: None
     }
 }
