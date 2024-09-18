@@ -622,7 +622,7 @@ async fn run_deploy(
     let remote_mp = mp.clone();
     let new_spinner = || ProgressBar::new_spinner().with_style(ProgressStyle::with_template("{spinner:.blue} {prefix} {msg}").expect("invalid template").tick_strings(&["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"]));
 
-    let (_remote_results, local_results) = join!(
+    let (remote_results, local_results) = join!(
         // remote builds can be run asynchronously
         async move {
             let mut set = JoinSet::new();
@@ -634,6 +634,8 @@ async fn run_deploy(
                 pb.enable_steady_tick(Duration::from_millis(80));
 
                 set.spawn(async move {
+                    let mut res = Ok(());
+
                     // build profile in order, one after the other
                     for mut profile in profiles {
                         let nodename = profile.deploy_data.node_name.clone();
@@ -643,12 +645,25 @@ async fn run_deploy(
                         profile.deploy_data.progressbar = Some(pb.clone());
 
                         info!("starting build of profile {} on node {}", profilename, nodename);
-                        deploy::push::build_profile(&profile).await.map_err(|e| { RunDeployError::BuildProfile(profilename.to_string(), nodename.to_string(), e) }).unwrap();
+
+                        res = deploy::push::build_profile(&profile).await.map_err(|e| { RunDeployError::BuildProfile(profilename.to_string(), nodename.to_string(), e) });
+                        if !res.is_ok() {
+                            break;
+                        }
                     }
 
-                    // TODO set pb style to checkmark then tick once to redraw, set message to done and finish with message "Done!"
-                    // also handle the error case -> set pb style to "X" and finish with message "Error!"
-                    pb.finish_with_message("Done!");
+                    match res {
+                        Ok(()) => {
+                            // TODO set style to checkmark
+                            pb.finish_with_message("Done!");
+                        },
+                        Err(ref e) => {
+                            // TODO set style to red X
+                            pb.finish_with_message(format!("Error: {}", e.to_string()))
+                        }
+                    }
+
+                    res
                 });
             }
 
@@ -671,31 +686,42 @@ async fn run_deploy(
                     .await
                     .map_err(|e| RunDeployError::BuildProfile(profile_name.clone(), node_name.clone(), e));
 
-                if res.is_ok() {
-                    data.deploy_data.progressbar = Some(pb.clone());
-
-                    set.spawn(async move {
-                        let data = data.clone();
-                        pb.set_prefix(format!("Pushing profile '{}' to host '{}'", profile_name, node_name));
-                        let res = deploy::push::push_profile(&data).await.map_err(|e| RunDeployError::PushProfile(profile_name, node_name, e));
-                        pb.finish_with_message("done");
-                        res
-                    });
-                } else {
-                    pb.finish_with_message("failed");
+                match res {
+                    Ok(()) => {
+                        data.deploy_data.progressbar = Some(pb.clone());
+                        set.spawn(async move {
+                            let data = data.clone();
+                            pb.set_prefix(format!("Pushing profile '{}' to host '{}'", profile_name, node_name));
+                            let res = deploy::push::push_profile(&data).await.map_err(|e| RunDeployError::PushProfile(profile_name, node_name, e));
+                            match res {
+                                Ok(()) => {
+                                    // TODO set style to checkmark
+                                    pb.finish_with_message("Done!");
+                                },
+                                Err(ref e) => {
+                                    // TODO set style to red X
+                                    pb.finish_with_message(format!("Error: {}", e.to_string()))
+                                }
+                            }
+                            res
+                        });
+                    },
+                    Err(ref e) => {
+                        // TODO set style to red X
+                        pb.finish_with_message(format!("Error: {}", e.to_string()));
+                    }
                 }
-
-                // TODO else block; communicate that the build failed
             }
             set.join_all().await
         }
     );
 
-    //for result in remote_results { result? }
+    // stop here if any build or push + build failed
+    for result in remote_results { result? }
     for result in local_results { result? }
 
-    // Run all deployments
-    // In case of an error rollback any previoulsy made deployment.
+    // Run all activations
+    // In case of an error, rollback any previoulsy made deployment.
     // Rollbacks adhere to the global seeting to auto_rollback and secondary
     // the profile's configuration
     let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
