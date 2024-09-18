@@ -4,6 +4,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use indicatif::MultiProgress;
 use rnix::{types::*, SyntaxKind::*};
 
 use merge::Merge;
@@ -101,11 +102,63 @@ pub enum LoggerType {
     Revoke,
 }
 
+use log::Log;
+
+pub struct LogWrapper {
+    bar: MultiProgress,
+    log: Box<dyn Log>,
+}
+
+impl LogWrapper {
+    pub fn new(bar: MultiProgress, log: Box<dyn Log>) -> Self {
+        Self { bar, log }
+    }
+
+    pub fn try_init(self) -> Result<(), log::SetLoggerError> {
+        use log::LevelFilter::*;
+        let levels = [Off, Error, Warn, Info, Debug, Trace];
+
+        for level_filter in levels.iter().rev() {
+            let level = if let Some(level) = level_filter.to_level() {
+                level
+            } else {
+                continue;
+            };
+            let meta = log::Metadata::builder().level(level).build();
+            if self.enabled(&meta) {
+                log::set_max_level(*level_filter);
+                break;
+            }
+        }
+
+        log::set_boxed_logger(Box::new(self))
+    }
+    pub fn multi(&self) -> MultiProgress {
+        self.bar.clone()
+    }
+}
+
+impl Log for LogWrapper {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        self.log.enabled(metadata)
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.log.enabled(record.metadata()) {
+            self.bar.suspend(|| self.log.log(record))
+        }
+    }
+
+    fn flush(&self) {
+        self.log.flush()
+    }
+}
+
 pub fn init_logger(
     debug_logs: bool,
     log_dir: Option<&str>,
     logger_type: &LoggerType,
-) -> Result<(), FlexiLoggerError> {
+) -> Result<(MultiProgress, ReconfigurationHandle), FlexiLoggerError> {
     let logger_formatter = match &logger_type {
         LoggerType::Deploy => logger_formatter_deploy,
         LoggerType::Activate => logger_formatter_activate,
@@ -113,7 +166,7 @@ pub fn init_logger(
         LoggerType::Revoke => logger_formatter_revoke,
     };
 
-    if let Some(log_dir) = log_dir {
+    let (logger, handle) = if let Some(log_dir) = log_dir {
         let mut logger = Logger::with_env_or_str("debug")
             .log_to_file()
             .format_for_stderr(logger_formatter)
@@ -132,7 +185,7 @@ pub fn init_logger(
             LoggerType::Deploy => (),
         }
 
-        logger.start()?;
+        logger.build()?
     } else {
         Logger::with_env_or_str(match debug_logs {
             true => "debug",
@@ -141,10 +194,13 @@ pub fn init_logger(
         .log_target(LogTarget::StdErr)
         .format(logger_formatter)
         .set_palette("196;208;51;7;8".to_string())
-        .start()?;
-    }
+        .build()?
+    };
 
-    Ok(())
+    let multi = MultiProgress::new();
+    LogWrapper::new(multi.clone(), logger).try_init().unwrap();
+
+    Ok((multi, handle))
 }
 
 pub mod cli;

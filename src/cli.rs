@@ -431,6 +431,7 @@ async fn run_deploy(
     boot: bool,
     log_dir: &Option<String>,
     rollback_succeeded: bool,
+    mp: MultiProgress,
 ) -> Result<(), RunDeployError> {
     let to_deploy: ToDeploy = deploy_flakes
         .iter()
@@ -618,9 +619,8 @@ async fn run_deploy(
             });
 
     // show progress information
-    let mp = MultiProgress::new();
     let remote_mp = mp.clone();
-    let new_spinner = || ProgressBar::new_spinner().with_style(ProgressStyle::with_template("{spinner:.blue} {prefix} {msg}").unwrap().tick_strings(&["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"]));
+    let new_spinner = || ProgressBar::new_spinner().with_style(ProgressStyle::with_template("{spinner:.blue} {prefix} {msg}").expect("invalid template").tick_strings(&["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"]));
 
     let (_remote_results, local_results) = join!(
         // remote builds can be run asynchronously
@@ -765,7 +765,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         None => Opts::parse(),
     };
 
-    deploy::init_logger(
+    let (mp, _handle) = deploy::init_logger(
         opts.debug_logs,
         opts.log_dir.as_deref(),
         &deploy::LoggerType::Deploy,
@@ -830,6 +830,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         opts.boot,
         &opts.log_dir,
         opts.rollback_succeeded.unwrap_or(true),
+        mp
     )
     .await?;
 
