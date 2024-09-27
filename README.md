@@ -197,6 +197,10 @@ This is a set of options that can be put in any of the above definitions, with t
   # This will default to "sudo -u" if not specified anywhere.
   sudo = "doas -u";
 
+  # Whether to enable interactive sudo (password based sudo). Useful when using non-root sshUsers.
+  # This defaults to `false`
+  interactiveSudo = false;
+
   # This is an optional list of arguments that will be passed to SSH.
   sshOpts = [ "-p" "2121" ];
 
