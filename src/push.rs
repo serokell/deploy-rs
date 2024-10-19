@@ -322,9 +322,11 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
             None => &data.deploy_data.node.node_settings.hostname,
         };
 
+        let compress = data.deploy_data.merged_settings.compress.unwrap_or_else(|| false);
+
         let copy_exit_status = copy_command
             .arg("--to")
-            .arg(format!("ssh://{}@{}", data.deploy_defs.ssh_user, hostname))
+            .arg(format!("ssh://{}@{}?compress={}", data.deploy_defs.ssh_user, hostname, compress))
             .arg(&data.deploy_data.profile.profile_settings.path)
             .env("NIX_SSHOPTS", ssh_opts_str)
             .status()

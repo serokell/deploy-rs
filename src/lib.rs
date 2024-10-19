@@ -157,6 +157,7 @@ pub struct CmdOverrides {
     pub ssh_user: Option<String>,
     pub profile_user: Option<String>,
     pub ssh_opts: Option<String>,
+    pub compress: Option<bool>,
     pub fast_connection: Option<bool>,
     pub auto_rollback: Option<bool>,
     pub hostname: Option<String>,
@@ -438,6 +439,9 @@ pub fn make_deploy_data<'a, 's>(
     }
     if let Some(fast_connection) = cmd_overrides.fast_connection {
         merged_settings.fast_connection = Some(fast_connection);
+    }
+    if let Some(compress) = cmd_overrides.compress {
+        merged_settings.compress = Some(compress);
     }
     if let Some(auto_rollback) = cmd_overrides.auto_rollback {
         merged_settings.auto_rollback = Some(auto_rollback);
