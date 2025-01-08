@@ -13,8 +13,8 @@ use tokio::process::Command;
 pub enum PushProfileError {
     #[error("Failed to run Nix show-derivation command: {0}")]
     ShowDerivation(std::io::Error),
-    #[error("Nix show-derivation command resulted in a bad exit code: {0:?}")]
-    ShowDerivationExit(Option<i32>),
+    #[error("Nix show-derivation command resulted in a bad exit code: {0:?}. The failed command is provided below:\n{1}")]
+    ShowDerivationExit(Option<i32>, String),
     #[error("Nix show-derivation command output contained an invalid UTF-8 sequence: {0}")]
     ShowDerivationUtf8(std::str::Utf8Error),
     #[error("Failed to parse the output of nix show-derivation: {0}")]
@@ -23,8 +23,8 @@ pub enum PushProfileError {
     ShowDerivationEmpty,
     #[error("Failed to run Nix build command: {0}")]
     Build(std::io::Error),
-    #[error("Nix build command resulted in a bad exit code: {0:?}")]
-    BuildExit(Option<i32>),
+    #[error("Nix build command resulted in a bad exit code: {0:?}. The failed command is provided below:\n{1}")]
+    BuildExit(Option<i32>, String),
     #[error(
         "Activation script deploy-rs-activate does not exist in profile.\n\
              Did you forget to use deploy-rs#lib.<...>.activate.<...> on your profile path?"
@@ -35,12 +35,12 @@ pub enum PushProfileError {
     ActivateRsDoesntExist,
     #[error("Failed to run Nix sign command: {0}")]
     Sign(std::io::Error),
-    #[error("Nix sign command resulted in a bad exit code: {0:?}")]
-    SignExit(Option<i32>),
+    #[error("Nix sign command resulted in a bad exit code: {0:?}. The failed command is provided below:\n{1}")]
+    SignExit(Option<i32>, String),
     #[error("Failed to run Nix copy command: {0}")]
     Copy(std::io::Error),
-    #[error("Nix copy command resulted in a bad exit code: {0:?}")]
-    CopyExit(Option<i32>),
+    #[error("Nix copy command resulted in a bad exit code: {0:?}. The failed command is provided below:\n{1}")]
+    CopyExit(Option<i32>, String),
     #[error("The remote building option is not supported when using legacy nix")]
     RemoteBuildWithLegacyNix,
 
@@ -101,7 +101,7 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
 
     match build_exit_status.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::BuildExit(a)),
+        a => return Err(PushProfileError::BuildExit(a,format!("{:?}", build_command))),
     };
 
     if !Path::new(
@@ -134,19 +134,21 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
             data.deploy_data.profile_name, data.deploy_data.node_name
         );
 
-        let sign_exit_status = Command::new("nix")
+        let mut sign_command = Command::new("nix");
+        sign_command
             .arg("sign-paths")
             .arg("-r")
             .arg("-k")
             .arg(local_key)
-            .arg(&data.deploy_data.profile.profile_settings.path)
+            .arg(&data.deploy_data.profile.profile_settings.path);
+        let sign_exit_status = sign_command
             .status()
             .await
             .map_err(PushProfileError::Sign)?;
 
         match sign_exit_status.code() {
             Some(0) => (),
-            a => return Err(PushProfileError::SignExit(a)),
+            a => return Err(PushProfileError::SignExit(a, format!("{:?}", sign_command))),
         };
     }
     Ok(())
@@ -169,11 +171,15 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
 
 
     // copy the derivation to remote host so it can be built there
-    let copy_command_status = Command::new("nix").arg("copy")
+    let mut copy_command = Command::new("nix");
+    copy_command
+        .arg("copy")
         .arg("-s")  // fetch dependencies from substitures, not localhost
         .arg("--to").arg(&store_address)
         .arg("--derivation").arg(derivation_name)
         .env("NIX_SSHOPTS", ssh_opts_str.clone())
+        .stdout(Stdio::null());
+    let copy_command_status = copy_command
         .stdout(Stdio::null())
         .status()
         .await
@@ -181,7 +187,7 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
 
     match copy_command_status.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::CopyExit(a)),
+        a => return Err(PushProfileError::CopyExit(a, format!("{:?}", copy_command))),
     };
 
     let mut build_command = Command::new("nix");
@@ -203,7 +209,7 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
 
     match build_exit_status.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::BuildExit(a)),
+        a => return Err(PushProfileError::BuildExit(a,format!("{:?}", build_command))),
     };
 
 
@@ -230,7 +236,7 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
 
     match show_derivation_output.status.code() {
         Some(0) => (),
-        a => return Err(PushProfileError::ShowDerivationExit(a)),
+        a => return Err(PushProfileError::ShowDerivationExit(a, format!("{:?}", show_derivation_command))),
     };
 
     let derivation_info: HashMap<&str, serde_json::value::Value> = serde_json::from_str(
@@ -322,18 +328,19 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
             None => &data.deploy_data.node.node_settings.hostname,
         };
 
-        let copy_exit_status = copy_command
+        copy_command
             .arg("--to")
             .arg(format!("ssh://{}@{}", data.deploy_defs.ssh_user, hostname))
             .arg(&data.deploy_data.profile.profile_settings.path)
-            .env("NIX_SSHOPTS", ssh_opts_str)
+            .env("NIX_SSHOPTS", ssh_opts_str);
+        let copy_exit_status = copy_command
             .status()
             .await
             .map_err(PushProfileError::Copy)?;
 
         match copy_exit_status.code() {
             Some(0) => (),
-            a => return Err(PushProfileError::CopyExit(a)),
+            a => return Err(PushProfileError::CopyExit(a, format!("{:?}", copy_command))),
         };
     }
 

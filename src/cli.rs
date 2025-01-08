@@ -128,8 +128,8 @@ async fn test_flake_support() -> Result<bool, std::io::Error> {
 pub enum CheckDeploymentError {
     #[error("Failed to execute Nix checking command: {0}")]
     NixCheck(#[from] std::io::Error),
-    #[error("Nix checking command resulted in a bad exit code: {0:?}")]
-    NixCheckExit(Option<i32>),
+    #[error("Nix checking command resulted in a bad exit code: {0:?}. The failed command is provided below:\n{1}")]
+    NixCheckExit(Option<i32>, String),
 }
 
 async fn check_deployment(
@@ -158,7 +158,7 @@ async fn check_deployment(
 
     match check_status.code() {
         Some(0) => (),
-        a => return Err(CheckDeploymentError::NixCheckExit(a)),
+        a => return Err(CheckDeploymentError::NixCheckExit(a, format!("{:?}", check_command))),
     };
 
     Ok(())
@@ -170,8 +170,8 @@ pub enum GetDeploymentDataError {
     NixEval(std::io::Error),
     #[error("Failed to read output from evaluation: {0}")]
     NixEvalOut(std::io::Error),
-    #[error("Evaluation resulted in a bad exit code: {0:?}")]
-    NixEvalExit(Option<i32>),
+    #[error("Evaluation resulted in a bad exit code: {0:?}. The failed command is provided below:\n{1}")]
+    NixEvalExit(Option<i32>, String),
     #[error("Error converting evaluation output to utf8: {0}")]
     DecodeUtf8(#[from] std::string::FromUtf8Error),
     #[error("Error decoding the JSON from evaluation: {0}")]
@@ -190,14 +190,14 @@ async fn get_deployment_data(
 
     info!("Evaluating flake in {}", flake.repo);
 
-    let mut c = if supports_flakes {
+    let mut eval_command = if supports_flakes {
         Command::new("nix")
     } else {
         Command::new("nix-instantiate")
     };
 
     if supports_flakes {
-        c.arg("eval")
+        eval_command.arg("eval")
             .arg("--json")
             .arg(format!("{}#deploy", flake.repo))
             // We use --apply instead of --expr so that we don't have to deal with builtins.getFlake
@@ -205,7 +205,7 @@ async fn get_deployment_data(
         match (&flake.node, &flake.profile) {
             (Some(node), Some(profile)) => {
                 // Ignore all nodes and all profiles but the one we're evaluating
-                c.arg(format!(
+                eval_command.arg(format!(
                     r#"
                       deploy:
                       (deploy // {{
@@ -223,7 +223,7 @@ async fn get_deployment_data(
             }
             (Some(node), None) => {
                 // Ignore all nodes but the one we're evaluating
-                c.arg(format!(
+                eval_command.arg(format!(
                     r#"
                       deploy:
                       (deploy // {{
@@ -237,12 +237,12 @@ async fn get_deployment_data(
             }
             (None, None) => {
                 // We need to evaluate all profiles of all nodes anyway, so just do it strictly
-                c.arg("deploy: deploy")
+                eval_command.arg("deploy: deploy")
             }
             (None, Some(_)) => return Err(GetDeploymentDataError::ProfileNoNode),
         }
     } else {
-        c
+        eval_command
             .arg("--strict")
             .arg("--read-write-mode")
             .arg("--json")
@@ -251,9 +251,9 @@ async fn get_deployment_data(
             .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", flake.repo))
     };
 
-    c.args(extra_build_args);
+    eval_command.args(extra_build_args);
 
-    let build_child = c
+    let build_child = eval_command
         .stdout(Stdio::piped())
         .spawn()
         .map_err(GetDeploymentDataError::NixEval)?;
@@ -265,7 +265,7 @@ async fn get_deployment_data(
 
     match build_output.status.code() {
         Some(0) => (),
-        a => return Err(GetDeploymentDataError::NixEvalExit(a)),
+        a => return Err(GetDeploymentDataError::NixEvalExit(a, format!("{:?}", eval_command))),
     };
 
     let data_json = String::from_utf8(build_output.stdout)?;
