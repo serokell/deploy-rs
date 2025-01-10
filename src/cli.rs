@@ -262,7 +262,7 @@ async fn get_deployment_data(
     eval_command.args(extra_build_args);
 
     let build_output = eval_command
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .run()
         .await
         .map_err(GetDeploymentDataError::NixEval)?;

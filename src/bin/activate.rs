@@ -427,19 +427,21 @@ pub async fn activate(
             .arg(&profile_path)
             .arg("--set")
             .arg(&closure);
-        let nix_env_set_exit_status = nix_env_set_command
-            .status()
+        let nix_env_set_exit_output = nix_env_set_command
+            .output()
             .await
             .map_err(|err| {
                 ActivateError::SetProfile(command::CommandError::RunError(err))
             })?;
-        match nix_env_set_exit_status.code() {
+        match nix_env_set_exit_output.status.code() {
             Some(0) => (),
-            a => {
+            _exit_code => {
                 if auto_rollback && !dry_activate {
                     deactivate(&profile_path).await?;
                 }
-                return Err(ActivateError::SetProfile(command::CommandError::Exit(a, format!("{:?}", nix_env_set_command))));
+                return Err(ActivateError::SetProfile(
+                    command::CommandError::Exit(nix_env_set_exit_output, format!("{:?}", nix_env_set_command))
+                ));
             }
         };
     }
@@ -458,8 +460,8 @@ pub async fn activate(
         .env("DRY_ACTIVATE", if dry_activate { "1" } else { "0" })
         .env("BOOT", if boot { "1" } else { "0" })
         .current_dir(activation_location);
-    let activate_status = match activate_command
-        .status()
+    let activate_output = match activate_command
+        .output()
         .await
         .map_err(|err| {
             ActivateError::RunActivate(command::CommandError::RunError(err))
@@ -475,13 +477,15 @@ pub async fn activate(
     };
 
     if !dry_activate {
-        match activate_status.code() {
+        match activate_output.status.code() {
             Some(0) => (),
-            a => {
+            _exit_code => {
                 if auto_rollback {
                     deactivate(&profile_path).await?;
                 }
-                return Err(ActivateError::RunActivate(command::CommandError::Exit(a, format!("{:?}", activate_command))));
+                return Err(ActivateError::RunActivate(
+                    command::CommandError::Exit(activate_output, format!("{:?}", activate_command))
+                ));
             }
         };
 
