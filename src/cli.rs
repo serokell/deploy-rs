@@ -9,6 +9,7 @@ use std::io::{stdin, stdout, Write};
 use clap::{ArgMatches, Clap, FromArgMatches};
 
 use crate as deploy;
+use crate::command;
 
 use self::deploy::{DeployFlake, ParseFlakeError};
 use futures_util::stream::{StreamExt, TryStreamExt};
@@ -125,11 +126,18 @@ async fn test_flake_support() -> Result<bool, std::io::Error> {
 }
 
 #[derive(Error, Debug)]
+pub enum NixCheckError {}
+
+impl command::HasCommandError for NixCheckError {
+    fn title() -> String {
+        "Nix checking".to_string()
+    }
+}
+
+#[derive(Error, Debug)]
 pub enum CheckDeploymentError {
-    #[error("Failed to execute Nix checking command: {0}")]
-    NixCheck(#[from] std::io::Error),
-    #[error("Nix checking command resulted in a bad exit code: {0:?}. The failed command is provided below:\n{1}")]
-    NixCheckExit(Option<i32>, String),
+    #[error("{0}")]
+    NixCheck(#[from] command::CommandError<NixCheckError>),
 }
 
 async fn check_deployment(
@@ -140,8 +148,8 @@ async fn check_deployment(
     info!("Running checks for flake in {}", repo);
 
     let mut check_command = match supports_flakes {
-        true => Command::new("nix"),
-        false => Command::new("nix-build"),
+        true => command::Command::new("nix"),
+        false => command::Command::new("nix-build"),
     };
 
     if supports_flakes {
@@ -154,24 +162,24 @@ async fn check_deployment(
 
     check_command.args(extra_build_args);
 
-    let check_status = check_command.status().await?;
-
-    match check_status.code() {
-        Some(0) => (),
-        a => return Err(CheckDeploymentError::NixCheckExit(a, format!("{:?}", check_command))),
-    };
+    check_command.run().await.map_err(CheckDeploymentError::NixCheck)?;
 
     Ok(())
 }
 
 #[derive(Error, Debug)]
+pub enum NixEvalError {}
+
+impl command::HasCommandError for NixEvalError {
+    fn title() -> String {
+        "Nix eval".to_string()
+    }
+}
+
+#[derive(Error, Debug)]
 pub enum GetDeploymentDataError {
-    #[error("Failed to execute nix eval command: {0}")]
-    NixEval(std::io::Error),
-    #[error("Failed to read output from evaluation: {0}")]
-    NixEvalOut(std::io::Error),
-    #[error("Evaluation resulted in a bad exit code: {0:?}. The failed command is provided below:\n{1}")]
-    NixEvalExit(Option<i32>, String),
+    #[error("{0}")]
+    NixEval(#[from] command::CommandError<NixEvalError>),
     #[error("Error converting evaluation output to utf8: {0}")]
     DecodeUtf8(#[from] std::string::FromUtf8Error),
     #[error("Error decoding the JSON from evaluation: {0}")]
@@ -191,9 +199,9 @@ async fn get_deployment_data(
     info!("Evaluating flake in {}", flake.repo);
 
     let mut eval_command = if supports_flakes {
-        Command::new("nix")
+        command::Command::new("nix")
     } else {
-        Command::new("nix-instantiate")
+        command::Command::new("nix-instantiate")
     };
 
     if supports_flakes {
@@ -253,20 +261,11 @@ async fn get_deployment_data(
 
     eval_command.args(extra_build_args);
 
-    let build_child = eval_command
+    let build_output = eval_command
         .stdout(Stdio::piped())
-        .spawn()
-        .map_err(GetDeploymentDataError::NixEval)?;
-
-    let build_output = build_child
-        .wait_with_output()
+        .run()
         .await
-        .map_err(GetDeploymentDataError::NixEvalOut)?;
-
-    match build_output.status.code() {
-        Some(0) => (),
-        a => return Err(GetDeploymentDataError::NixEvalExit(a, format!("{:?}", eval_command))),
-    };
+        .map_err(GetDeploymentDataError::NixEval)?;
 
     let data_json = String::from_utf8(build_output.stdout)?;
 
