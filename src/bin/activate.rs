@@ -154,7 +154,7 @@ pub enum ReactivateError {}
 
 impl command::HasCommandError for ReactivateError {
     fn title() -> String {
-        "Nix reactive last generation".to_string()
+        "Nix reactivate last generation".to_string()
     }
 }
 
