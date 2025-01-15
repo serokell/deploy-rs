@@ -9,6 +9,7 @@ use std::io::{stdin, stdout, Write};
 use clap::{ArgMatches, Clap, FromArgMatches};
 
 use crate as deploy;
+use crate::command;
 
 use self::deploy::{DeployFlake, ParseFlakeError};
 use futures_util::stream::{StreamExt, TryStreamExt};
@@ -125,11 +126,18 @@ async fn test_flake_support() -> Result<bool, std::io::Error> {
 }
 
 #[derive(Error, Debug)]
+pub enum NixCheckError {}
+
+impl command::HasCommandError for NixCheckError {
+    fn title() -> String {
+        "Nix checking".to_string()
+    }
+}
+
+#[derive(Error, Debug)]
 pub enum CheckDeploymentError {
-    #[error("Failed to execute Nix checking command: {0}")]
-    NixCheck(#[from] std::io::Error),
-    #[error("Nix checking command resulted in a bad exit code: {0:?}")]
-    NixCheckExit(Option<i32>),
+    #[error("{0}")]
+    NixCheck(#[from] command::CommandError<NixCheckError>),
 }
 
 async fn check_deployment(
@@ -154,24 +162,24 @@ async fn check_deployment(
 
     check_command.args(extra_build_args);
 
-    let check_status = check_command.status().await?;
-
-    match check_status.code() {
-        Some(0) => (),
-        a => return Err(CheckDeploymentError::NixCheckExit(a)),
-    };
+    command::Command::new(check_command).run().await.map_err(CheckDeploymentError::NixCheck)?;
 
     Ok(())
 }
 
 #[derive(Error, Debug)]
+pub enum NixEvalError {}
+
+impl command::HasCommandError for NixEvalError {
+    fn title() -> String {
+        "Nix eval".to_string()
+    }
+}
+
+#[derive(Error, Debug)]
 pub enum GetDeploymentDataError {
-    #[error("Failed to execute nix eval command: {0}")]
-    NixEval(std::io::Error),
-    #[error("Failed to read output from evaluation: {0}")]
-    NixEvalOut(std::io::Error),
-    #[error("Evaluation resulted in a bad exit code: {0:?}")]
-    NixEvalExit(Option<i32>),
+    #[error("{0}")]
+    NixEval(#[from] command::CommandError<NixEvalError>),
     #[error("Error converting evaluation output to utf8: {0}")]
     DecodeUtf8(#[from] std::string::FromUtf8Error),
     #[error("Error decoding the JSON from evaluation: {0}")]
@@ -190,14 +198,14 @@ async fn get_deployment_data(
 
     info!("Evaluating flake in {}", flake.repo);
 
-    let mut c = if supports_flakes {
+    let mut eval_command = if supports_flakes {
         Command::new("nix")
     } else {
         Command::new("nix-instantiate")
     };
 
     if supports_flakes {
-        c.arg("eval")
+        eval_command.arg("eval")
             .arg("--json")
             .arg(format!("{}#deploy", flake.repo))
             // We use --apply instead of --expr so that we don't have to deal with builtins.getFlake
@@ -205,7 +213,7 @@ async fn get_deployment_data(
         match (&flake.node, &flake.profile) {
             (Some(node), Some(profile)) => {
                 // Ignore all nodes and all profiles but the one we're evaluating
-                c.arg(format!(
+                eval_command.arg(format!(
                     r#"
                       deploy:
                       (deploy // {{
@@ -223,7 +231,7 @@ async fn get_deployment_data(
             }
             (Some(node), None) => {
                 // Ignore all nodes but the one we're evaluating
-                c.arg(format!(
+                eval_command.arg(format!(
                     r#"
                       deploy:
                       (deploy // {{
@@ -237,12 +245,12 @@ async fn get_deployment_data(
             }
             (None, None) => {
                 // We need to evaluate all profiles of all nodes anyway, so just do it strictly
-                c.arg("deploy: deploy")
+                eval_command.arg("deploy: deploy")
             }
             (None, Some(_)) => return Err(GetDeploymentDataError::ProfileNoNode),
         }
     } else {
-        c
+        eval_command
             .arg("--strict")
             .arg("--read-write-mode")
             .arg("--json")
@@ -251,22 +259,14 @@ async fn get_deployment_data(
             .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", flake.repo))
     };
 
-    c.args(extra_build_args);
+    eval_command
+        .args(extra_build_args)
+        .stdout(Stdio::null());
 
-    let build_child = c
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(GetDeploymentDataError::NixEval)?;
-
-    let build_output = build_child
-        .wait_with_output()
+    let build_output = command::Command::new(eval_command)
+        .run()
         .await
-        .map_err(GetDeploymentDataError::NixEvalOut)?;
-
-    match build_output.status.code() {
-        Some(0) => (),
-        a => return Err(GetDeploymentDataError::NixEvalExit(a)),
-    };
+        .map_err(GetDeploymentDataError::NixEval)?;
 
     let data_json = String::from_utf8(build_output.stdout)?;
 

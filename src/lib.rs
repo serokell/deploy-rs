@@ -148,6 +148,7 @@ pub fn init_logger(
 }
 
 pub mod cli;
+pub mod command;
 pub mod data;
 pub mod deploy;
 pub mod push;
