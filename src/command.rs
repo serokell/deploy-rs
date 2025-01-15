@@ -1,7 +1,5 @@
-use std::ffi::OsStr;
 use std::fmt;
 use std::fmt::Debug;
-use std::future::Future;
 use thiserror::Error;
 use tokio::process::Command as TokioCommand;
 
@@ -48,65 +46,8 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn new<S: AsRef<OsStr>>(program: S) -> Command {
-        Command {
-            command: TokioCommand::new(program),
-        }
-    }
-
-    pub fn arg<S: AsRef<OsStr>>(&mut self, arg: S) -> &mut Command {
-        self.command.arg(arg);
-        self
-    }
-
-    pub fn args<I, S>(&mut self, args: I) -> &mut Command
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
-    {
-        self.command.args(args);
-        self
-    }
-
-    pub fn env<K, V>(&mut self, key: K, val: V) -> &mut Command
-    where
-        K: AsRef<OsStr>,
-        V: AsRef<OsStr>,
-    {
-        self.command.env(key, val);
-        self
-    }
-
-    pub fn output(&mut self) -> impl Future<Output = tokio::io::Result<std::process::Output>> {
-        self.command.output()
-    }
-
-    pub fn current_dir<P: AsRef<std::path::Path>>(&mut self, dir: P) -> &mut Command {
-        self.command.current_dir(dir);
-        self
-    }
-
-    pub fn stdin<T: Into<std::process::Stdio>>(&mut self, cfg: T) -> &mut Command {
-        self.command.stdin(cfg);
-        self
-    }
-
-    pub fn stdout<T: Into<std::process::Stdio>>(&mut self, cfg: T) -> &mut Command {
-        self.command.stdout(cfg);
-        self
-    }
-
-    pub fn stderr<T: Into<std::process::Stdio>>(&mut self, cfg: T) -> &mut Command {
-        self.command.stderr(cfg);
-        self
-    }
-
-    pub fn spawn(&mut self) -> std::io::Result<tokio::process::Child> {
-        self.command.spawn()
-    }
-
-    pub fn status(&mut self) -> impl Future<Output = tokio::io::Result<std::process::ExitStatus>> {
-        self.command.status()
+    pub fn new(command: TokioCommand) -> Command {
+        Command { command }
     }
 
     pub async fn run<T: fmt::Debug + fmt::Display + HasCommandError>(

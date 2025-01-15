@@ -148,8 +148,8 @@ async fn check_deployment(
     info!("Running checks for flake in {}", repo);
 
     let mut check_command = match supports_flakes {
-        true => command::Command::new("nix"),
-        false => command::Command::new("nix-build"),
+        true => Command::new("nix"),
+        false => Command::new("nix-build"),
     };
 
     if supports_flakes {
@@ -162,7 +162,7 @@ async fn check_deployment(
 
     check_command.args(extra_build_args);
 
-    check_command.run().await.map_err(CheckDeploymentError::NixCheck)?;
+    command::Command::new(check_command).run().await.map_err(CheckDeploymentError::NixCheck)?;
 
     Ok(())
 }
@@ -199,9 +199,9 @@ async fn get_deployment_data(
     info!("Evaluating flake in {}", flake.repo);
 
     let mut eval_command = if supports_flakes {
-        command::Command::new("nix")
+        Command::new("nix")
     } else {
-        command::Command::new("nix-instantiate")
+        Command::new("nix-instantiate")
     };
 
     if supports_flakes {
@@ -259,10 +259,11 @@ async fn get_deployment_data(
             .arg(format!("let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy", flake.repo))
     };
 
-    eval_command.args(extra_build_args);
+    eval_command
+        .args(extra_build_args)
+        .stdout(Stdio::null());
 
-    let build_output = eval_command
-        .stdout(Stdio::null())
+    let build_output = command::Command::new(eval_command)
         .run()
         .await
         .map_err(GetDeploymentDataError::NixEval)?;

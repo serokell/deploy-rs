@@ -7,7 +7,7 @@
 use log::{debug, info, trace};
 use std::path::Path;
 use thiserror::Error;
-use tokio::io::AsyncWriteExt;
+use tokio::{io::AsyncWriteExt, process::Command};
 
 use crate::{command, DeployDataDefsError, DeployDefs, ProfileInfo};
 
@@ -282,7 +282,7 @@ pub async fn confirm_profile(
     temp_path: &Path,
     ssh_addr: &str,
 ) -> Result<(), ConfirmProfileError> {
-    let mut ssh_confirm_command = command::Command::new("ssh");
+    let mut ssh_confirm_command = Command::new("ssh");
     ssh_confirm_command
         .arg(ssh_addr)
         .stdin(std::process::Stdio::piped());
@@ -424,7 +424,7 @@ pub async fn deploy_profile(
 
     let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
 
-    let mut ssh_activate_command = command::Command::new("ssh");
+    let mut ssh_activate_command = Command::new("ssh");
     ssh_activate_command
         .arg(&ssh_addr)
         .stdin(std::process::Stdio::piped());
@@ -509,7 +509,7 @@ pub async fn deploy_profile(
 
         info!("Creating activation waiter");
 
-        let mut ssh_wait_command = command::Command::new("ssh");
+        let mut ssh_wait_command = Command::new("ssh");
         ssh_wait_command
             .arg(&ssh_addr)
             .stdin(std::process::Stdio::piped());
@@ -631,7 +631,7 @@ pub async fn revoke(
 
     let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
 
-    let mut ssh_activate_command = command::Command::new("ssh");
+    let mut ssh_activate_command = Command::new("ssh");
     ssh_activate_command
         .arg(&ssh_addr)
         .stdin(std::process::Stdio::piped());

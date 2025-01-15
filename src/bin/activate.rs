@@ -9,6 +9,7 @@ use signal_hook::{consts::signal::SIGHUP, iterator::Signals};
 use clap::Clap;
 
 use tokio::fs;
+use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
@@ -175,23 +176,24 @@ pub enum DeactivateError {
 pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
     warn!("De-activating due to error");
 
-    let mut nix_env_rollback_command = command::Command::new("nix-env");
+    let mut nix_env_rollback_command = Command::new("nix-env");
     nix_env_rollback_command
         .arg("-p")
         .arg(&profile_path)
-        .arg("--rollback")
+        .arg("--rollback");
+    command::Command::new(nix_env_rollback_command)
         .run()
         .await
         .map_err(DeactivateError::Rollback)?;
 
     debug!("Listing generations");
 
-    let mut nix_env_list_generations_command = command::Command::new("nix-env");
+    let mut nix_env_list_generations_command = Command::new("nix-env");
     nix_env_list_generations_command
         .arg("-p")
         .arg(&profile_path)
         .arg("--list-generations");
-    let nix_env_list_generations_out = nix_env_list_generations_command
+    let nix_env_list_generations_out = command::Command::new(nix_env_list_generations_command)
         .run()
         .await
         .map_err(DeactivateError::ListGen)?;
@@ -212,22 +214,24 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
     debug!("Removing generation entry {}", last_generation_line);
     warn!("Removing generation by ID {}", last_generation_id);
 
-    let mut nix_env_delete_generation_command = command::Command::new("nix-env");
+    let mut nix_env_delete_generation_command = Command::new("nix-env");
     nix_env_delete_generation_command
         .arg("-p")
         .arg(&profile_path)
         .arg("--delete-generations")
-        .arg(last_generation_id)
+        .arg(last_generation_id);
+    command::Command::new(nix_env_delete_generation_command)
         .run()
         .await
         .map_err(DeactivateError::DeleteGen)?;
 
     info!("Attempting to re-activate the last generation");
 
-    let mut re_activate_command = command::Command::new(format!("{}/deploy-rs-activate", profile_path));
+    let mut re_activate_command = Command::new(format!("{}/deploy-rs-activate", profile_path));
     re_activate_command
         .env("PROFILE", &profile_path)
-        .current_dir(&profile_path)
+        .current_dir(&profile_path);
+    command::Command::new(re_activate_command)
         .run()
         .await
         .map_err(DeactivateError::Reactivate)?;
@@ -421,7 +425,7 @@ pub async fn activate(
 ) -> Result<(), ActivateError> {
     if !dry_activate {
         info!("Activating profile");
-        let mut nix_env_set_command = command::Command::new("nix-env");
+        let mut nix_env_set_command = Command::new("nix-env");
         nix_env_set_command
             .arg("-p")
             .arg(&profile_path)
@@ -454,7 +458,7 @@ pub async fn activate(
         &profile_path
     };
 
-    let mut activate_command = command::Command::new(format!("{}/deploy-rs-activate", activation_location));
+    let mut activate_command = Command::new(format!("{}/deploy-rs-activate", activation_location));
     activate_command
         .env("PROFILE", activation_location)
         .env("DRY_ACTIVATE", if dry_activate { "1" } else { "0" })

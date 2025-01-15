@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 use thiserror::Error;
+use tokio::process::Command;
 
 use crate::command;
 
@@ -104,9 +105,9 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
     );
 
     let mut build_command = if data.supports_flakes {
-        command::Command::new("nix")
+        Command::new("nix")
     } else {
-        command::Command::new("nix-build")
+        Command::new("nix-build")
     };
 
     if data.supports_flakes {
@@ -128,11 +129,12 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
         (false, true) => build_command.arg("--no-link"),
     };
 
-    build_command.args(data.extra_build_args);
-
     build_command
+        .args(data.extra_build_args)
         // Logging should be in stderr, this just stops the store path from printing for no reason
-        .stdout(Stdio::null())
+        .stdout(Stdio::null());
+
+    command::Command::new(build_command)
         .run()
         .await
         .map_err(PushProfileError::Build)?;
@@ -167,13 +169,14 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
             data.deploy_data.profile_name, data.deploy_data.node_name
         );
 
-        let mut sign_command = command::Command::new("nix");
+        let mut sign_command = Command::new("nix");
         sign_command
             .arg("sign-paths")
             .arg("-r")
             .arg("-k")
             .arg(local_key)
-            .arg(&data.deploy_data.profile.profile_settings.path)
+            .arg(&data.deploy_data.profile.profile_settings.path);
+        command::Command::new(sign_command)
             .run()
             .await
             .map_err(PushProfileError::Sign)?;
@@ -198,31 +201,32 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
 
 
     // copy the derivation to remote host so it can be built there
-    let mut copy_command = command::Command::new("nix");
+    let mut copy_command = Command::new("nix");
     copy_command
         .arg("copy")
         .arg("-s")  // fetch dependencies from substitures, not localhost
         .arg("--to").arg(&store_address)
         .arg("--derivation").arg(derivation_name)
         .env("NIX_SSHOPTS", ssh_opts_str.clone())
-        .stdout(Stdio::null())
+        .stdout(Stdio::null());
+    command::Command::new(copy_command)
         .run()
         .await
         .map_err(PushProfileError::Copy)?;
 
-    let mut build_command = command::Command::new("nix");
+    let mut build_command = Command::new("nix");
     build_command
         .arg("build").arg(derivation_name)
         .arg("--eval-store").arg("auto")
         .arg("--store").arg(&store_address)
         .args(data.extra_build_args)
-        .env("NIX_SSHOPTS", ssh_opts_str.clone());
+        .env("NIX_SSHOPTS", ssh_opts_str.clone())
+        // Logging should be in stderr, this just stops the store path from printing for no reason
+        .stdout(Stdio::null());
 
     debug!("build command: {:?}", build_command);
 
-    build_command
-        // Logging should be in stderr, this just stops the store path from printing for no reason
-        .stdout(Stdio::null())
+    command::Command::new(build_command)
         .run()
         .await
         .map_err(PushProfileError::Build)?;
@@ -237,13 +241,13 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
     );
 
     // `nix-store --query --deriver` doesn't work on invalid paths, so we parse output of show-derivation :(
-    let mut show_derivation_command = command::Command::new("nix");
+    let mut show_derivation_command = Command::new("nix");
 
     show_derivation_command
         .arg("show-derivation")
         .arg(&data.deploy_data.profile.profile_settings.path);
 
-    let show_derivation_output = show_derivation_command
+    let show_derivation_output = command::Command::new(show_derivation_command)
         .run()
         .await
         .map_err(PushProfileError::ShowDerivation)?;
@@ -278,11 +282,14 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
         deriver.to_owned()
     };
 
-    let path_info_output = command::Command::new("nix")
+    let mut path_info_command = Command::new("nix");
+    path_info_command
         .arg("--experimental-features").arg("nix-command")
         .arg("path-info")
-        .arg(&deriver)
-        .run().await
+        .arg(&deriver);
+    let path_info_output = command::Command::new(path_info_command)
+        .run()
+        .await
         .map_err(PushProfileError::PathInfo)?;
 
     let deriver = if std::str::from_utf8(&path_info_output.stdout).map(|s| s.trim()) == Ok(deriver) {
@@ -332,7 +339,7 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
             data.deploy_data.profile_name, data.deploy_data.node_name
         );
 
-        let mut copy_command = command::Command::new("nix");
+        let mut copy_command = Command::new("nix");
         copy_command.arg("copy");
 
         if data.deploy_data.merged_settings.fast_connection != Some(true) {
@@ -352,7 +359,8 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
             .arg("--to")
             .arg(format!("ssh://{}@{}", data.deploy_defs.ssh_user, hostname))
             .arg(&data.deploy_data.profile.profile_settings.path)
-            .env("NIX_SSHOPTS", ssh_opts_str)
+            .env("NIX_SSHOPTS", ssh_opts_str);
+        command::Command::new(copy_command)
             .run()
             .await
             .map_err(PushProfileError::Copy)?;
