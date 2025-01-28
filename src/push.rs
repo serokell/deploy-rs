@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use indicatif::ProgressBar;
 use log::{debug, info};
+use tokio::process::Child;
 use tokio_stream::wrappers::LinesStream;
 use std::collections::HashMap;
 use std::path::Path;
@@ -157,6 +159,19 @@ pub async fn build_profile_locally(data: &PushProfileData, derivation_name: &str
     Ok(())
 }
 
+async fn update_pb_with_child_output(pb: &ProgressBar, child: &mut Child) {
+    let stdout = child.stdout.take().expect("child did not have a stdout handle");
+    let stderr = child.stderr.take().expect("child did not have a stderr handle");
+
+    let stdout = LinesStream::new(BufReader::new(stdout).lines());
+    let stderr = LinesStream::new(BufReader::new(stderr).lines());
+    let mut merged = StreamExt::merge(stdout, stderr);
+
+    while let Some(line) = merged.next().await {
+        pb.set_message(line.expect("expected a valid line"));
+    }
+}
+
 pub async fn build_profile_remotely(data: &PushProfileData, derivation_name: &str) -> Result<(), PushProfileError> {
     info!(
         "Building profile `{}` for node `{}` on remote host",
@@ -187,16 +202,7 @@ pub async fn build_profile_remotely(data: &PushProfileData, derivation_name: &st
         let mut child = copy_command.stderr(Stdio::piped()).stdout(Stdio::piped()).spawn().expect("failed to spawn nix copy command");
 
         if let Some(pb) = &data.deploy_data.progressbar {
-            let stdout = child.stdout.take().expect("child did not have a stdout handle");
-            let stderr = child.stderr.take().expect("child did not have a stderr handle");
-
-            let stdout = LinesStream::new(BufReader::new(stdout).lines());
-            let stderr = LinesStream::new(BufReader::new(stderr).lines());
-            let mut merged = StreamExt::merge(stdout, stderr);
-
-            while let Some(line) = merged.next().await {
-                pb.set_message(line.expect("expected a valid line"));
-            }
+            update_pb_with_child_output(pb, &mut child).await;
         }
 
         child.wait().await.map_err(PushProfileError::Copy)?
@@ -225,16 +231,7 @@ pub async fn build_profile_remotely(data: &PushProfileData, derivation_name: &st
             .expect("failed to spawn nix build command");
 
         if let Some(pb) = &data.deploy_data.progressbar {
-            let stdout = child.stdout.take().expect("child did not have a stdout handle");
-            let stderr = child.stderr.take().expect("child did not have a stderr handle");
-
-            let stdout = LinesStream::new(BufReader::new(stdout).lines());
-            let stderr = LinesStream::new(BufReader::new(stderr).lines());
-            let mut merged = StreamExt::merge(stdout, stderr);
-
-            while let Some(line) = merged.next().await {
-                pb.set_message(line.expect("expected a valid line"));
-            }
+            update_pb_with_child_output(pb, &mut child).await;
         }
 
         child.wait().await.map_err(PushProfileError::Build)?

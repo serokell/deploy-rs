@@ -709,6 +709,10 @@ async fn run_deploy(
                     Err(ref e) => {
                         // TODO set style to red X
                         pb.finish_with_message(format!("Error: {}", e.to_string()));
+                        // "spawn" a future that just returns the error when building locally fails
+                        // this will ensure that the deployment is actually aborted in the error
+                        // handling code below
+                        set.spawn(async move { res });
                     }
                 }
             }
@@ -716,7 +720,7 @@ async fn run_deploy(
         }
     );
 
-    // stop here if any build or push + build failed
+    // abort here if any build + push or push + build failed
     for result in remote_results { result? }
     for result in local_results { result? }
 
