@@ -620,7 +620,10 @@ async fn run_deploy(
 
     // show progress information
     let remote_mp = mp.clone();
-    let new_spinner = || ProgressBar::new_spinner().with_style(ProgressStyle::with_template("{spinner:.blue} {prefix} {msg}").expect("invalid template").tick_strings(&["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"]));
+    let spinner_style = ProgressStyle::with_template("{spinner:.blue} {prefix} {msg}").expect("invalid template").tick_strings(&["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"]);
+    let finish_style = || ProgressStyle::with_template("✅ {prefix} {msg}").expect("invalid template");
+    let finish_style_error = || ProgressStyle::with_template("❌ {prefix} {msg}").expect("invalid template");
+    let new_spinner = || ProgressBar::new_spinner().with_style(spinner_style.clone());
 
     let (remote_results, local_results) = join!(
         // remote builds can be run asynchronously
@@ -654,11 +657,11 @@ async fn run_deploy(
 
                     match res {
                         Ok(()) => {
-                            // TODO set style to checkmark
+                            pb.set_style(finish_style());
                             pb.finish_with_message("Done!");
                         },
                         Err(ref e) => {
-                            // TODO set style to red X
+                            pb.set_style(finish_style_error());
                             pb.finish_with_message(format!("Error: {}", e.to_string()))
                         }
                     }
@@ -695,11 +698,11 @@ async fn run_deploy(
                             let res = deploy::push::push_profile(&data).await.map_err(|e| RunDeployError::PushProfile(profile_name, node_name, e));
                             match res {
                                 Ok(()) => {
-                                    // TODO set style to checkmark
+                                    pb.set_style(finish_style());
                                     pb.finish_with_message("Done!");
                                 },
                                 Err(ref e) => {
-                                    // TODO set style to red X
+                                    pb.set_style(finish_style_error());
                                     pb.finish_with_message(format!("Error: {}", e.to_string()))
                                 }
                             }
@@ -707,7 +710,7 @@ async fn run_deploy(
                         });
                     },
                     Err(ref e) => {
-                        // TODO set style to red X
+                        pb.set_style(finish_style_error());
                         pb.finish_with_message(format!("Error: {}", e.to_string()));
                         // "spawn" a future that just returns the error when building locally fails
                         // this will ensure that the deployment is actually aborted in the error
