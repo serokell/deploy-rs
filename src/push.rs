@@ -2,12 +2,18 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use indicatif::ProgressBar;
 use log::{debug, info};
+use tokio::process::Child;
+use tokio_stream::wrappers::LinesStream;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 use thiserror::Error;
 use tokio::process::Command;
+use tokio::io::AsyncBufReadExt;
+use tokio::io::BufReader;
+use tokio_stream::StreamExt;
 
 #[derive(Error, Debug)]
 pub enum PushProfileError {
@@ -48,18 +54,19 @@ pub enum PushProfileError {
     PathInfo(std::io::Error),
 }
 
-pub struct PushProfileData<'a> {
+#[derive(Clone)]
+pub struct PushProfileData {
     pub supports_flakes: bool,
     pub check_sigs: bool,
-    pub repo: &'a str,
-    pub deploy_data: &'a super::DeployData<'a>,
-    pub deploy_defs: &'a super::DeployDefs,
+    pub repo: String,
+    pub deploy_data: super::DeployData,
+    pub deploy_defs: super::DeployDefs,
     pub keep_result: bool,
-    pub result_path: Option<&'a str>,
-    pub extra_build_args: &'a [String],
+    pub result_path: Option<String>,
+    pub extra_build_args: Vec<String>,
 }
 
-pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: &str) -> Result<(), PushProfileError> {
+pub async fn build_profile_locally(data: &PushProfileData, derivation_name: &str) -> Result<(), PushProfileError> {
     info!(
         "Building profile `{}` for node `{}`",
         data.deploy_data.profile_name, data.deploy_data.node_name
@@ -79,7 +86,7 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
 
     match (data.keep_result, data.supports_flakes) {
         (true, _) => {
-            let result_path = data.result_path.unwrap_or("./.deploy-gc");
+            let result_path = data.result_path.clone().unwrap_or("./.deploy-gc".to_string());
 
             build_command.arg("--out-link").arg(format!(
                 "{}/{}/{}",
@@ -90,7 +97,7 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
         (false, true) => build_command.arg("--no-link"),
     };
 
-    build_command.args(data.extra_build_args);
+    build_command.args(data.extra_build_args.clone());
 
     let build_exit_status = build_command
         // Logging should be in stderr, this just stops the store path from printing for no reason
@@ -152,7 +159,20 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
     Ok(())
 }
 
-pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name: &str) -> Result<(), PushProfileError> {
+async fn update_pb_with_child_output(pb: &ProgressBar, child: &mut Child) {
+    let stdout = child.stdout.take().expect("child did not have a stdout handle");
+    let stderr = child.stderr.take().expect("child did not have a stderr handle");
+
+    let stdout = LinesStream::new(BufReader::new(stdout).lines());
+    let stderr = LinesStream::new(BufReader::new(stderr).lines());
+    let mut merged = StreamExt::merge(stdout, stderr);
+
+    while let Some(line) = merged.next().await {
+        pb.set_message(line.expect("expected a valid line"));
+    }
+}
+
+pub async fn build_profile_remotely(data: &PushProfileData, derivation_name: &str) -> Result<(), PushProfileError> {
     info!(
         "Building profile `{}` for node `{}` on remote host",
         data.deploy_data.profile_name, data.deploy_data.node_name
@@ -169,48 +189,63 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
 
 
     // copy the derivation to remote host so it can be built there
-    let copy_command_status = Command::new("nix").arg("copy")
-        .arg("-s")  // fetch dependencies from substitures, not localhost
-        .arg("--to").arg(&store_address)
-        .arg("--derivation").arg(derivation_name)
-        .env("NIX_SSHOPTS", ssh_opts_str.clone())
-        .stdout(Stdio::null())
-        .status()
-        .await
-        .map_err(PushProfileError::Copy)?;
+    let copy_command_status = {
+        let mut copy_command = Command::new("nix");
+        copy_command.arg("copy")
+            .arg("-s")  // fetch dependencies from substitures, not localhost
+            .arg("--to").arg(&store_address)
+            .arg("--derivation").arg(derivation_name)
+            .env("NIX_SSHOPTS", ssh_opts_str.clone());
+
+        debug!("copy command: {:?}", copy_command);
+
+        let mut child = copy_command.stderr(Stdio::piped()).stdout(Stdio::piped()).spawn().expect("failed to spawn nix copy command");
+
+        if let Some(pb) = &data.deploy_data.progressbar {
+            update_pb_with_child_output(pb, &mut child).await;
+        }
+
+        child.wait().await.map_err(PushProfileError::Copy)?
+    };
 
     match copy_command_status.code() {
         Some(0) => (),
         a => return Err(PushProfileError::CopyExit(a)),
     };
 
-    let mut build_command = Command::new("nix");
-    build_command
-        .arg("build").arg(derivation_name)
-        .arg("--eval-store").arg("auto")
-        .arg("--store").arg(&store_address)
-        .args(data.extra_build_args)
-        .env("NIX_SSHOPTS", ssh_opts_str.clone());
+    let build_exit_status = {
+        let mut build_command = Command::new("nix");
+        build_command
+            .arg("build").arg(derivation_name)
+            .arg("--eval-store").arg("auto")
+            .arg("--store").arg(&store_address)
+            .args(data.extra_build_args.clone())
+            .env("NIX_SSHOPTS", ssh_opts_str.clone());
 
-    debug!("build command: {:?}", build_command);
+        debug!("build command: {:?}", build_command);
 
-    let build_exit_status = build_command
-        // Logging should be in stderr, this just stops the store path from printing for no reason
-        .stdout(Stdio::null())
-        .status()
-        .await
-        .map_err(PushProfileError::Build)?;
+        let mut child = build_command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to spawn nix build command");
+
+        if let Some(pb) = &data.deploy_data.progressbar {
+            update_pb_with_child_output(pb, &mut child).await;
+        }
+
+        child.wait().await.map_err(PushProfileError::Build)?
+    };
 
     match build_exit_status.code() {
         Some(0) => (),
         a => return Err(PushProfileError::BuildExit(a)),
     };
 
-
     Ok(())
 }
 
-pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
+pub async fn build_profile(data: &PushProfileData) -> Result<(), PushProfileError> {
     debug!(
         "Finding the deriver of store path for {}",
         &data.deploy_data.profile.profile_settings.path
@@ -287,7 +322,7 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
     Ok(())
 }
 
-pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
+pub async fn push_profile(data: &PushProfileData) -> Result<(), PushProfileError> {
     let ssh_opts_str = data
         .deploy_data
         .merged_settings

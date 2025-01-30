@@ -4,6 +4,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
+use indicatif::MultiProgress;
 use rnix::{types::*, SyntaxKind::*};
 
 use merge::Merge;
@@ -101,11 +102,63 @@ pub enum LoggerType {
     Revoke,
 }
 
+use log::Log;
+
+pub struct LogWrapper {
+    bar: MultiProgress,
+    log: Box<dyn Log>,
+}
+
+impl LogWrapper {
+    pub fn new(bar: MultiProgress, log: Box<dyn Log>) -> Self {
+        Self { bar, log }
+    }
+
+    pub fn try_init(self) -> Result<(), log::SetLoggerError> {
+        use log::LevelFilter::*;
+        let levels = [Off, Error, Warn, Info, Debug, Trace];
+
+        for level_filter in levels.iter().rev() {
+            let level = if let Some(level) = level_filter.to_level() {
+                level
+            } else {
+                continue;
+            };
+            let meta = log::Metadata::builder().level(level).build();
+            if self.enabled(&meta) {
+                log::set_max_level(*level_filter);
+                break;
+            }
+        }
+
+        log::set_boxed_logger(Box::new(self))
+    }
+    pub fn multi(&self) -> MultiProgress {
+        self.bar.clone()
+    }
+}
+
+impl Log for LogWrapper {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        self.log.enabled(metadata)
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.log.enabled(record.metadata()) {
+            self.bar.suspend(|| self.log.log(record))
+        }
+    }
+
+    fn flush(&self) {
+        self.log.flush()
+    }
+}
+
 pub fn init_logger(
     debug_logs: bool,
     log_dir: Option<&str>,
     logger_type: &LoggerType,
-) -> Result<(), FlexiLoggerError> {
+) -> Result<(MultiProgress, ReconfigurationHandle), FlexiLoggerError> {
     let logger_formatter = match &logger_type {
         LoggerType::Deploy => logger_formatter_deploy,
         LoggerType::Activate => logger_formatter_activate,
@@ -113,7 +166,7 @@ pub fn init_logger(
         LoggerType::Revoke => logger_formatter_revoke,
     };
 
-    if let Some(log_dir) = log_dir {
+    let (logger, handle) = if let Some(log_dir) = log_dir {
         let mut logger = Logger::with_env_or_str("debug")
             .log_to_file()
             .format_for_stderr(logger_formatter)
@@ -132,7 +185,7 @@ pub fn init_logger(
             LoggerType::Deploy => (),
         }
 
-        logger.start()?;
+        logger.build()?
     } else {
         Logger::with_env_or_str(match debug_logs {
             true => "debug",
@@ -141,10 +194,13 @@ pub fn init_logger(
         .log_target(LogTarget::StdErr)
         .format(logger_formatter)
         .set_palette("196;208;51;7;8".to_string())
-        .start()?;
-    }
+        .build()?
+    };
 
-    Ok(())
+    let multi = MultiProgress::new();
+    LogWrapper::new(multi.clone(), logger).try_init().unwrap();
+
+    Ok((multi, handle))
 }
 
 pub mod cli;
@@ -152,7 +208,7 @@ pub mod data;
 pub mod deploy;
 pub mod push;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CmdOverrides {
     pub ssh_user: Option<String>,
     pub profile_user: Option<String>,
@@ -316,21 +372,23 @@ fn test_parse_flake() {
 }
 
 #[derive(Debug, Clone)]
-pub struct DeployData<'a> {
-    pub node_name: &'a str,
-    pub node: &'a data::Node,
-    pub profile_name: &'a str,
-    pub profile: &'a data::Profile,
+pub struct DeployData {
+    pub node_name: String,
+    pub node: data::Node,
+    pub profile_name: String,
+    pub profile: data::Profile,
 
-    pub cmd_overrides: &'a CmdOverrides,
+    pub cmd_overrides: CmdOverrides,
 
     pub merged_settings: data::GenericSettings,
 
     pub debug_logs: bool,
-    pub log_dir: Option<&'a str>,
+    pub log_dir: Option<String>,
+
+    pub progressbar: Option<indicatif::ProgressBar>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DeployDefs {
     pub ssh_user: String,
     pub profile_user: String,
@@ -353,8 +411,8 @@ pub enum DeployDataDefsError {
     NoProfileUser(String, String),
 }
 
-impl<'a> DeployData<'a> {
-    pub fn defs(&'a self) -> Result<DeployDefs, DeployDataDefsError> {
+impl DeployData {
+    pub fn defs(&self) -> Result<DeployDefs, DeployDataDefsError> {
         let ssh_user = match self.merged_settings.ssh_user {
             Some(ref u) => u.clone(),
             None => whoami::username(),
@@ -375,7 +433,7 @@ impl<'a> DeployData<'a> {
         })
     }
 
-    fn get_profile_user(&'a self) -> Result<String, DeployDataDefsError> {
+    fn get_profile_user(&self) -> Result<String, DeployDataDefsError> {
         let profile_user = match self.merged_settings.user {
             Some(ref x) => x.clone(),
             None => match self.merged_settings.ssh_user {
@@ -391,14 +449,14 @@ impl<'a> DeployData<'a> {
         Ok(profile_user)
     }
 
-    fn get_sudo(&'a self) -> String {
+    fn get_sudo(&self) -> String {
         match self.merged_settings.sudo {
             Some(ref x) => x.clone(),
             None => "sudo -u".to_string(),
         }
     }
 
-    fn get_profile_info(&'a self) -> Result<ProfileInfo, DeployDataDefsError> {
+    fn get_profile_info(&self) -> Result<ProfileInfo, DeployDataDefsError> {
         match self.profile.profile_settings.profile_path {
             Some(ref profile_path) => Ok(ProfileInfo::ProfilePath { profile_path: profile_path.to_string() }),
             None => {
@@ -409,16 +467,16 @@ impl<'a> DeployData<'a> {
     }
 }
 
-pub fn make_deploy_data<'a, 's>(
-    top_settings: &'s data::GenericSettings,
-    node: &'a data::Node,
-    node_name: &'a str,
-    profile: &'a data::Profile,
-    profile_name: &'a str,
-    cmd_overrides: &'a CmdOverrides,
+pub fn make_deploy_data(
+    top_settings: &data::GenericSettings,
+    node: &data::Node,
+    node_name: String,
+    profile: &data::Profile,
+    profile_name: String,
+    cmd_overrides: &CmdOverrides,
     debug_logs: bool,
-    log_dir: Option<&'a str>,
-) -> DeployData<'a> {
+    log_dir: Option<String>,
+) -> DeployData {
     let mut merged_settings = profile.generic_settings.clone();
     merged_settings.merge(node.generic_settings.clone());
     merged_settings.merge(top_settings.clone());
@@ -457,12 +515,13 @@ pub fn make_deploy_data<'a, 's>(
 
     DeployData {
         node_name,
-        node,
+        node: node.clone(),
         profile_name,
-        profile,
-        cmd_overrides,
+        profile: profile.clone(),
+        cmd_overrides: cmd_overrides.clone(),
         merged_settings,
         debug_logs,
         log_dir,
+        progressbar: None
     }
 }
