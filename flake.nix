@@ -8,14 +8,21 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    utils.url = "github:numtide/flake-utils";
     flake-compat = {
       url = "github:edolstra/flake-compat";
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, utils, ... }@inputs:
+  outputs = { self, nixpkgs, ... }@inputs: let
+    inherit (nixpkgs) lib;
+
+    eachSystem =
+        systems: fn:
+        lib.foldl' (
+          acc: system: lib.recursiveUpdate acc (lib.mapAttrs (_: value: { ${system} = value; }) (fn system))
+        ) { } systems;
+  in
   rec {
     overlay = final: prev: let
       system = final.stdenv.hostPlatform.system;
@@ -153,7 +160,12 @@
     };
     overlays.default = overlay;
   } //
-    utils.lib.eachSystem (utils.lib.defaultSystems ++ ["aarch64-darwin"]) (system:
+    eachSystem [
+      "aarch64-linux"
+      "aarch64-darwin"
+      "x86_64-darwin"
+      "x86_64-linux"
+    ] (system:
       let
         pkgs = import nixpkgs {
           inherit system;
