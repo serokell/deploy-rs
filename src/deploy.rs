@@ -332,6 +332,8 @@ pub enum DeployProfileError {
     SSHActivate(std::io::Error),
     #[error("Activating over SSH resulted in a bad exit code: {0:?}")]
     SSHActivateExit(Option<i32>),
+    #[error("Activating over SSH resulted in a bad exit code: {0:?}")]
+    SSHActivateTimeout(tokio::sync::oneshot::error::RecvError),
 
     #[error("Failed to run wait command over SSH: {0}")]
     SSHWait(std::io::Error),
@@ -520,7 +522,7 @@ pub async fn deploy_profile(
         info!("Success activating, attempting to confirm activation");
 
         let c = confirm_profile(deploy_data, deploy_defs, temp_path, &ssh_addr).await;
-        recv_activated.await.unwrap();
+        recv_activated.await.map_err(|x| DeployProfileError::SSHActivateTimeout(x))?;
         c?;
 
         thread
