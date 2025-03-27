@@ -6,7 +6,7 @@
 
 use signal_hook::{consts::signal::SIGHUP, iterator::Signals};
 
-use clap::Clap;
+use clap::Parser;
 
 use tokio::fs;
 use tokio::process::Command;
@@ -25,21 +25,21 @@ use thiserror::Error;
 use log::{debug, error, info, warn};
 
 /// Remote activation utility for deploy-rs
-#[derive(Clap, Debug)]
-#[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
+#[derive(Parser, Debug)]
+#[command(version = "1.0", author = "Serokell <https://serokell.io/>")]
 struct Opts {
     /// Print debug logs to output
-    #[clap(short, long)]
+    #[arg(short, long)]
     debug_logs: bool,
     /// Directory to print logs to
-    #[clap(long)]
+    #[arg(long)]
     log_dir: Option<String>,
 
-    #[clap(subcommand)]
+    #[command(subcommand)]
     subcmd: SubCommand,
 }
 
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 enum SubCommand {
     Activate(ActivateOpts),
     Wait(WaitOpts),
@@ -47,77 +47,77 @@ enum SubCommand {
 }
 
 /// Activate a profile
-#[derive(Clap, Debug)]
-#[clap(group(
+#[derive(Parser, Debug)]
+#[command(group(
     clap::ArgGroup::new("profile")
         .required(true)
         .multiple(false)
-        .args(&["profile-path","profile-user"])
+        .args(&["profile_path","profile_user"])
 ))]
 struct ActivateOpts {
     /// The closure to activate
     closure: String,
     /// The profile path to install into
-    #[clap(long)]
+    #[arg(long)]
     profile_path: Option<String>,
     /// The profile user if explicit profile path is not specified
-    #[clap(long, requires = "profile-name")]
+    #[arg(long, requires = "profile_name")]
     profile_user: Option<String>,
     /// The profile name
-    #[clap(long, requires = "profile-user")]
+    #[arg(long, requires = "profile_user")]
     profile_name: Option<String>,
 
     /// Maximum time to wait for confirmation after activation
-    #[clap(long)]
+    #[arg(long)]
     confirm_timeout: u16,
 
     /// Wait for confirmation after deployment and rollback if not confirmed
-    #[clap(long)]
+    #[arg(long)]
     magic_rollback: bool,
 
     /// Auto rollback if failure
-    #[clap(long)]
+    #[arg(long)]
     auto_rollback: bool,
 
     /// Show what will be activated on the machines
-    #[clap(long)]
+    #[arg(long)]
     dry_activate: bool,
 
     /// Don't activate, but update the boot loader to boot into the new profile
-    #[clap(long)]
+    #[arg(long)]
     boot: bool,
 
     /// Path for any temporary files that may be needed during activation
-    #[clap(long)]
+    #[arg(long)]
     temp_path: PathBuf,
 }
 
 /// Wait for profile activation
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 struct WaitOpts {
     /// The closure to wait for
     closure: String,
 
     /// Path for any temporary files that may be needed during activation
-    #[clap(long)]
+    #[arg(long)]
     temp_path: PathBuf,
 
     /// Timeout to wait for activation
-    #[clap(long)]
+    #[arg(long)]
     activation_timeout: Option<u16>,
 }
 
 /// Revoke profile activation
-#[derive(Clap, Debug)]
+#[derive(Parser, Debug)]
 struct RevokeOpts {
     /// The profile path to install into
-    #[clap(long)]
+    #[arg(long)]
     profile_path: Option<String>,
     /// The profile user if explicit profile path is not specified
-    #[clap(long, requires = "profile-name")]
+    #[arg(long, requires = "profile_name")]
     profile_user: Option<String>,
     /// The profile name
-    #[clap(long, requires = "profile-user")]
+    #[arg(long, requires = "profile_user")]
     profile_name: Option<String>,
 }
 

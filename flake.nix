@@ -18,7 +18,6 @@
   outputs = { self, nixpkgs, utils, ... }@inputs:
   rec {
     overlay = final: prev: let
-      system = final.stdenv.hostPlatform.system;
       darwinOptions = final.lib.optionalAttrs final.stdenv.isDarwin {
         buildInputs = with final.darwin.apple_sdk.frameworks; [
           SystemConfiguration
@@ -181,7 +180,7 @@
           inputsFrom = [ self.packages.${system}.deploy-rs ];
           RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
           buildInputs = with pkgs; [
-            nixUnstable
+            nix
             cargo
             rustc
             rust-analyzer
