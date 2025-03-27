@@ -11,28 +11,23 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "3.0.0-beta.2", features = [ "wrap_help" ] }
-dirs = "5.0.1"
+clap = { version = "4", features = [ "wrap_help", "derive" ] }
+dirs = "6"
 flexi_logger = "0.16"
-fork = "0.1"
-futures-util = "0.3.6"
+fork = "0.2"
+futures-util = "0.3.31"
 log = "0.4"
 merge = "0.1.0"
-notify = "5.1.0"
+notify = "8.0"
 rnix = "0.8"
-serde = { version = "1.0.104", features = [ "derive" ] }
-serde_json = "1.0.48"
+serde = { version = "1.0.219", features = [ "derive" ] }
+serde_json = "1.0.140"
 signal-hook = "0.3"
-thiserror = "1.0"
-tokio = { version = "1.9.0", features = [ "process", "macros", "sync", "rt-multi-thread", "fs", "time", "io-util" ] }
-toml = "0.5"
-whoami = "0.9.0"
+thiserror = "2.0"
+tokio = { version = "1.44.0", features = [ "process", "macros", "sync", "rt-multi-thread", "fs", "time", "io-util" ] }
+toml = "0.8"
+whoami = "1.6"
 yn = "0.1"
-
-# smol_str is required by rnix, but 0.1.17 doesn't build on rustc
-# 1.45.2 (shipped in nixos-20.09); it requires rustc 1.46.0. See
-# <https://github.com/serokell/deploy-rs/issues/27>:
-smol_str = "=0.1.16"
 rpassword = "7.3.1"
 
 
