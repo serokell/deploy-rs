@@ -165,18 +165,16 @@
         };
       in
       {
-        defaultPackage = self.packages."${system}".deploy-rs;
         packages.default = self.packages."${system}".deploy-rs;
         packages.deploy-rs = pkgs.deploy-rs.deploy-rs;
 
-        defaultApp = self.apps."${system}".deploy-rs;
         apps.default = self.apps."${system}".deploy-rs;
         apps.deploy-rs = {
           type = "app";
           program = "${self.packages."${system}".default}/bin/deploy";
         };
 
-        devShell = pkgs.mkShell {
+        devShells.default = pkgs.mkShell {
           inputsFrom = [ self.packages.${system}.deploy-rs ];
           RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
           buildInputs = with pkgs; [
