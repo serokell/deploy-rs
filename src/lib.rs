@@ -315,6 +315,65 @@ fn test_parse_flake() {
     );
 }
 
+pub fn parse_file<'a>(file: &'a str, attribute: &'a str) -> Result<DeployFlake<'a>, ParseFlakeError> {
+    let repo = file; //format!("./{file}");
+
+    let mut node: Option<String> = None;
+    let mut profile: Option<String> = None;
+
+    let ast = rnix::parse(attribute);
+
+    let first_child = match ast.root().node().first_child() {
+        Some(x) => x,
+        None => {
+            return Ok(DeployFlake {
+                repo: &repo,
+                node: None,
+                profile: None,
+            })
+        }
+    };
+
+    let mut node_over = false;
+
+    for entry in first_child.children_with_tokens() {
+        let x: Option<String> = match (entry.kind(), node_over) {
+            (TOKEN_DOT, false) => {
+                node_over = true;
+                None
+            }
+            (TOKEN_DOT, true) => {
+                return Err(ParseFlakeError::PathTooLong);
+            }
+            (NODE_IDENT, _) => Some(entry.into_node().unwrap().text().to_string()),
+            (TOKEN_IDENT, _) => Some(entry.into_token().unwrap().text().to_string()),
+            (NODE_STRING, _) => {
+                let c = entry
+                    .into_node()
+                    .unwrap()
+                    .children_with_tokens()
+                    .nth(1)
+                    .unwrap();
+
+                Some(c.into_token().unwrap().text().to_string())
+            }
+            _ => return Err(ParseFlakeError::Unrecognized),
+        };
+
+        if !node_over {
+            node = x;
+        } else {
+            profile = x;
+        }
+    }
+
+    Ok(DeployFlake {
+        repo: &repo,
+        node,
+        profile,
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct DeployData<'a> {
     pub node_name: &'a str,

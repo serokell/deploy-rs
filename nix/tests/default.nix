@@ -162,4 +162,9 @@ in {
     flakes = false;
     deployArgs = "-s .#server";
   };
+  non-flake-with-flakes = mkTest {
+    name = "non-flake-with-flakes";
+    flakes = true;
+    deployArgs = "--file . --targets server";
+  };
 }
