@@ -134,6 +134,12 @@ in {
     isLocal = false;
     deployArgs = "-s .#server --remote-build -- --offline";
   };
+  non-flake-remote-build = mkTest {
+    name = "non-flake-remote-build";
+    isLocal = false;
+    flakes = false;
+    deployArgs = "-s .#server --remote-build";
+  };
   # Deployment with overridden options
   options-overriding = mkTest {
     name = "options-overriding";
