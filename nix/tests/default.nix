@@ -164,7 +164,7 @@ in {
   };
   # Deployment using a non-flake nix
   non-flake-build = mkTest {
-    name = "local-build";
+    name = "non-flake-build";
     flakes = false;
     deployArgs = "-s .#server";
   };
