@@ -15,6 +15,9 @@
     };
   };
 
+  # The "nixos-test-profile" profile disables the `switch-to-configuration` script by default
+  system.switch.enable = true;
+
   virtualisation.graphics = false;
   virtualisation.memorySize = 1536;
   boot.loader.grub.enable = false;
