@@ -231,6 +231,7 @@ pub fn parse_flake(flake: &str) -> Result<DeployFlake, ParseFlakeError> {
 
                     Some(c.into_token().unwrap().text().to_string())
                 }
+                (NODE_SELECT, _) => Some(entry.into_node().unwrap().text().to_string()),
                 _ => return Err(ParseFlakeError::Unrecognized),
             };
 

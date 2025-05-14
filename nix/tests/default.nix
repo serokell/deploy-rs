@@ -4,12 +4,12 @@
 
 { pkgs , inputs , ... }:
 let
-  inherit (pkgs) system lib;
+  inherit (pkgs) lib;
 
   inherit (import "${pkgs.path}/nixos/tests/ssh-keys.nix" pkgs) snakeOilPrivateKey;
 
   # Include all build dependencies to be able to build profiles offline
-  allDrvOutputs = pkg: pkgs.runCommand "allDrvOutputs" { refs = pkgs.writeReferencesToFile pkg.drvPath; } ''
+  allDrvOutputs = pkg: pkgs.runCommand "allDrvOutputs" { refs = pkgs.writeClosure pkg.drvPath; } ''
     touch $out
     while read ref; do
       case $ref in
