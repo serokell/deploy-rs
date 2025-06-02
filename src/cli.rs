@@ -675,10 +675,6 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         error!("Cannot use both --dry-activate & --boot!");
     }
 
-    // if opts.file.is_some() && (opts.targets.is_some() || opts.target.is_some()) {
-    //     error!("When using --file, only one target is supported!")
-    // }
-
     let deploys = opts
         .clone()
         .targets
