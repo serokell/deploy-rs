@@ -162,4 +162,9 @@ in {
     flakes = false;
     deployArgs = "-s .#server";
   };
+  # Use node name with '.' symbol in it, regression for https://github.com/serokell/deploy-rs/issues/307
+  node-name-with-dot = mkTest {
+    name = "node-name-with-dot";
+    deployArgs = "-s .#local.server -- --offline";
+  };
 }

@@ -28,8 +28,8 @@
       ];
     };
 
-    deploy.nodes = {
-      server = {
+    deploy.nodes = let
+      common = {
         hostname = "server";
         sshUser = "root";
         sshOpts = [
@@ -38,6 +38,9 @@
         ];
         profiles.system.path = deploy-rs.lib."${system}".activate.nixos self.nixosConfigurations.server;
       };
+    in {
+      server = common;
+      local.server = common;
       server-override = {
         hostname = "override";
         sshUser = "override";
