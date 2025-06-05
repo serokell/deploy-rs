@@ -38,6 +38,12 @@
                 },
                 "interactiveSudo": {
                     "type": "boolean"
+                },
+                "sudoFile": {
+                    "type": "path"
+                },
+                "sudoSecret": {
+                    "type": "string"
                 }
             }
         },
