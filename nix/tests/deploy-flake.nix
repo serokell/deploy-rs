@@ -36,7 +36,7 @@
           "-o" "StrictHostKeyChecking=no"
           "-o" "StrictHostKeyChecking=no"
         ];
-        profiles.system.path = deploy-rs.lib."${system}".activate.nixos self.nixosConfigurations.server;
+        profiles.system.path = deploy-rs.lib.${system}.activate.nixos self.nixosConfigurations.server;
       };
       server-override = {
         hostname = "override";
@@ -46,7 +46,7 @@
         sshOpts = [ ];
         confirmTimeout = 0;
         activationTimeout = 0;
-        profiles.system.path = deploy-rs.lib."${system}".activate.nixos self.nixosConfigurations.server;
+        profiles.system.path = deploy-rs.lib.${system}.activate.nixos self.nixosConfigurations.server;
       };
       profile = {
         hostname = "server";
@@ -66,6 +66,14 @@
             '';
           in deploy-rs.lib.${system}.activate.custom activateProfile "$PROFILE/bin/activate";
         };
+      };
+      sops = {
+        hostname = "server";
+        sshUser = "sops";
+        sshOpts = [ "-o" "StrictHostKeyChecking=no" ];
+        sudoFile = ./password.yaml;
+        sudoSecret = "passwords/sops";
+        profiles.system.path = deploy-rs.lib.${system}.activate.nixos self.nixosConfigurations.server;
       };
     };
   };
