@@ -166,6 +166,8 @@ pub struct CmdOverrides {
     pub activation_timeout: Option<u16>,
     pub sudo: Option<String>,
     pub interactive_sudo: Option<bool>,
+    pub sudo_file: Option<PathBuf>,
+    pub sudo_secret: Option<String>,
     pub dry_activate: bool,
     pub remote_build: bool,
 }
@@ -498,6 +500,12 @@ pub fn make_deploy_data<'a, 's>(
     }
     if let Some(interactive_sudo) = cmd_overrides.interactive_sudo {
         merged_settings.interactive_sudo = Some(interactive_sudo);
+    }
+    if let Some(ref sudo_file) = cmd_overrides.sudo_file {
+        merged_settings.sudo_file = Some(sudo_file.to_owned());
+    }
+    if let Some(ref sudo_secret) = cmd_overrides.sudo_secret {
+        merged_settings.sudo_secret = Some(sudo_secret.to_owned());
     }
 
     DeployData {

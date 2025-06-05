@@ -111,6 +111,12 @@ pub struct Opts {
     /// Prompt for sudo password during activation.
     #[arg(long)]
     interactive_sudo: Option<bool>,
+    /// File for the sudo password with sops integration
+    #[arg(long)]
+    sudo_file: Option<PathBuf>,
+    /// Key for the sudo password with sops integration
+    #[arg(long)]
+    sudo_secret: Option<String>,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -812,7 +818,9 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         dry_activate: opts.dry_activate,
         remote_build: opts.remote_build,
         sudo: opts.sudo,
-        interactive_sudo: opts.interactive_sudo
+        interactive_sudo: opts.interactive_sudo,
+        sudo_file: opts.sudo_file,
+        sudo_secret: opts.sudo_secret,
     };
 
     let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;
