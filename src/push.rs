@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use log::{debug, info};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
@@ -41,8 +41,6 @@ pub enum PushProfileError {
     Copy(std::io::Error),
     #[error("Nix copy command resulted in a bad exit code: {0:?}")]
     CopyExit(Option<i32>),
-    #[error("The remote building option is not supported when using legacy nix")]
-    RemoteBuildWithLegacyNix,
 
     #[error("Failed to run Nix path-info command: {0}")]
     PathInfo(std::io::Error),
@@ -169,7 +167,9 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
 
 
     // copy the derivation to remote host so it can be built there
-    let copy_command_status = Command::new("nix").arg("copy")
+    let copy_command_status = Command::new("nix")
+        .arg("--experimental-features").arg("nix-command")
+        .arg("copy")
         .arg("-s")  // fetch dependencies from substitures, not localhost
         .arg("--to").arg(&store_address)
         .arg("--derivation").arg(derivation_name)
@@ -186,6 +186,7 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
 
     let mut build_command = Command::new("nix");
     build_command
+        .arg("--experimental-features").arg("nix-command")
         .arg("build").arg(derivation_name)
         .arg("--eval-store").arg("auto")
         .arg("--store").arg(&store_address)
@@ -244,7 +245,7 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
         .next()
         .ok_or(PushProfileError::ShowDerivationEmpty)?;
 
-    let new_deriver = &if data.supports_flakes {
+    let new_deriver = &if data.supports_flakes || data.deploy_data.merged_settings.remote_build.unwrap_or(false) {
         // Since nix 2.15.0 'nix build <path>.drv' will build only the .drv file itself, not the
         // derivation outputs, '^out' is used to refer to outputs explicitly
         deriver.to_owned().to_string() + "^out"
@@ -276,7 +277,7 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
     };
     if data.deploy_data.merged_settings.remote_build.unwrap_or(false) {
         if !data.supports_flakes {
-            return Err(PushProfileError::RemoteBuildWithLegacyNix)
+            warn!("remote builds using non-flake nix are experimental");
         }
 
         build_profile_remotely(&data, &deriver).await?;

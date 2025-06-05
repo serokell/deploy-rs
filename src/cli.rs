@@ -30,6 +30,9 @@ pub struct Opts {
     /// A list of flakes to deploy alternatively
     #[clap(long, group = "deploy")]
     targets: Option<Vec<String>>,
+    /// Treat targets as files instead of flakes
+    #[clap(short, long)]
+    file: Option<String>,
     /// Check signatures when using `nix copy`
     #[clap(short, long)]
     checksigs: bool,
@@ -677,10 +680,19 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         .targets
         .unwrap_or_else(|| vec![opts.clone().target.unwrap_or_else(|| ".".to_string())]);
 
-    let deploy_flakes: Vec<DeployFlake> = deploys
+    let deploy_flakes: Vec<DeployFlake> =
+        if let Some(file) = &opts.file {
+            deploys
+                .iter()
+                .map(|f| deploy::parse_file(file.as_str(), f.as_str()))
+                .collect::<Result<Vec<DeployFlake>, ParseFlakeError>>()?
+        }
+    else {
+        deploys
         .iter()
         .map(|f| deploy::parse_flake(f.as_str()))
-        .collect::<Result<Vec<DeployFlake>, ParseFlakeError>>()?;
+          .collect::<Result<Vec<DeployFlake>, ParseFlakeError>>()?
+    };
 
     let cmd_overrides = deploy::CmdOverrides {
         ssh_user: opts.ssh_user,
@@ -700,22 +712,29 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     };
 
     let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;
+    let do_not_want_flakes = opts.file.is_some();
 
     if !supports_flakes {
         warn!("A Nix version without flakes support was detected, support for this is work in progress");
     }
 
+    if do_not_want_flakes {
+        warn!("The --file option for deployments without flakes is experimental");
+    }
+
+    let using_flakes = supports_flakes && !do_not_want_flakes;
+
     if !opts.skip_checks {
         for deploy_flake in &deploy_flakes {
-            check_deployment(supports_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
+            check_deployment(using_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
         }
     }
     let result_path = opts.result_path.as_deref();
-    let data = get_deployment_data(supports_flakes, &deploy_flakes, &opts.extra_build_args).await?;
+    let data = get_deployment_data(using_flakes, &deploy_flakes, &opts.extra_build_args).await?;
     run_deploy(
         deploy_flakes,
         data,
-        supports_flakes,
+        using_flakes,
         opts.checksigs,
         opts.interactive,
         &cmd_overrides,

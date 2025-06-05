@@ -184,6 +184,54 @@ pub enum ParseFlakeError {
     #[error("Unrecognized node or token encountered")]
     Unrecognized,
 }
+
+fn parse_fragment(fragment: &str) -> Result<(Option<String>, Option<String>), ParseFlakeError> {
+    let mut node: Option<String> = None;
+    let mut profile: Option<String> = None;
+
+    let ast = rnix::parse(fragment);
+
+    let first_child = match ast.root().node().first_child() {
+        Some(x) => x,
+        None => return Ok((None, None))
+    };
+
+    let mut node_over = false;
+
+    for entry in first_child.children_with_tokens() {
+        let x: Option<String> = match (entry.kind(), node_over) {
+            (TOKEN_DOT, false) => {
+                node_over = true;
+                None
+            }
+            (TOKEN_DOT, true) => {
+                return Err(ParseFlakeError::PathTooLong);
+            }
+            (NODE_IDENT, _) => Some(entry.into_node().unwrap().text().to_string()),
+            (TOKEN_IDENT, _) => Some(entry.into_token().unwrap().text().to_string()),
+            (NODE_STRING, _) => {
+                let c = entry
+                    .into_node()
+                    .unwrap()
+                    .children_with_tokens()
+                    .nth(1)
+                    .unwrap();
+
+                Some(c.into_token().unwrap().text().to_string())
+            }
+            _ => return Err(ParseFlakeError::Unrecognized),
+        };
+
+        if !node_over {
+            node = x;
+        } else {
+            profile = x;
+        }
+    }
+
+    Ok((node, profile))
+}
+
 pub fn parse_flake(flake: &str) -> Result<DeployFlake, ParseFlakeError> {
     let flake_fragment_start = flake.find('#');
     let (repo, maybe_fragment) = match flake_fragment_start {
@@ -195,51 +243,7 @@ pub fn parse_flake(flake: &str) -> Result<DeployFlake, ParseFlakeError> {
     let mut profile: Option<String> = None;
 
     if let Some(fragment) = maybe_fragment {
-        let ast = rnix::parse(fragment);
-
-        let first_child = match ast.root().node().first_child() {
-            Some(x) => x,
-            None => {
-                return Ok(DeployFlake {
-                    repo,
-                    node: None,
-                    profile: None,
-                })
-            }
-        };
-
-        let mut node_over = false;
-
-        for entry in first_child.children_with_tokens() {
-            let x: Option<String> = match (entry.kind(), node_over) {
-                (TOKEN_DOT, false) => {
-                    node_over = true;
-                    None
-                }
-                (TOKEN_DOT, true) => {
-                    return Err(ParseFlakeError::PathTooLong);
-                }
-                (NODE_IDENT, _) => Some(entry.into_node().unwrap().text().to_string()),
-                (TOKEN_IDENT, _) => Some(entry.into_token().unwrap().text().to_string()),
-                (NODE_STRING, _) => {
-                    let c = entry
-                        .into_node()
-                        .unwrap()
-                        .children_with_tokens()
-                        .nth(1)
-                        .unwrap();
-
-                    Some(c.into_token().unwrap().text().to_string())
-                }
-                _ => return Err(ParseFlakeError::Unrecognized),
-            };
-
-            if !node_over {
-                node = x;
-            } else {
-                profile = x;
-            }
-        }
+        (node, profile) = parse_fragment(fragment)?;
     }
 
     Ok(DeployFlake {
@@ -313,6 +317,16 @@ fn test_parse_flake() {
             profile: None,
         }
     );
+}
+
+pub fn parse_file<'a>(file: &'a str, attribute: &'a str) -> Result<DeployFlake<'a>, ParseFlakeError> {
+    let (node, profile) = parse_fragment(attribute)?;
+
+    Ok(DeployFlake {
+        repo: &file,
+        node,
+        profile,
+    })
 }
 
 #[derive(Debug, Clone)]
