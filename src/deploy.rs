@@ -326,6 +326,7 @@ pub async fn confirm_profile(
         .merged_settings
         .interactive_sudo
         .unwrap_or(false)
+        || deploy_data.merged_settings.sudo_secret.is_some()
     {
         trace!("[confirm] Piping in sudo password");
         handle_sudo_stdin(&mut ssh_confirm_child, deploy_defs)
@@ -468,6 +469,7 @@ pub async fn deploy_profile(
             .merged_settings
             .interactive_sudo
             .unwrap_or(false)
+            || deploy_data.merged_settings.sudo_secret.is_some()
         {
             trace!("[activate] Piping in sudo password");
             handle_sudo_stdin(&mut ssh_activate_child, deploy_defs)
@@ -528,6 +530,7 @@ pub async fn deploy_profile(
             .merged_settings
             .interactive_sudo
             .unwrap_or(false)
+            || deploy_data.merged_settings.sudo_secret.is_some()
         {
             trace!("[activate] Piping in sudo password");
             handle_sudo_stdin(&mut ssh_activate_child, deploy_defs)
@@ -588,6 +591,7 @@ pub async fn deploy_profile(
             .merged_settings
             .interactive_sudo
             .unwrap_or(false)
+            || deploy_data.merged_settings.sudo_secret.is_some()
         {
             trace!("[wait] Piping in sudo password");
             handle_sudo_stdin(&mut ssh_wait_child, deploy_defs)
@@ -704,6 +708,7 @@ pub async fn revoke(
         .merged_settings
         .interactive_sudo
         .unwrap_or(false)
+        || deploy_data.merged_settings.sudo_secret.is_some()
     {
         trace!("[revoke] Piping in sudo password");
         handle_sudo_stdin(&mut ssh_revoke_child, deploy_defs)
