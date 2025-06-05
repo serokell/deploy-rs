@@ -33,6 +33,8 @@
             ".*\.rs$"
           ];
 
+	  runtimeInputs = [ final.pkgs.sops ];
+
           cargoLock.lockFile = ./Cargo.lock;
 
           meta = {
