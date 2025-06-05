@@ -185,6 +185,7 @@
             rustfmt
             clippy
             reuse
+            sops
             rust.packages.stable.rustPlatform.rustLibSrc
           ];
         };
