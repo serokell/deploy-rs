@@ -19,13 +19,14 @@ Basic usage: `deploy [options] <flake>`.
 
 Using this method all profiles specified in the given `<flake>` will be deployed (taking into account the [`profilesOrder`](#node)).
 
- Optionally the flake can be constrained to deploy just a single node (`my-flake#my-node`) or a profile (`my-flake#my-node.my-profile`).
+Optionally the flake can be constrained to deploy just a single node (`my-flake#my-node`) or a profile (`my-flake#my-node.my-profile`).
 
 If your profile or node name has a . in it, simply wrap it in quotes, and the flake path in quotes (to avoid shell escaping), for example 'my-flake#"myserver.com".system'.
 
 Any "extra" arguments will be passed into the Nix calls, so for instance to deploy an impure profile, you may use `deploy . -- --impure` (note the explicit flake path is necessary for doing this).
 
 You can try out this tool easily with `nix run`:
+
 - `nix run github:serokell/deploy-rs your-flake`
 
 If you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `deploy <flake>` you can issue `deploy --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
@@ -50,7 +51,7 @@ This type of design (as opposed to more traditional tools like NixOps or morph) 
 
 ### Magic Rollback
 
-There is a built-in feature to prevent you making changes that might render your machine unconnectable or unusuable, which works by connecting to the machine after profile activation to confirm the machine is still available, and instructing the target node to automatically roll back if it is not confirmed. If you do not disable `magicRollback` in your configuration (see later sections) or with the CLI flag, you will be unable to make changes to the system which will affect you connecting to it (changing SSH port, changing your IP, etc).
+There is a built-in feature to prevent you making changes that might render your machine unconnectable or unusable, which works by connecting to the machine after profile activation to confirm the machine is still available, and instructing the target node to automatically roll back if it is not confirmed. If you do not disable `magicRollback` in your configuration (see later sections) or with the CLI flag, you will be unable to make changes to the system which will affect you connecting to it (changing SSH port, changing your IP, etc).
 
 ## API
 
@@ -212,6 +213,11 @@ This is a set of options that can be put in any of the above definitions, with t
   # This defaults to `false`
   interactiveSudo = false;
 
+  # Whether to enable the sops integration for password based sudo on the remote host. Useful when using non-root sshUsers.
+  # This defaults to not being used.
+  sudoFile = ./path.yaml;
+  sudoSecret = "secret";
+
   # This is an optional list of arguments that will be passed to SSH.
   sshOpts = [ "-p" "2121" ];
 
@@ -252,6 +258,28 @@ This is a set of options that can be put in any of the above definitions, with t
 ```
 
 Some of these options can be provided during `deploy` invocation to override default values or values provided in your flake, see `deploy --help`.
+
+### Sudo on remote host
+
+There are two different ways to supply a password for elevating privileges on the remote host, but only one can be used at a time.
+The first is `interactiveSudo`, where the user will get prompted for a password while running the deployment.
+The other option is to use sops to provide the secrets.
+
+#### Sops
+
+In order to use the [sops](https://github.com/getsops/sops) integration `sudoFile` as well as `sudoSecret` have to be specified for a node.
+While running the deployment `sops` is used to decrypt the path `sudoFile` and search for `sudoSecret` within the file.
+When specifying the `sudoSecret` you can address the key as specified below:
+
+```yaml
+password:
+  test: 123
+password_test_user: abc
+```
+
+You can refer to the password `123` as `password/test` and `abc` as `password_test_user`.
+Keep in mind that we only handle nested secrets with strings, numbers and boolean.
+For an example please see the [sops example](./examples/sops).
 
 ## About Serokell
 
