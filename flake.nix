@@ -165,13 +165,13 @@
         };
       in
       {
-        packages.default = self.packages."${system}".deploy-rs;
+        packages.default = self.packages.${system}.deploy-rs;
         packages.deploy-rs = pkgs.deploy-rs.deploy-rs;
 
-        apps.default = self.apps."${system}".deploy-rs;
+        apps.default = self.apps.${system}.deploy-rs;
         apps.deploy-rs = {
           type = "app";
-          program = "${self.packages."${system}".default}/bin/deploy";
+          program = "${self.packages.${system}.default}/bin/deploy";
         };
 
         devShells.default = pkgs.mkShell {
