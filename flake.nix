@@ -27,7 +27,6 @@
     in
     {
       deploy-rs = {
-
         deploy-rs = final.rustPlatform.buildRustPackage (darwinOptions // {
           pname = "deploy-rs";
           version = "0.1.0";
@@ -39,6 +38,8 @@
             "src/bin"
             ".*\.rs$"
           ];
+
+          runtimeInputs = [ final.pkgs.sops ];
 
           cargoLock.lockFile = ./Cargo.lock;
 	  meta = {
