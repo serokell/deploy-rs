@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 
-use clap::{ArgMatches, Clap, FromArgMatches};
+use clap::{ArgMatches, Parser, FromArgMatches};
 
 use crate as deploy;
 
@@ -20,94 +20,94 @@ use thiserror::Error;
 use tokio::process::Command;
 
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
-#[derive(Clap, Debug, Clone)]
-#[clap(version = "1.0", author = "Serokell <https://serokell.io/>")]
+#[derive(Parser, Debug, Clone)]
+#[command(version = "1.0", author = "Serokell <https://serokell.io/>")]
 pub struct Opts {
     /// The flake to deploy
-    #[clap(group = "deploy")]
+    #[arg(group = "deploy")]
     target: Option<String>,
 
     /// A list of flakes to deploy alternatively
-    #[clap(long, group = "deploy")]
+    #[arg(long, group = "deploy")]
     targets: Option<Vec<String>>,
     /// Treat targets as files instead of flakes
     #[clap(short, long)]
     file: Option<String>,
     /// Check signatures when using `nix copy`
-    #[clap(short, long)]
+    #[arg(short, long)]
     checksigs: bool,
     /// Use the interactive prompt before deployment
-    #[clap(short, long)]
+    #[arg(short, long)]
     interactive: bool,
     /// Extra arguments to be passed to nix build
     extra_build_args: Vec<String>,
 
     /// Print debug logs to output
-    #[clap(short, long)]
+    #[arg(short, long)]
     debug_logs: bool,
     /// Directory to print logs to (including the background activation process)
-    #[clap(long)]
+    #[arg(long)]
     log_dir: Option<String>,
 
     /// Keep the build outputs of each built profile
-    #[clap(short, long)]
+    #[arg(short, long)]
     keep_result: bool,
     /// Location to keep outputs from built profiles in
-    #[clap(short, long)]
+    #[arg(short, long)]
     result_path: Option<String>,
 
     /// Skip the automatic pre-build checks
-    #[clap(short, long)]
+    #[arg(short, long)]
     skip_checks: bool,
 
     /// Build on remote host
-    #[clap(long)]
+    #[arg(long)]
     remote_build: bool,
 
     /// Override the SSH user with the given value
-    #[clap(long)]
+    #[arg(long)]
     ssh_user: Option<String>,
     /// Override the profile user with the given value
-    #[clap(long)]
+    #[arg(long)]
     profile_user: Option<String>,
     /// Override the SSH options used
-    #[clap(long, allow_hyphen_values = true)]
+    #[arg(long, allow_hyphen_values = true)]
     ssh_opts: Option<String>,
     /// Override if the connecting to the target node should be considered fast
-    #[clap(long)]
+    #[arg(long)]
     fast_connection: Option<bool>,
     /// Override if a rollback should be attempted if activation fails
-    #[clap(long)]
+    #[arg(long)]
     auto_rollback: Option<bool>,
     /// Override hostname used for the node
-    #[clap(long)]
+    #[arg(long)]
     hostname: Option<String>,
     /// Make activation wait for confirmation, or roll back after a period of time
-    #[clap(long)]
+    #[arg(long)]
     magic_rollback: Option<bool>,
     /// How long activation should wait for confirmation (if using magic-rollback)
-    #[clap(long)]
+    #[arg(long)]
     confirm_timeout: Option<u16>,
     /// How long we should wait for profile activation
-    #[clap(long)]
+    #[arg(long)]
     activation_timeout: Option<u16>,
     /// Where to store temporary files (only used by magic-rollback)
-    #[clap(long)]
+    #[arg(long)]
     temp_path: Option<PathBuf>,
     /// Show what will be activated on the machines
-    #[clap(long)]
+    #[arg(long)]
     dry_activate: bool,
     /// Don't activate, but update the boot loader to boot into the new profile
-    #[clap(long)]
+    #[arg(long)]
     boot: bool,
     /// Revoke all previously succeeded deploys when deploying multiple profiles
-    #[clap(long)]
+    #[arg(long)]
     rollback_succeeded: Option<bool>,
     /// Which sudo command to use. Must accept at least two arguments: user name to execute commands as and the rest is the command to execute
-    #[clap(long)]
+    #[arg(long)]
     sudo: Option<String>,
     /// Prompt for sudo password during activation.
-    #[clap(long)]
+    #[arg(long)]
     interactive_sudo: Option<bool>,
 }
 
@@ -653,6 +653,8 @@ pub enum RunError {
     GetDeploymentData(#[from] GetDeploymentDataError),
     #[error("Error parsing flake: {0}")]
     ParseFlake(#[from] deploy::ParseFlakeError),
+    #[error("Error parsing arguments: {0}")]
+    ParseArgs(#[from] clap::Error),
     #[error("Error initiating logger: {0}")]
     Logger(#[from] flexi_logger::FlexiLoggerError),
     #[error("{0}")]
@@ -661,7 +663,7 @@ pub enum RunError {
 
 pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     let opts = match args {
-        Some(o) => <Opts as FromArgMatches>::from_arg_matches(o),
+        Some(o) => <Opts as FromArgMatches>::from_arg_matches(o)?,
         None => Opts::parse(),
     };
 

@@ -16,9 +16,8 @@
   };
 
   outputs = { self, nixpkgs, utils, ... }@inputs:
-  rec {
-    overlay = final: prev: let
-      system = final.stdenv.hostPlatform.system;
+  {
+    overlays.default = final: prev: let
       darwinOptions = final.lib.optionalAttrs final.stdenv.isDarwin {
         buildInputs = with final.darwin.apple_sdk.frameworks; [
           SystemConfiguration
@@ -151,7 +150,6 @@
         };
       };
     };
-    overlays.default = overlay;
   } //
     utils.lib.eachSystem (utils.lib.defaultSystems ++ ["aarch64-darwin"]) (system:
       let
@@ -166,22 +164,20 @@
         };
       in
       {
-        defaultPackage = self.packages."${system}".deploy-rs;
         packages.default = self.packages."${system}".deploy-rs;
         packages.deploy-rs = pkgs.deploy-rs.deploy-rs;
 
-        defaultApp = self.apps."${system}".deploy-rs;
         apps.default = self.apps."${system}".deploy-rs;
         apps.deploy-rs = {
           type = "app";
           program = "${self.packages."${system}".default}/bin/deploy";
         };
 
-        devShell = pkgs.mkShell {
+        devShells.default = pkgs.mkShell {
           inputsFrom = [ self.packages.${system}.deploy-rs ];
           RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
           buildInputs = with pkgs; [
-            nixUnstable
+            nix
             cargo
             rustc
             rust-analyzer
