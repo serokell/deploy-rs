@@ -169,7 +169,7 @@ in {
     deployArgs = "-s .#profile -- --offline";
   };
   hyphen-ssh-opts-regression = mkTest {
-    name = "profile";
+    name = "ssh-ops-regression";
     user = "deploy";
     deployArgs = "-s .#profile --ssh-opts '-p 22 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' -- --offline";
   };
