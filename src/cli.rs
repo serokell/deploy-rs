@@ -24,14 +24,13 @@ use tokio::process::Command;
 #[command(version = "1.0", author = "Serokell <https://serokell.io/>")]
 pub struct Opts {
     /// The flake to deploy
-    #[arg(group = "deploy")]
     target: Option<String>,
 
     /// A list of flakes to deploy alternatively
-    #[arg(long, group = "deploy")]
+    #[arg(long)]
     targets: Option<Vec<String>>,
     /// Treat targets as files instead of flakes
-    #[clap(short, long)]
+    #[arg(short, long)]
     file: Option<String>,
     /// Check signatures when using `nix copy`
     #[arg(short, long)]
@@ -677,10 +676,19 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         error!("Cannot use both --dry-activate & --boot!");
     }
 
-    let deploys = opts
-        .clone()
-        .targets
-        .unwrap_or_else(|| vec![opts.clone().target.unwrap_or_else(|| ".".to_string())]);
+    let deploys = match opts.targets.is_some() && opts.target.is_some() {
+        true => {
+            let mut targets = opts.targets.unwrap();
+            targets.push(opts.target.unwrap());
+            targets
+        }
+        false => opts
+            .clone()
+            .targets
+            .unwrap_or_else(|| vec![opts.clone().target.unwrap_or_else(|| ".".to_string())]),
+    };
+
+    debug!("Deploying the following configurations {:?}", deploys);
 
     let deploy_flakes: Vec<DeployFlake> =
         if let Some(file) = &opts.file {
