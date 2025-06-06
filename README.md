@@ -201,6 +201,11 @@ This is a set of options that can be put in any of the above definitions, with t
   # This defaults to `false`
   interactiveSudo = false;
 
+  # Whether to enable the sops integration for password based sudo on the remote host. Useful when using non-root sshUsers.
+  # This defaults to not beeing used.
+  sudoFile = ./path.yaml;
+  sudoSecret = "secret";
+
   # This is an optional list of arguments that will be passed to SSH.
   sshOpts = [ "-p" "2121" ];
 
@@ -237,6 +242,28 @@ This is a set of options that can be put in any of the above definitions, with t
 ```
 
 Some of these options can be provided during `deploy` invocation to override default values or values provided in your flake, see `deploy --help`.
+
+### Sudo on remote host
+
+There are two different ways to supply a password for elevating privileges on the remote host, but only one can be used at a time.
+The first is `interactiveSudo`, where the user will get prompted for a password while running the deployment.
+The other option is to use sops to provide the secrets.
+
+#### Sops
+
+In order to use the [sops](https://github.com/getsops/sops) integration `sudoFile` as well as `sudoSecret` have to be specified for a node.
+While running the deployment `sops` is used to decrypt the path `sudoFile` and search for `sudoSecret` within the file.
+When specifying the `sudoSecret` you can address the key as specified below:
+
+```yaml
+password:
+  test: 123
+password_test_user: abc
+```
+
+You can refer to the password `123` as `password/test` and `abc` as `password_test_user`.
+Keep in mind that we only handle nested secrets with strings, numbers and boolean.
+For an example please see the [sops example](./examples/sops).
 
 ## About Serokell
 
