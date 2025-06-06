@@ -26,6 +26,7 @@
       sshOpts = [ "-p" "2221" ];
       hostname = "localhost";
       fastConnection = true;
+      compress = true;
       interactiveSudo = true;
       profiles = {
         system = {
