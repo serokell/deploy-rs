@@ -9,7 +9,8 @@
 
   users.users.hello = {
     isNormalUser = true;
-    password = "";
+    password = "abc";
+    extraGroups = [ "wheel" ];
     uid = 1010;
   };
 }
