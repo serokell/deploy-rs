@@ -16,7 +16,10 @@
     {
       nixosConfigurations.example-nixos-system = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
-        modules = [ ./configuration.nix ];
+        modules = [
+          ./configuration.nix
+          "${nixpkgs}/nixos/modules/virtualisation/qemu-vm.nix"
+        ];
       };
 
       nixosConfigurations.bare = nixpkgs.lib.nixosSystem {
@@ -37,7 +40,6 @@
         ];
         hostname = "localhost";
         fastConnection = true;
-        interactiveSudo = true;
         profiles = {
           system = {
             sshUser = "admin";
