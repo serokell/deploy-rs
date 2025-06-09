@@ -7,15 +7,21 @@
 
   inputs.deploy-rs.url = "github:serokell/deploy-rs";
 
-  outputs = { self, nixpkgs, deploy-rs }: {
-    deploy.nodes.example = {
-      hostname = "localhost";
-      profiles.hello = {
-        user = "balsoft";
-        path = deploy-rs.lib.x86_64-linux.setActivate nixpkgs.legacyPackages.x86_64-linux.hello "./bin/hello";
+  outputs =
+    {
+      self,
+      nixpkgs,
+      deploy-rs,
+    }:
+    {
+      deploy.nodes.example = {
+        hostname = "localhost";
+        profiles.hello = {
+          user = "balsoft";
+          path = deploy-rs.lib.x86_64-linux.setActivate nixpkgs.legacyPackages.x86_64-linux.hello "./bin/hello";
+        };
       };
-    };
 
-    checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
-  };
+      checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
+    };
 }

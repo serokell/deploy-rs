@@ -12,20 +12,29 @@
 
   users.users.admin = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "sudo" ];
+    extraGroups = [
+      "wheel"
+      "sudo"
+    ];
     password = "123";
   };
 
-  services.openssh = { enable = true; };
+  services.openssh = {
+    enable = true;
+  };
 
   # Another option would be root on the server
-  security.sudo.extraRules = [{
-    groups = [ "wheel" ];
-    commands = [{
-      command = "ALL";
-      options = [ "NOPASSWD" ];
-    }];
-  }];
+  security.sudo.extraRules = [
+    {
+      groups = [ "wheel" ];
+      commands = [
+        {
+          command = "ALL";
+          options = [ "NOPASSWD" ];
+        }
+      ];
+    }
+  ];
 
   nix.binaryCachePublicKeys = [
     (builtins.readFile ./nix-pub.pem)
