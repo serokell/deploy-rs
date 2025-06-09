@@ -28,7 +28,7 @@
       };
 
       # This is the application we actually want to run
-      defaultPackage.x86_64-linux = import ./hello.nix nixpkgs;
+      packages.x86_64-linux.default = import ./hello.nix nixpkgs;
 
       deploy.nodes.example = {
         sshOpts = [
@@ -46,7 +46,7 @@
           };
           hello = {
             sshUser = "hello";
-            path = deploy-rs.lib.x86_64-linux.activate.custom self.defaultPackage.x86_64-linux "./bin/activate";
+            path = deploy-rs.lib.x86_64-linux.activate.custom self.packages.x86_64-linux.default "./bin/activate";
             user = "hello";
           };
         };
