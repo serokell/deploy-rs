@@ -727,8 +727,13 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     let using_flakes = supports_flakes && !do_not_want_flakes;
 
     if !opts.skip_checks {
-        for deploy_flake in &deploy_flakes {
-            check_deployment(using_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
+        let mut set = std::collections::HashSet::new();
+        deploy_flakes.iter().for_each(|item| {
+            set.insert(item.repo);
+        });
+
+        for path in set {
+            check_deployment(using_flakes, path, &opts.extra_build_args).await?;
         }
     }
     let result_path = opts.result_path.as_deref();
