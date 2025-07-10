@@ -23,13 +23,9 @@ use tokio::process::Command;
 #[derive(Parser, Debug, Clone)]
 #[command(version = "1.0", author = "Serokell <https://serokell.io/>")]
 pub struct Opts {
-    /// The flake to deploy
-    #[arg(group = "deploy")]
-    target: Option<String>,
-
-    /// A list of flakes to deploy alternatively
-    #[arg(long, group = "deploy")]
-    targets: Option<Vec<String>>,
+    /// A flake to deploy, can be repeated
+    #[arg(long, action = clap::ArgAction::Append)]
+    target: Option<Vec<String>>,
     /// Treat targets as files instead of flakes
     #[clap(short, long)]
     file: Option<String>,
@@ -39,9 +35,6 @@ pub struct Opts {
     /// Use the interactive prompt before deployment
     #[arg(short, long)]
     interactive: bool,
-    /// Extra arguments to be passed to nix build
-    extra_build_args: Vec<String>,
-
     /// Print debug logs to output
     #[arg(short, long)]
     debug_logs: bool,
@@ -109,6 +102,15 @@ pub struct Opts {
     /// Prompt for sudo password during activation.
     #[arg(long)]
     interactive_sudo: Option<bool>,
+
+    #[command(subcommand)]
+    command: Option<Passthrough>,
+}
+
+#[derive(Parser, Debug, Clone)]
+enum Passthrough {
+    #[clap(external_subcommand)]
+    Args(Vec<String>),
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -607,8 +609,8 @@ async fn run_deploy(
     let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
 
     // Run all deployments
-    // In case of an error rollback any previoulsy made deployment.
-    // Rollbacks adhere to the global seeting to auto_rollback and secondary
+    // In case of an error rollback any previously made deployment.
+    // Rollbacks adhere to the global setting to auto_rollback and secondary
     // the profile's configuration
     for (_, deploy_data, deploy_defs) in &parts {
         if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, dry_activate, boot).await
@@ -620,7 +622,7 @@ async fn run_deploy(
             if rollback_succeeded && cmd_overrides.auto_rollback.unwrap_or(true) {
                 info!("Revoking previous deploys");
                 // revoking all previous deploys
-                // (adheres to profile configuration if not set explicitely by
+                // (adheres to profile configuration if not set explicitly by
                 //  the command line)
                 for (deploy_data, deploy_defs) in &succeeded {
                     if deploy_data.merged_settings.auto_rollback.unwrap_or(true) {
@@ -678,9 +680,14 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     }
 
     let deploys = opts
-        .clone()
-        .targets
-        .unwrap_or_else(|| vec![opts.clone().target.unwrap_or_else(|| ".".to_string())]);
+        .target
+        .unwrap_or_else(|| vec![".".to_string()]);
+
+    let extra_build_args = if let Some(Passthrough::Args(args)) = opts.command {
+        args
+    } else {
+        Vec::new()
+    };
 
     let deploy_flakes: Vec<DeployFlake> =
         if let Some(file) = &opts.file {
@@ -728,11 +735,11 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
 
     if !opts.skip_checks {
         for deploy_flake in &deploy_flakes {
-            check_deployment(using_flakes, deploy_flake.repo, &opts.extra_build_args).await?;
+            check_deployment(using_flakes, deploy_flake.repo, &extra_build_args).await?;
         }
     }
     let result_path = opts.result_path.as_deref();
-    let data = get_deployment_data(using_flakes, &deploy_flakes, &opts.extra_build_args).await?;
+    let data = get_deployment_data(using_flakes, &deploy_flakes, &extra_build_args).await?;
     run_deploy(
         deploy_flakes,
         data,
@@ -742,7 +749,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         &cmd_overrides,
         opts.keep_result,
         result_path,
-        &opts.extra_build_args,
+        &extra_build_args,
         opts.debug_logs,
         opts.dry_activate,
         opts.boot,

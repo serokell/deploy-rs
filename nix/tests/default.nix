@@ -171,6 +171,6 @@ in {
   non-flake-with-flakes = mkTest {
     name = "non-flake-with-flakes";
     flakes = true;
-    deployArgs = "--file . --targets server";
+    deployArgs = "--file . --target server";
   };
 }
