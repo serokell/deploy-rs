@@ -38,6 +38,9 @@
                 },
                 "interactiveSudo": {
                     "type": "boolean"
+                },
+                "remoteBinPath": {
+                    "type": "string"
                 }
             }
         },
