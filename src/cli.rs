@@ -24,7 +24,7 @@ use tokio::process::Command;
 #[command(version = "1.0", author = "Serokell <https://serokell.io/>")]
 pub struct Opts {
     /// A flake to deploy, can be repeated
-    #[arg(long, action = clap::ArgAction::Append)]
+    #[arg(short, long, action = clap::ArgAction::Append)]
     target: Option<Vec<String>>,
     /// Treat targets as files instead of flakes
     #[clap(short, long)]
