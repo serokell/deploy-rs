@@ -168,6 +168,7 @@ pub struct CmdOverrides {
     pub interactive_sudo: Option<bool>,
     pub dry_activate: bool,
     pub remote_build: bool,
+    pub remote_bin_path: Option<PathBuf>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -193,7 +194,7 @@ fn parse_fragment(fragment: &str) -> Result<(Option<String>, Option<String>), Pa
 
     let first_child = match ast.root().node().first_child() {
         Some(x) => x,
-        None => return Ok((None, None))
+        None => return Ok((None, None)),
     };
 
     let mut node_over = false;
@@ -319,7 +320,10 @@ fn test_parse_flake() {
     );
 }
 
-pub fn parse_file<'a>(file: &'a str, attribute: &'a str) -> Result<DeployFlake<'a>, ParseFlakeError> {
+pub fn parse_file<'a>(
+    file: &'a str,
+    attribute: &'a str,
+) -> Result<DeployFlake<'a>, ParseFlakeError> {
     let (node, profile) = parse_fragment(attribute)?;
 
     Ok(DeployFlake {
@@ -414,11 +418,16 @@ impl<'a> DeployData<'a> {
 
     fn get_profile_info(&'a self) -> Result<ProfileInfo, DeployDataDefsError> {
         match self.profile.profile_settings.profile_path {
-            Some(ref profile_path) => Ok(ProfileInfo::ProfilePath { profile_path: profile_path.to_string() }),
+            Some(ref profile_path) => Ok(ProfileInfo::ProfilePath {
+                profile_path: profile_path.to_string(),
+            }),
             None => {
                 let profile_user = self.get_profile_user()?;
-                Ok(ProfileInfo::ProfileUserAndName { profile_user, profile_name: self.profile_name.to_string() })
-            },
+                Ok(ProfileInfo::ProfileUserAndName {
+                    profile_user,
+                    profile_name: self.profile_name.to_string(),
+                })
+            }
         }
     }
 }
@@ -446,6 +455,9 @@ pub fn make_deploy_data<'a, 's>(
     }
     if cmd_overrides.profile_user.is_some() {
         merged_settings.user = cmd_overrides.profile_user.clone();
+    }
+    if cmd_overrides.remote_bin_path.is_some() {
+        merged_settings.remote_bin_path = cmd_overrides.remote_bin_path.clone();
     }
     if let Some(ref ssh_opts) = cmd_overrides.ssh_opts {
         merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
