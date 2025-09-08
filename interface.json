@@ -40,7 +40,7 @@
                     "type": "boolean"
                 },
                 "sudoFile": {
-                    "type": "path"
+                    "type": "string"
                 },
                 "sudoSecret": {
                     "type": "string"
