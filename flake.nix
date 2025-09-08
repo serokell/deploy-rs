@@ -17,17 +17,11 @@
 
   outputs = { self, nixpkgs, utils, ... }@inputs:
   {
-    overlays.default = final: prev: let
-      darwinOptions = final.lib.optionalAttrs final.stdenv.isDarwin {
-        buildInputs = with final.darwin.apple_sdk.frameworks; [
-          SystemConfiguration
-          CoreServices
-        ];
-      };
-    in
+    overlays.default = final: prev:
     {
       deploy-rs = {
-        deploy-rs = final.rustPlatform.buildRustPackage (darwinOptions // {
+
+        deploy-rs = final.rustPlatform.buildRustPackage {
           pname = "deploy-rs";
           version = "0.1.0";
 
@@ -42,11 +36,12 @@
           runtimeInputs = [ final.pkgs.sops ];
 
           cargoLock.lockFile = ./Cargo.lock;
-	  meta = {
-	    description = "A Simple multi-profile Nix-flake deploy tool"; 
+
+          meta = {
+            description = "A Simple multi-profile Nix-flake deploy tool"; 
             mainProgram = "deploy";
-	  };
-        });
+          };
+        };
 
         lib = rec {
 
