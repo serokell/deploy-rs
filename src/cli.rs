@@ -40,6 +40,7 @@ pub struct Opts {
     #[arg(short, long)]
     interactive: bool,
     /// Extra arguments to be passed to nix build
+    #[arg(last = true)]
     extra_build_args: Vec<String>,
 
     /// Print debug logs to output
