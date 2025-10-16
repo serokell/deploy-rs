@@ -10,7 +10,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     systems.url = "github:nix-systems/default";
 
-    utils = {
+    flake-utils = {
       url = "github:numtide/flake-utils";
       inputs.systems.follows = "systems";
     };
@@ -21,7 +21,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, utils, ... }@inputs:
+  outputs = { self, nixpkgs, flake-utils, ... }@inputs:
   {
     overlays.default = final: prev:
     {
@@ -151,7 +151,7 @@
       };
     };
   } //
-    utils.lib.eachSystem (utils.lib.defaultSystems ++ ["aarch64-darwin"]) (system:
+    flake-utils.lib.eachSystem (flake-utils.lib.defaultSystems ++ ["aarch64-darwin"]) (system:
       let
         pkgs = import nixpkgs {
           inherit system;
