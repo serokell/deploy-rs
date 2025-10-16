@@ -8,7 +8,13 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    utils.url = "github:numtide/flake-utils";
+    systems.url = "github:nix-systems/default";
+
+    utils = {
+      url = "github:numtide/flake-utils";
+      inputs.systems.follows = "systems";
+    };
+
     flake-compat = {
       url = "github:edolstra/flake-compat";
       flake = false;

@@ -36,6 +36,7 @@
       "inputs": {
         "flake-compat": "flake-compat",
         "nixpkgs": "nixpkgs",
+        "systems": "systems",
         "utils": "utils"
       }
     },
@@ -56,7 +57,9 @@
     },
     "utils": {
       "inputs": {
-        "systems": "systems"
+        "systems": [
+          "systems"
+        ]
       },
       "locked": {
         "lastModified": 1731533236,

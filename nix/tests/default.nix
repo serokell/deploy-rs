@@ -50,11 +50,11 @@ let
     flakeInputs = ''
       deploy-rs.url = "${../..}";
       deploy-rs.inputs.utils.follows = "utils";
+      deploy-rs.inputs.systems.follows = "systems";
       deploy-rs.inputs.flake-compat.follows = "flake-compat";
 
       nixpkgs.url = "${inputs.nixpkgs}";
       utils.url = "${inputs.utils}";
-      utils.inputs.systems.follows = "systems";
       systems.url = "${inputs.utils.inputs.systems}";
       flake-compat.url = "${inputs.flake-compat}";
       flake-compat.flake = false;
