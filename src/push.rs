@@ -240,17 +240,25 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
     )
     .map_err(PushProfileError::ShowDerivationParse)?;
 
-    let &deriver = derivation_info
+    let deriver_key = derivation_info
         .keys()
         .next()
         .ok_or(PushProfileError::ShowDerivationEmpty)?;
 
-    let new_deriver = &if data.supports_flakes || data.deploy_data.merged_settings.remote_build.unwrap_or(false) {
+    // Nix 2.32+ returns relative paths (without /nix/store/ prefix) in show-derivation output
+    // Normalize to always use full store paths
+    let deriver = if deriver_key.starts_with("/nix/store/") {
+        deriver_key.to_string()
+    } else {
+        format!("/nix/store/{}", deriver_key)
+    };
+
+    let new_deriver = if data.supports_flakes || data.deploy_data.merged_settings.remote_build.unwrap_or(false) {
         // Since nix 2.15.0 'nix build <path>.drv' will build only the .drv file itself, not the
         // derivation outputs, '^out' is used to refer to outputs explicitly
-        deriver.to_owned().to_string() + "^out"
+        deriver.clone() + "^out"
     } else {
-        deriver.to_owned()
+        deriver.clone()
     };
 
     let path_info_output = Command::new("nix")
@@ -260,8 +268,8 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
         .output().await
         .map_err(PushProfileError::PathInfo)?;
 
-    let deriver = if std::str::from_utf8(&path_info_output.stdout).map(|s| s.trim()) == Ok(deriver) {
-        // In this case we're on 2.15.0 or newer, because 'nix path-infonix path-info <...>.drv'
+    let deriver = if std::str::from_utf8(&path_info_output.stdout).map(|s| s.trim()) == Ok(deriver.as_str()) {
+        // In this case we're on 2.15.0 or newer, because 'nix path-info <...>.drv'
         // returns the same '<...>.drv' path.
         // If 'nix path-info <...>.drv' returns a different path, then we're on pre 2.15.0 nix and
         // derivation build result is already present in the /nix/store.
