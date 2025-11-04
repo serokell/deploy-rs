@@ -28,7 +28,7 @@ pub struct Opts {
     target: Option<String>,
 
     /// A list of flakes to deploy alternatively
-    #[arg(long, group = "deploy")]
+    #[arg(long, group = "deploy", num_args = 1..)]
     targets: Option<Vec<String>>,
     /// Treat targets as files instead of flakes
     #[clap(short, long)]
@@ -40,6 +40,7 @@ pub struct Opts {
     #[arg(short, long)]
     interactive: bool,
     /// Extra arguments to be passed to nix build
+    #[arg(last = true)]
     extra_build_args: Vec<String>,
 
     /// Print debug logs to output
