@@ -448,7 +448,8 @@ pub fn make_deploy_data<'a, 's>(
         merged_settings.user = cmd_overrides.profile_user.clone();
     }
     if let Some(ref ssh_opts) = cmd_overrides.ssh_opts {
-        merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
+        merged_settings.ssh_opts =
+            shlex::split(ssh_opts).unwrap_or(ssh_opts.split(' ').map(|x| x.to_owned()).collect());
     }
     if let Some(fast_connection) = cmd_overrides.fast_connection {
         merged_settings.fast_connection = Some(fast_connection);

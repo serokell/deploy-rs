@@ -163,8 +163,15 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
     };
     let store_address = format!("ssh-ng://{}@{}", data.deploy_defs.ssh_user, hostname);
 
-    let ssh_opts_str = data.deploy_data.merged_settings.ssh_opts.join(" ");
-
+    let ssh_opts_str = shlex::try_join(
+        data.deploy_data
+            .merged_settings
+            .ssh_opts
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<&str>>(),
+    )
+    .unwrap_or(data.deploy_data.merged_settings.ssh_opts.join(" "));
 
     // copy the derivation to remote host so it can be built there
     let copy_command_status = Command::new("nix")
@@ -297,15 +304,16 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
 }
 
 pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileError> {
-    let ssh_opts_str = data
-        .deploy_data
-        .merged_settings
-        .ssh_opts
-        // This should provide some extra safety, but it also breaks for some reason, oh well
-        // .iter()
-        // .map(|x| format!("'{}'", x))
-        // .collect::<Vec<String>>()
-        .join(" ");
+    let ssh_opts_str = shlex::try_join(
+        data.deploy_data
+            .merged_settings
+            .ssh_opts
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<&str>>(),
+    )
+    .unwrap_or(data.deploy_data.merged_settings.ssh_opts.join(" "));
+
 
     // remote building guarantees that the resulting derivation is stored on the target system
     // no need to copy after building

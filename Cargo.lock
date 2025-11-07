@@ -254,6 +254,7 @@ dependencies = [
  "rpassword",
  "serde",
  "serde_json",
+ "shlex",
  "signal-hook",
  "thiserror 2.0.12",
  "tokio",
