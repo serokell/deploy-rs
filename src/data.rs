@@ -37,6 +37,8 @@ pub struct GenericSettings {
     pub remote_build: Option<bool>,
     #[serde(rename(deserialize = "interactiveSudo"))]
     pub interactive_sudo: Option<bool>,
+    #[serde(rename(deserialize = "environmentSudo"))]
+    pub environment_sudo: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

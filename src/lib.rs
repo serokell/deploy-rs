@@ -166,6 +166,7 @@ pub struct CmdOverrides {
     pub activation_timeout: Option<u16>,
     pub sudo: Option<String>,
     pub interactive_sudo: Option<bool>,
+    pub environment_sudo: Option<bool>,
     pub dry_activate: bool,
     pub remote_build: bool,
 }
@@ -467,6 +468,9 @@ pub fn make_deploy_data<'a, 's>(
     }
     if let Some(interactive_sudo) = cmd_overrides.interactive_sudo {
         merged_settings.interactive_sudo = Some(interactive_sudo);
+    }
+    if let Some(environment_sudo) = cmd_overrides.environment_sudo {
+        merged_settings.environment_sudo = Some(environment_sudo);
     }
 
     DeployData {

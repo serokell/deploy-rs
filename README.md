@@ -201,6 +201,12 @@ This is a set of options that can be put in any of the above definitions, with t
   # This defaults to `false`
   interactiveSudo = false;
 
+  # Whether to enable reading the sudo password from the environment (password based sudo). Useful when using non-root sshUsers.
+  # It reads the passwords on a per-node basis with the environment variable prefixed by DEPLOY_RS_SUDO_PASSWORD_ and followed by the node name in capital letters, dashes get replaced with underscores.
+  # For example: DEPLOY_RS_SUDO_PASSWORD_MY_SYSTEM
+  # This defaults to `false`
+  environmentSudo = false;
+
   # This is an optional list of arguments that will be passed to SSH.
   sshOpts = [ "-p" "2121" ];
 
