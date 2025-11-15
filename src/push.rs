@@ -75,6 +75,13 @@ pub async fn build_profile_locally(data: &PushProfileData<'_>, derivation_name: 
         build_command.arg(derivation_name)
     };
 
+    match std::env::var("TMPDIR") {
+        Ok(build_dir) => {
+            info!("Detected TMPDIR is set for build to {build_dir}");
+            build_command.env("TMPDIR", build_dir);
+        }
+        Err(_) => {}
+    }
     match (data.keep_result, data.supports_flakes) {
         (true, _) => {
             let result_path = data.result_path.unwrap_or("./.deploy-gc");
