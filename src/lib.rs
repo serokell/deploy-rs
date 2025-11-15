@@ -166,6 +166,8 @@ pub struct CmdOverrides {
     pub activation_timeout: Option<u16>,
     pub sudo: Option<String>,
     pub interactive_sudo: Option<bool>,
+    pub sudo_file: Option<PathBuf>,
+    pub sudo_secret: Option<String>,
     pub dry_activate: bool,
     pub remote_build: bool,
 }
@@ -365,6 +367,12 @@ enum ProfileInfo {
 pub enum DeployDataDefsError {
     #[error("Neither `user` nor `sshUser` are set for profile {0} of node {1}")]
     NoProfileUser(String, String),
+    #[error("No sudo path set but sudo secret for profile {0} of node {1}")]
+    NoSopsFile(String, String),
+    #[error("No sudo secret but sudo path set for profile {0} of node {1}")]
+    NoSopsSecret(String, String),
+    #[error("Interactive Sudo set but sudo secret set as well for profile {0} of node {1}")]
+    SopsButInteractive(String, String),
 }
 
 impl<'a> DeployData<'a> {
@@ -380,6 +388,31 @@ impl<'a> DeployData<'a> {
             Some(ref user) if user != &ssh_user => Some(format!("{} {}", self.get_sudo(), user)),
             _ => None,
         };
+
+        // Check if one of sudo_file or sudo_secret is missing
+        if self.merged_settings.sudo_file.is_some() && self.merged_settings.sudo_secret.is_none() {
+            return Err(DeployDataDefsError::NoSopsSecret(
+                self.profile_name.to_owned(),
+                self.node_name.to_owned(),
+            ));
+        }
+
+        if self.merged_settings.sudo_file.is_none() && self.merged_settings.sudo_secret.is_some() {
+            return Err(DeployDataDefsError::NoSopsFile(
+                self.profile_name.to_owned(),
+                self.node_name.to_owned(),
+            ));
+        }
+
+        // Check that only either sudo_secret or interactive sudo is set
+        if self.merged_settings.interactive_sudo.is_some()
+            && self.merged_settings.sudo_secret.is_some()
+        {
+            return Err(DeployDataDefsError::SopsButInteractive(
+                self.profile_name.to_owned(),
+                self.node_name.to_owned(),
+            ));
+        }
 
         Ok(DeployDefs {
             ssh_user,
@@ -467,6 +500,12 @@ pub fn make_deploy_data<'a, 's>(
     }
     if let Some(interactive_sudo) = cmd_overrides.interactive_sudo {
         merged_settings.interactive_sudo = Some(interactive_sudo);
+    }
+    if let Some(ref sudo_file) = cmd_overrides.sudo_file {
+        merged_settings.sudo_file = Some(sudo_file.to_owned());
+    }
+    if let Some(ref sudo_secret) = cmd_overrides.sudo_secret {
+        merged_settings.sudo_secret = Some(sudo_secret.to_owned());
     }
 
     DeployData {
