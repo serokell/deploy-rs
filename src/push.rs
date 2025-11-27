@@ -85,6 +85,10 @@ pub enum PushProfileError {
     PathInfo(#[from] command::CommandError<PathInfoError>),
     #[error("Copy exited with status {}", .0.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string()))]
     CopyExit(Option<i32>),
+    #[error("Failed to run Nix eval command: {0}")]
+    EvalStore(std::io::error),
+    #[error("Failed to convert nix store to utf8: {}", .0.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string()))]
+    EvalStoreUtf8(std::io::error),
     #[error("Build exited with status {}", .0.map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string()))]
     BuildExit(Option<i32>),
     #[error(
@@ -690,10 +694,19 @@ pub async fn build_profile(data: &PushProfileData) -> Result<String, PushProfile
 
         // Nix 2.32+ returns relative paths (without /nix/store/ prefix) in show-derivation output
         // Normalize to always use full store paths
-        let deriver = if deriver_key.starts_with("/nix/store/") {
+        let nix_store_output = Command::new("nix")
+            .arg("eval")
+            .arg("--raw")
+            .arg("--expr")
+            .arg("builtins.storeDir")
+            .output().await
+            .map_err(PushProfileError::EvalStore)?;
+        let nix_store = std::str::from_utf8(&nix_store_output.stdout).map_err(PushProfileError::EvalStoreUtf8)?;
+
+        let deriver = if deriver_key.starts_with(nix_store) {
             deriver_key.to_string()
         } else {
-            format!("/nix/store/{}", deriver_key)
+            format!("{}/{}", nix_store, deriver_key)
         };
 
         deriver_for_build(deriver, supports_caret).await?
