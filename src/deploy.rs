@@ -23,6 +23,7 @@ struct ActivateCommandData<'a> {
     log_dir: Option<&'a str>,
     dry_activate: bool,
     boot: bool,
+    test: bool,
 }
 
 fn build_activate_command(data: &ActivateCommandData) -> String {
@@ -75,6 +76,10 @@ fn build_activate_command(data: &ActivateCommandData) -> String {
         self_activate_command = format!("{} --boot", self_activate_command);
     }
 
+    if data.test {
+        self_activate_command = format!("{} --test", self_activate_command);
+    }
+
     if let Some(sudo_cmd) = &data.sudo {
         self_activate_command = format!("{} {}", sudo_cmd, self_activate_command);
     }
@@ -92,6 +97,7 @@ fn test_activation_command_builder() {
     let auto_rollback = true;
     let dry_activate = false;
     let boot = false;
+    let test = false;
     let temp_path = Path::new("/tmp");
     let confirm_timeout = 30;
     let magic_rollback = true;
@@ -111,6 +117,7 @@ fn test_activation_command_builder() {
             log_dir,
             dry_activate,
             boot,
+            test,
         }),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt activate '/nix/store/blah/etc' --profile-path '/blah/profiles/test' --temp-path '/tmp' --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
@@ -354,6 +361,7 @@ pub async fn deploy_profile(
     deploy_defs: &super::DeployDefs,
     dry_activate: bool,
     boot: bool,
+    test: bool,
 ) -> Result<(), DeployProfileError> {
     if !dry_activate {
         info!(
@@ -387,6 +395,7 @@ pub async fn deploy_profile(
         log_dir: deploy_data.log_dir,
         dry_activate,
         boot,
+        test,
     });
 
     debug!("Constructed activation command: {}", self_activate_command);
