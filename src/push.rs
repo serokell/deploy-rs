@@ -11,6 +11,10 @@ use tokio::process::Command;
 
 #[derive(Error, Debug)]
 pub enum PushProfileError {
+    #[error("Failed to run Nix eval command: {0}")]
+    EvalStore(std::io::Error),
+    #[error("Nixeval command ouput contained an invalid UTF-8 sequence: {0}")]
+    EvalStoreUtf8(std::str::Utf8Error),
     #[error("Failed to run Nix show-derivation command: {0}")]
     ShowDerivation(std::io::Error),
     #[error("Nix show-derivation command resulted in a bad exit code: {0:?}")]
@@ -247,10 +251,19 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
 
     // Nix 2.32+ returns relative paths (without /nix/store/ prefix) in show-derivation output
     // Normalize to always use full store paths
-    let deriver = if deriver_key.starts_with("/nix/store/") {
+    let nix_store_output = Command::new("nix")
+        .arg("eval")
+        .arg("--raw")
+        .arg("--expr")
+        .arg("builtins.storeDir")
+        .output().await
+        .map_err(PushProfileError::EvalStore)?;
+    let nix_store = std::str::from_utf8(&nix_store_output.stdout).map_err(PushProfileError::EvalStoreUtf8)?;
+
+    let deriver = if deriver_key.starts_with(nix_store) {
         deriver_key.to_string()
     } else {
-        format!("/nix/store/{}", deriver_key)
+        format!("{}/{}", nix_store, deriver_key)
     };
 
     let new_deriver = if data.supports_flakes || data.deploy_data.merged_settings.remote_build.unwrap_or(false) {
