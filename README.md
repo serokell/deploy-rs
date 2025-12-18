@@ -102,7 +102,7 @@ In the above configuration, `deploy-rs` is built from the flake, not from nixpkg
     deployPkgs = import nixpkgs {
       inherit system;
       overlays = [
-        deploy-rs.overlay # or deploy-rs.overlays.default
+        deploy-rs.overlays.default
         (self: super: { deploy-rs = { inherit (pkgs) deploy-rs; lib = super.deploy-rs.lib; }; })
       ];
     };
