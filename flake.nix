@@ -36,7 +36,7 @@
           cargoLock.lockFile = ./Cargo.lock;
 
           meta = {
-            description = "A Simple multi-profile Nix-flake deploy tool"; 
+            description = "A Simple multi-profile Nix-flake deploy tool";
             mainProgram = "deploy";
           };
         };
