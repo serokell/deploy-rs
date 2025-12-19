@@ -26,6 +26,7 @@ If your profile or node name has a . in it, simply wrap it in quotes, and the fl
 Any "extra" arguments will be passed into the Nix calls, so for instance to deploy an impure profile, you may use `deploy . -- --impure` (note the explicit flake path is necessary for doing this).
 
 You can try out this tool easily with `nix run`:
+
 - `nix run github:serokell/deploy-rs your-flake`
 
 If you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `deploy <flake>` you can issue `deploy --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
@@ -89,28 +90,39 @@ A basic example of a flake that works with `deploy-rs` and deploys a simple NixO
 }
 ```
 
-In the above configuration, `deploy-rs` is built from the flake, not from nixpkgs. To take advantage of the nixpkgs binary cache, the deploy-rs package can be overwritten in an overlay:
+In the above configuration, `deploy-rs` is built from the flake, not from nixpkgs. To take advantage of the nixpkgs binary cache (even for cross-architecture deploys), the deploy-rs package can be overwritten in an overlay:
 
 ```nix
 {
   # ...
-  outputs = { self, nixpkgs, deploy-rs }: let
-    system = "x86_64-linux";
-    # Unmodified nixpkgs
-    pkgs = import nixpkgs { inherit system; };
-    # nixpkgs with deploy-rs overlay but force the nixpkgs package
-    deployPkgs = import nixpkgs {
-      inherit system;
-      overlays = [
-        deploy-rs.overlay # or deploy-rs.overlays.default
-        (self: super: { deploy-rs = { inherit (pkgs) deploy-rs; lib = super.deploy-rs.lib; }; })
-      ];
-    };
+  outputs = {
+    self,
+    nixpkgs,
+    deploy-rs,
+  }: let
+    supportedSystems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
+
+    # Helper function for generating per-system attributes
+    forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
+
+    deployPkgs = forAllSystems (system:
+      import nixpkgs {
+        inherit system;
+        overlays = [
+          (self: super: {
+            deploy-rs = {
+              inherit ((inputs.deploy-rs.overlays.default self super).deploy-rs) lib;
+              inherit (super) deploy-rs;
+            };
+          })
+        ];
+      });
   in {
     # ...
     deploy.nodes.some-random-system.profiles.system = {
-        user = "root";
-        path = deployPkgs.deploy-rs.lib.activate.nixos self.nixosConfigurations.some-random-system;
+      user = "root";
+      # specify the architecture of the target device
+      path = deployPkgs.aarch64-linux.deploy-rs.lib.activate.nixos self.nixosConfigurations.some-random-system;
     };
   };
 }
