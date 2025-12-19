@@ -19,6 +19,8 @@ pub struct GenericSettings {
     )]
     #[merge(strategy = merge::vec::append)]
     pub ssh_opts: Vec<String>,
+    #[serde(rename(deserialize = "compress"))]
+    pub compress: Option<bool>,
     #[serde(rename(deserialize = "fastConnection"))]
     pub fast_connection: Option<bool>,
     #[serde(rename(deserialize = "autoRollback"))]
