@@ -110,6 +110,9 @@ pub struct Opts {
     /// Prompt for sudo password during activation.
     #[arg(long)]
     interactive_sudo: Option<bool>,
+    /// Disable SSH connection multiplexing (reusing connections for multiple profiles)
+    #[arg(long)]
+    no_ssh_multiplexing: bool,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -405,7 +408,9 @@ pub enum RunDeployError {
     #[error("Failed to revoke profile for node {0}: {1}")]
     RevokeProfile(String, deploy::deploy::RevokeProfileError),
     #[error("Deployment to node {0} failed, rolled back to previous generation")]
-    Rollback(String)
+    Rollback(String),
+    #[error("Failed to establish SSH control master: {0}")]
+    SshControlMaster(#[from] deploy::ssh::SshError),
 }
 
 type ToDeploy<'a> = Vec<(
@@ -430,6 +435,7 @@ async fn run_deploy(
     boot: bool,
     log_dir: &Option<String>,
     rollback_succeeded: bool,
+    ssh_multiplexing: bool,
 ) -> Result<(), RunDeployError> {
     let to_deploy: ToDeploy = deploy_flakes
         .iter()
@@ -576,30 +582,56 @@ async fn run_deploy(
         print_deployment(&parts[..])?;
     }
 
-    let data_iter = || {
-        parts.iter().map(
-            |(deploy_flake, deploy_data, deploy_defs)| deploy::push::PushProfileData {
-                supports_flakes,
-                check_sigs,
-                repo: deploy_flake.repo,
-                deploy_data,
-                deploy_defs,
-                keep_result,
-                result_path,
-                extra_build_args,
-            },
-        )
-    };
-
-    for data in data_iter() {
-        let node_name: String = data.deploy_data.node_name.to_string();
+    for (deploy_flake, deploy_data, deploy_defs) in &parts {
+        let data = deploy::push::PushProfileData {
+            supports_flakes,
+            check_sigs,
+            repo: deploy_flake.repo,
+            deploy_data,
+            deploy_defs,
+            keep_result,
+            result_path,
+            extra_build_args,
+        };
+        let node_name: String = deploy_data.node_name.to_string();
         deploy::push::build_profile(data).await.map_err(|e| {
             RunDeployError::BuildProfile(node_name, e)
         })?;
     }
 
-    for data in data_iter() {
-        let node_name: String = data.deploy_data.node_name.to_string();
+    let ssh_multiplexer = if ssh_multiplexing {
+        let multiplexer = deploy::ssh::SshMultiplexer::new();
+
+        for (_, deploy_data, deploy_defs) in &mut parts {
+            let hostname = cmd_overrides
+                .hostname
+                .as_deref()
+                .unwrap_or(&deploy_data.node.node_settings.hostname);
+
+            let control_master = multiplexer
+                .get_or_create(hostname, Some(&deploy_defs.ssh_user), &deploy_data.merged_settings.ssh_opts)
+                .await?;
+
+            deploy_data.merged_settings.ssh_opts.extend(control_master.control_opts());
+        }
+
+        Some(multiplexer)
+    } else {
+        None
+    };
+
+    for (deploy_flake, deploy_data, deploy_defs) in &parts {
+        let data = deploy::push::PushProfileData {
+            supports_flakes,
+            check_sigs,
+            repo: deploy_flake.repo,
+            deploy_data,
+            deploy_defs,
+            keep_result,
+            result_path,
+            extra_build_args,
+        };
+        let node_name: String = deploy_data.node_name.to_string();
         deploy::push::push_profile(data).await.map_err(|e| {
             RunDeployError::PushProfile(node_name, e)
         })?;
@@ -635,6 +667,10 @@ async fn run_deploy(
             return Err(RunDeployError::DeployProfile(deploy_data.node_name.to_string(), e))
         }
         succeeded.push((deploy_data, deploy_defs))
+    }
+
+    if let Some(multiplexer) = ssh_multiplexer {
+        multiplexer.close_all().await;
     }
 
     Ok(())
@@ -749,6 +785,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         opts.boot,
         &opts.log_dir,
         opts.rollback_succeeded.unwrap_or(true),
+        !opts.no_ssh_multiplexing,
     )
     .await?;
 
