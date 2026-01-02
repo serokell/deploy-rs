@@ -386,9 +386,9 @@ fn prompt_deployment(
 pub enum RunDeployError {
     #[error("Failed to deploy profile to node {0}: {1}")]
     DeployProfile(String, deploy::deploy::DeployProfileError),
-    #[error("Failed to build profile on node {0}: {0}")]
+    #[error("Failed to build profile on node {0}: {1}")]
     BuildProfile(String,  deploy::push::PushProfileError),
-    #[error("Failed to push profile to node {0}: {0}")]
+    #[error("Failed to push profile to node {0}: {1}")]
     PushProfile(String,  deploy::push::PushProfileError),
     #[error("No profile named `{0}` was found")]
     ProfileNotFound(String),
