@@ -113,6 +113,11 @@ pub struct Opts {
     /// Disable SSH connection multiplexing (reusing connections for multiple profiles)
     #[arg(long)]
     no_ssh_multiplexing: bool,
+    /// Disable fresh SSH connection for rollback check.
+    /// When disabled, rollback check may reuse existing SSH connections, which can cause
+    /// false-positive success even if SSH is broken (see https://github.com/serokell/deploy-rs/issues/106)
+    #[arg(long)]
+    no_rollback_fresh_connection: bool,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -436,6 +441,7 @@ async fn run_deploy(
     log_dir: &Option<String>,
     rollback_succeeded: bool,
     ssh_multiplexing: bool,
+    rollback_fresh_connection: bool,
 ) -> Result<(), RunDeployError> {
     let to_deploy: ToDeploy = deploy_flakes
         .iter()
@@ -644,7 +650,7 @@ async fn run_deploy(
     // Rollbacks adhere to the global seeting to auto_rollback and secondary
     // the profile's configuration
     for (_, deploy_data, deploy_defs) in &parts {
-        if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, dry_activate, boot).await
+        if let Err(e) = deploy::deploy::deploy_profile(deploy_data, deploy_defs, dry_activate, boot, rollback_fresh_connection).await
         {
             error!("{}", e);
             if dry_activate {
@@ -786,6 +792,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         &opts.log_dir,
         opts.rollback_succeeded.unwrap_or(true),
         !opts.no_ssh_multiplexing,
+        !opts.no_rollback_fresh_connection,
     )
     .await?;
 
