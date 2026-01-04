@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use log::{debug, info, warn};
-use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 use thiserror::Error;
@@ -19,6 +18,8 @@ pub enum PushProfileError {
     ShowDerivationUtf8(std::str::Utf8Error),
     #[error("Failed to parse the output of nix show-derivation: {0}")]
     ShowDerivationParse(serde_json::Error),
+    #[error("Nix show derivation output is not an object")]
+    ShowDerivationInvalid,
     #[error("Nix show-derivation output is empty")]
     ShowDerivationEmpty,
     #[error("Failed to run Nix build command: {0}")]
@@ -218,13 +219,10 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
     );
 
     // `nix-store --query --deriver` doesn't work on invalid paths, so we parse output of show-derivation :(
-    let mut show_derivation_command = Command::new("nix");
-
-    show_derivation_command
+    let show_derivation_output = Command::new("nix")
+        .arg("--experimental-features").arg("nix-command")
         .arg("show-derivation")
-        .arg(&data.deploy_data.profile.profile_settings.path);
-
-    let show_derivation_output = show_derivation_command
+        .arg(&data.deploy_data.profile.profile_settings.path)
         .output()
         .await
         .map_err(PushProfileError::ShowDerivation)?;
@@ -234,11 +232,18 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
         a => return Err(PushProfileError::ShowDerivationExit(a)),
     };
 
-    let derivation_info: HashMap<&str, serde_json::value::Value> = serde_json::from_str(
+    let show_derivation_json: serde_json::value::Value = serde_json::from_str(
         std::str::from_utf8(&show_derivation_output.stdout)
             .map_err(PushProfileError::ShowDerivationUtf8)?,
     )
     .map_err(PushProfileError::ShowDerivationParse)?;
+
+    // Nix 2.33+ nests derivations under a "derivations" key, so try to get that first
+    let derivation_info = show_derivation_json
+        .get("derivations")
+        .unwrap_or(&show_derivation_json)
+        .as_object()
+        .ok_or(PushProfileError::ShowDerivationInvalid)?;
 
     let deriver_key = derivation_info
         .keys()
