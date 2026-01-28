@@ -558,6 +558,7 @@ async fn run_deploy(
             //https://stackoverflow.com/a/1405340
             let ssh_command_status = Command::new("ssh")
                 .arg("-q")
+                .arg("-o ConnectTimeout=5")
                 .arg(format!("ssh://{}@{}", deploy_defs.ssh_user, deploy_data.node.node_settings.hostname))
                 .arg("exit")
                 .stdout(Stdio::null())
