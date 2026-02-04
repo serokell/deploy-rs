@@ -74,6 +74,9 @@ pub struct Opts {
     /// Override the SSH options used
     #[arg(long, allow_hyphen_values = true)]
     ssh_opts: Option<String>,
+    /// Override the SSH compression when using `nix copy`
+    #[clap(long)]
+    compress: Option<bool>,
     /// Override if the connecting to the target node should be considered fast
     #[arg(long)]
     fast_connection: Option<bool>,
@@ -702,6 +705,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         profile_user: opts.profile_user,
         ssh_opts: opts.ssh_opts,
         fast_connection: opts.fast_connection,
+        compress: opts.compress,
         auto_rollback: opts.auto_rollback,
         hostname: opts.hostname,
         magic_rollback: opts.magic_rollback,

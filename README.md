@@ -208,6 +208,10 @@ This is a set of options that can be put in any of the above definitions, with t
   # This defaults to `false`
   fastConnection = false;
 
+  # Use SSH gzip compress for `nix copy`.
+  # This defaults to `false`
+  compress = true;
+
   # If the previous profile should be re-activated if activation fails.
   # This defaults to `true`
   autoRollback = true;

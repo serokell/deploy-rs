@@ -21,6 +21,9 @@
                 "fastConnection": {
                     "type": "boolean"
                 },
+                "compress": {
+                    "type": "boolean"
+                },
                 "autoRollback": {
                     "type": "boolean"
                 },
