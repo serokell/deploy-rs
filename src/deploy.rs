@@ -301,7 +301,7 @@ pub async fn confirm_profile(
         .spawn()
         .map_err(ConfirmProfileError::SSHConfirm)?;
     
-    if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) {
+    if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) || deploy_data.merged_settings.environment_sudo.unwrap_or(false) {
         trace!("[confirm] Piping in sudo password");
         handle_sudo_stdin(&mut ssh_confirm_child, deploy_defs)
             .await
@@ -413,7 +413,7 @@ pub async fn deploy_profile(
             .spawn()
             .map_err(DeployProfileError::SSHSpawnActivate)?;
 
-        if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) {
+        if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) || deploy_data.merged_settings.environment_sudo.unwrap_or(false) {
             trace!("[activate] Piping in sudo password");
             handle_sudo_stdin(&mut ssh_activate_child, deploy_defs)
                 .await
@@ -454,7 +454,7 @@ pub async fn deploy_profile(
             .spawn()
             .map_err(DeployProfileError::SSHSpawnActivate)?;
 
-        if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) {
+        if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) || deploy_data.merged_settings.environment_sudo.unwrap_or(false) {
             trace!("[activate] Piping in sudo password");
             handle_sudo_stdin(&mut ssh_activate_child, deploy_defs)
                 .await
@@ -498,7 +498,7 @@ pub async fn deploy_profile(
             .spawn()
             .map_err(DeployProfileError::SSHWait)?;
 
-        if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) {
+        if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) || deploy_data.merged_settings.environment_sudo.unwrap_or(false) {
             trace!("[wait] Piping in sudo password");
             handle_sudo_stdin(&mut ssh_wait_child, deploy_defs)
                 .await
@@ -581,7 +581,7 @@ pub async fn revoke(
         .spawn()
         .map_err(RevokeProfileError::SSHSpawnRevoke)?;
 
-    if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) {
+    if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) || deploy_data.merged_settings.environment_sudo.unwrap_or(false) {
         trace!("[revoke] Piping in sudo password");
         handle_sudo_stdin(&mut ssh_revoke_child, deploy_defs)
             .await
