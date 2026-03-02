@@ -354,6 +354,7 @@ pub async fn deploy_profile(
     deploy_defs: &super::DeployDefs,
     dry_activate: bool,
     boot: bool,
+    rollback_fresh_connection: bool,
 ) -> Result<(), DeployProfileError> {
     if !dry_activate {
         info!(
@@ -468,8 +469,30 @@ pub async fn deploy_profile(
             .arg(&ssh_addr)
             .stdin(std::process::Stdio::piped());
         
-        for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-            ssh_wait_command.arg(ssh_opt);
+        if rollback_fresh_connection {
+            let ssh_opts = &deploy_data.merged_settings.ssh_opts;
+            let mut i = 0;
+            while i < ssh_opts.len() {
+                let ssh_opt = &ssh_opts[i];
+                if ssh_opt == "-o" && i + 1 < ssh_opts.len() {
+                    let next = &ssh_opts[i + 1];
+                    if next.contains("ControlPath") || next.contains("ControlMaster") {
+                        i += 2;
+                        continue;
+                    }
+                }
+                if ssh_opt.contains("ControlPath") || ssh_opt.contains("ControlMaster") {
+                    i += 1;
+                    continue;
+                }
+                ssh_wait_command.arg(ssh_opt);
+                i += 1;
+            }
+            ssh_wait_command.arg("-o").arg("ControlPath=none");
+        } else {
+            for ssh_opt in &deploy_data.merged_settings.ssh_opts {
+                ssh_wait_command.arg(ssh_opt);
+            }
         }
 
         let (send_activate, recv_activate) = tokio::sync::oneshot::channel();
