@@ -113,13 +113,14 @@ pub struct Opts {
 }
 
 /// Returns if the available Nix installation supports flakes
-async fn test_flake_support() -> Result<bool, std::io::Error> {
+async fn test_flake_support(opts: &Opts) -> Result<bool, std::io::Error> {
     debug!("Checking for flake support");
 
     Ok(Command::new("nix")
         .arg("eval")
         .arg("--expr")
         .arg("builtins.getFlake")
+        .args(&opts.extra_build_args)
         // This will error on some machines "intentionally", and we don't really need that printing
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -697,6 +698,9 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
           .collect::<Result<Vec<DeployFlake>, ParseFlakeError>>()?
     };
 
+    let supports_flakes = test_flake_support(&opts).await.map_err(RunError::FlakeTest)?;
+    let do_not_want_flakes = opts.file.is_some();
+
     let cmd_overrides = deploy::CmdOverrides {
         ssh_user: opts.ssh_user,
         profile_user: opts.profile_user,
@@ -713,9 +717,6 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         sudo: opts.sudo,
         interactive_sudo: opts.interactive_sudo
     };
-
-    let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;
-    let do_not_want_flakes = opts.file.is_some();
 
     if !supports_flakes {
         warn!("A Nix version without flakes support was detected, support for this is work in progress");
