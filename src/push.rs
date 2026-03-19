@@ -169,7 +169,7 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
 
     // copy the derivation to remote host so it can be built there
     let copy_command_status = Command::new("nix")
-        .arg("--experimental-features").arg("nix-command")
+        .arg("--extra-experimental-features").arg("nix-command")
         .arg("copy")
         .arg("-s")  // fetch dependencies from substitures, not localhost
         .arg("--to").arg(&store_address)
@@ -187,7 +187,7 @@ pub async fn build_profile_remotely(data: &PushProfileData<'_>, derivation_name:
 
     let mut build_command = Command::new("nix");
     build_command
-        .arg("--experimental-features").arg("nix-command")
+        .arg("--extra-experimental-features").arg("nix-command")
         .arg("build").arg(derivation_name)
         .arg("--eval-store").arg("auto")
         .arg("--store").arg(&store_address)
@@ -220,7 +220,7 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
 
     // `nix-store --query --deriver` doesn't work on invalid paths, so we parse output of show-derivation :(
     let show_derivation_output = Command::new("nix")
-        .arg("--experimental-features").arg("nix-command")
+        .arg("--extra-experimental-features").arg("nix-command")
         .arg("show-derivation")
         .arg(&data.deploy_data.profile.profile_settings.path)
         .output()
@@ -267,7 +267,7 @@ pub async fn build_profile(data: PushProfileData<'_>) -> Result<(), PushProfileE
     };
 
     let path_info_output = Command::new("nix")
-        .arg("--experimental-features").arg("nix-command")
+        .arg("--extra-experimental-features").arg("nix-command")
         .arg("path-info")
         .arg(&deriver)
         .output().await
@@ -321,6 +321,7 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
         );
 
         let mut copy_command = Command::new("nix");
+        copy_command.arg("--extra-experimental-features").arg("nix-command");
         copy_command.arg("copy");
 
         if data.deploy_data.merged_settings.fast_connection != Some(true) {
