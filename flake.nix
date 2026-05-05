@@ -26,11 +26,11 @@
           version = "0.1.0";
 
           src = final.lib.sourceByRegex ./. [
-            "Cargo\.lock"
-            "Cargo\.toml"
+            "Cargo\\.lock"
+            "Cargo\\.toml"
             "src"
             "src/bin"
-            ".*\.rs$"
+            ".*\\.rs$"
           ];
 
           cargoLock.lockFile = ./Cargo.lock;
