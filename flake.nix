@@ -26,17 +26,17 @@
           version = "0.1.0";
 
           src = final.lib.sourceByRegex ./. [
-            "Cargo\.lock"
-            "Cargo\.toml"
+            "Cargo\\.lock"
+            "Cargo\\.toml"
             "src"
             "src/bin"
-            ".*\.rs$"
+            ".*\\.rs$"
           ];
 
           cargoLock.lockFile = ./Cargo.lock;
 
           meta = {
-            description = "A Simple multi-profile Nix-flake deploy tool"; 
+            description = "A Simple multi-profile Nix-flake deploy tool";
             mainProgram = "deploy";
           };
         };
