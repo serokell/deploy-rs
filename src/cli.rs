@@ -62,6 +62,10 @@ pub struct Opts {
     #[arg(short, long)]
     skip_checks: bool,
 
+    /// Skip hosts that are detected to be offline 
+    #[arg(short, long)]
+    skip_offline: bool,
+
     /// Build on remote host
     #[arg(long)]
     remote_build: bool,
@@ -430,6 +434,7 @@ async fn run_deploy(
     boot: bool,
     log_dir: &Option<String>,
     rollback_succeeded: bool,
+    skip_offline: bool,
 ) -> Result<(), RunDeployError> {
     let to_deploy: ToDeploy = deploy_flakes
         .iter()
@@ -548,6 +553,26 @@ async fn run_deploy(
         );
 
         let mut deploy_defs = deploy_data.defs()?;
+
+        if skip_offline {
+            //https://stackoverflow.com/a/1405340
+            let ssh_command_status = Command::new("ssh")
+                .arg("-q")
+                .arg("-o ConnectTimeout=5")
+                .arg(format!("ssh://{}@{}", deploy_defs.ssh_user, deploy_data.node.node_settings.hostname))
+                .arg("exit")
+                .stdout(Stdio::null())
+                .status()
+                .await
+                .unwrap();
+            match ssh_command_status.code() {
+                Some(0) => (),
+                _ => {
+                    warn!("Host {} is offline, skipping due to --skip-offline", deploy_data.node_name);
+                    continue;
+                }
+            }
+        }
 
         if deploy_data.merged_settings.interactive_sudo.unwrap_or(false) {
             warn!("Interactive sudo is enabled! Using a sudo password is less secure than correctly configured SSH keys.\nPlease use keys in production environments.");
@@ -749,6 +774,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         opts.boot,
         &opts.log_dir,
         opts.rollback_succeeded.unwrap_or(true),
+        opts.skip_offline,
     )
     .await?;
 
