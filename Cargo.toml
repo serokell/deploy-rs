@@ -11,7 +11,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4", features = [ "wrap_help", "derive" ] }
+clap = { version = "4", features = [ "wrap_help", "derive", "env" ] }
 dirs = "6"
 flexi_logger = "0.16"
 fork = "0.2"

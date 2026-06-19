@@ -25,91 +25,91 @@ use tokio::process::Command;
 #[command(version = "1.0", author = "Serokell <https://serokell.io/>")]
 pub struct Opts {
     /// The flake to deploy
-    #[arg(group = "deploy")]
+    #[arg(group = "deploy", env = "DEPLOY_TARGET")]
     target: Option<String>,
 
     /// A list of flakes to deploy alternatively
-    #[arg(long, group = "deploy", num_args = 1..)]
+    #[arg(long, group = "deploy", num_args = 1.., env = "DEPLOY_TARGETS")]
     targets: Option<Vec<String>>,
     /// Treat targets as files instead of flakes
-    #[clap(short, long)]
+    #[clap(short, long, env = "DEPLOY_FILE")]
     file: Option<String>,
     /// Check signatures when using `nix copy`
-    #[arg(short, long)]
+    #[arg(short, long, env = "DEPLOY_CHECKSIGS")]
     checksigs: bool,
     /// Use the interactive prompt before deployment
-    #[arg(short, long)]
+    #[arg(short, long, env = "DEPLOY_INTERACTIVE")]
     interactive: bool,
     /// Extra arguments to be passed to nix build
-    #[arg(last = true)]
+    #[arg(last = true, env = "DEPLOY_EXTRA_BUILD_ARGS")]
     extra_build_args: Vec<String>,
 
     /// Print debug logs to output
-    #[arg(short, long)]
+    #[arg(short, long, env = "DEPLOY_DEBUG_LOGS")]
     debug_logs: bool,
     /// Directory to print logs to (including the background activation process)
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_LOG_DIR")]
     log_dir: Option<String>,
 
     /// Keep the build outputs of each built profile
-    #[arg(short, long)]
+    #[arg(short, long, env = "DEPLOY_KEEP_RESULT")]
     keep_result: bool,
     /// Location to keep outputs from built profiles in
-    #[arg(short, long)]
+    #[arg(short, long, env = "DEPLOY_RESULT_PATH")]
     result_path: Option<String>,
 
     /// Skip the automatic pre-build checks
-    #[arg(short, long)]
+    #[arg(short, long, env = "DEPLOY_SKIP_CHECKS")]
     skip_checks: bool,
 
     /// Build on remote host
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_REMOTE_BUILD")]
     remote_build: bool,
 
     /// Override the SSH user with the given value
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_SSH_USER")]
     ssh_user: Option<String>,
     /// Override the profile user with the given value
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_PROFILE_USER")]
     profile_user: Option<String>,
     /// Override the SSH options used
-    #[arg(long, allow_hyphen_values = true)]
+    #[arg(long, allow_hyphen_values = true, env = "DEPLOY_SSH_OPTS")]
     ssh_opts: Option<String>,
     /// Override if the connecting to the target node should be considered fast
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_FAST_CONNECTION")]
     fast_connection: Option<bool>,
     /// Override if a rollback should be attempted if activation fails
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_AUTO_ROLLBACK")]
     auto_rollback: Option<bool>,
     /// Override hostname used for the node
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_HOSTNAME")]
     hostname: Option<String>,
     /// Make activation wait for confirmation, or roll back after a period of time
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_MAGIC_ROLLBACK")]
     magic_rollback: Option<bool>,
     /// How long activation should wait for confirmation (if using magic-rollback)
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_CONFIRM_TIMEOUT")]
     confirm_timeout: Option<u16>,
     /// How long we should wait for profile activation
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_ACTIVATION_TIMEOUT")]
     activation_timeout: Option<u16>,
     /// Where to store temporary files (only used by magic-rollback)
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_TEMP_PATH")]
     temp_path: Option<PathBuf>,
     /// Show what will be activated on the machines
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_DRY_ACTIVATE")]
     dry_activate: bool,
     /// Don't activate, but update the boot loader to boot into the new profile
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_BOOT")]
     boot: bool,
     /// Revoke all previously succeeded deploys when deploying multiple profiles
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_ROLLBACK_SUCCEEDED")]
     rollback_succeeded: Option<bool>,
     /// Which sudo command to use. Must accept at least two arguments: user name to execute commands as and the rest is the command to execute
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_SUDO")]
     sudo: Option<String>,
     /// Prompt for sudo password during activation.
-    #[arg(long)]
+    #[arg(long, env = "DEPLOY_INTERACTIVE_SUDO")]
     interactive_sudo: Option<bool>,
 }
 
