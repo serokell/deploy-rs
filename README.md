@@ -36,6 +36,40 @@ If you require a signing key to push closures to your server, specify the path t
 
 Check out `deploy --help` for CLI flags! Remember to check there before making one-time changes to things like hostnames.
 
+### Environment variables
+
+Every CLI flag can also be set through an environment variable. This is handy for CI or for keeping invocation-specific settings out of your shell history. The command line takes precedence over the environment. Each variable is named `DEPLOY_` followed by the flag in upper snake case:
+
+| Flag | Environment variable |
+| --- | --- |
+| `<flake>` | `DEPLOY_TARGET` |
+| `--targets` | `DEPLOY_TARGETS` |
+| `--file` | `DEPLOY_FILE` |
+| `--checksigs` | `DEPLOY_CHECKSIGS` |
+| `--interactive` | `DEPLOY_INTERACTIVE` |
+| `-- <extra build args>` | `DEPLOY_EXTRA_BUILD_ARGS` |
+| `--debug-logs` | `DEPLOY_DEBUG_LOGS` |
+| `--log-dir` | `DEPLOY_LOG_DIR` |
+| `--keep-result` | `DEPLOY_KEEP_RESULT` |
+| `--result-path` | `DEPLOY_RESULT_PATH` |
+| `--skip-checks` | `DEPLOY_SKIP_CHECKS` |
+| `--remote-build` | `DEPLOY_REMOTE_BUILD` |
+| `--ssh-user` | `DEPLOY_SSH_USER` |
+| `--profile-user` | `DEPLOY_PROFILE_USER` |
+| `--ssh-opts` | `DEPLOY_SSH_OPTS` |
+| `--fast-connection` | `DEPLOY_FAST_CONNECTION` |
+| `--auto-rollback` | `DEPLOY_AUTO_ROLLBACK` |
+| `--hostname` | `DEPLOY_HOSTNAME` |
+| `--magic-rollback` | `DEPLOY_MAGIC_ROLLBACK` |
+| `--confirm-timeout` | `DEPLOY_CONFIRM_TIMEOUT` |
+| `--activation-timeout` | `DEPLOY_ACTIVATION_TIMEOUT` |
+| `--temp-path` | `DEPLOY_TEMP_PATH` |
+| `--dry-activate` | `DEPLOY_DRY_ACTIVATE` |
+| `--boot` | `DEPLOY_BOOT` |
+| `--rollback-succeeded` | `DEPLOY_ROLLBACK_SUCCEEDED` |
+| `--sudo` | `DEPLOY_SUDO` |
+| `--interactive-sudo` | `DEPLOY_INTERACTIVE_SUDO` |
+
 There is also an `activate` binary though this should be ignored, it is only used internally (on the deployed system) and for testing/hacking purposes.
 
 ## Ideas
