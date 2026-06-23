@@ -297,7 +297,7 @@ async fn get_deployment_data(
 #[derive(Serialize)]
 struct PromptPart<'a> {
     user: &'a str,
-    ssh_user: &'a str,
+    ssh_user: &'a Option<String>,
     path: &'a str,
     hostname: &'a str,
     ssh_opts: &'a [String],

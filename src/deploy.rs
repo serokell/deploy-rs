@@ -25,6 +25,13 @@ struct ActivateCommandData<'a> {
     boot: bool,
 }
 
+fn make_ssh_addr(user: &Option<String>, hostname: &str) -> String {
+    match user {
+        Some(user) => format!("{}@{}", user, hostname),
+        None => hostname.into(),
+    }
+}
+
 fn build_activate_command(data: &ActivateCommandData) -> String {
     let mut self_activate_command = format!("{}/activate-rs", data.closure);
 
@@ -434,7 +441,7 @@ pub async fn deploy_profile(
         None => &deploy_data.node.node_settings.hostname,
     };
 
-    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
+    let ssh_addr = make_ssh_addr(&deploy_defs.ssh_user, &hostname);
 
     let mut ssh_activate_command = Command::new("ssh");
     ssh_activate_command
@@ -671,7 +678,7 @@ pub async fn revoke(
         None => &deploy_data.node.node_settings.hostname,
     };
 
-    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
+    let ssh_addr = make_ssh_addr(&deploy_defs.ssh_user, hostname);
 
     let mut ssh_activate_command = Command::new("ssh");
     ssh_activate_command

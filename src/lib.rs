@@ -366,7 +366,7 @@ pub struct DeployData<'a> {
 
 #[derive(Debug)]
 pub struct DeployDefs {
-    pub ssh_user: String,
+    pub ssh_user: Option<String>,
     pub profile_user: String,
     pub sudo: Option<String>,
     pub sudo_password: Option<String>,
@@ -389,15 +389,14 @@ pub enum DeployDataDefsError {
 
 impl<'a> DeployData<'a> {
     pub fn defs(&'a self) -> Result<DeployDefs, DeployDataDefsError> {
-        let ssh_user = match self.merged_settings.ssh_user {
-            Some(ref u) => u.clone(),
-            None => whoami::username(),
-        };
+        let ssh_user = self.merged_settings.ssh_user.clone();
 
         let profile_user = self.get_profile_user()?;
 
         let sudo: Option<String> = match self.merged_settings.user {
-            Some(ref user) if user != &ssh_user => Some(format!("{} {}", self.get_sudo(), user)),
+            Some(ref user) if ssh_user.as_ref().is_none_or(|u| u != user) => {
+                Some(format!("{} {}", self.get_sudo(), user))
+            }
             _ => None,
         };
 
