@@ -200,7 +200,11 @@ pub async fn build_profile_remotely(
         Some(ref x) => x,
         None => &data.deploy_data.node.node_settings.hostname,
     };
-    let store_address = format!("ssh-ng://{}@{}", data.deploy_defs.ssh_user, hostname);
+
+    let store_address = match &data.deploy_defs.ssh_user {
+        Some(user) => format!("ssh-ng://{}@{}", user, hostname),
+        None => format!("ssh-ng://{}", hostname),
+    };
 
     let ssh_opts_str = data.deploy_data.merged_settings.ssh_opts.join(" ");
 
@@ -413,9 +417,13 @@ pub async fn push_profile(data: PushProfileData<'_>) -> Result<(), PushProfileEr
             None => &data.deploy_data.node.node_settings.hostname,
         };
 
+        let ssh_url = match &data.deploy_defs.ssh_user {
+            Some(ssh_user) => format!("ssh://{}@{}", ssh_user, hostname),
+            None => format!("ssh://{}", hostname),
+        };
         copy_command
             .arg("--to")
-            .arg(format!("ssh://{}@{}", data.deploy_defs.ssh_user, hostname))
+            .arg(ssh_url)
             .arg(&data.deploy_data.profile.profile_settings.path)
             .env("NIX_SSHOPTS", ssh_opts_str);
         command::Command::new(copy_command)
