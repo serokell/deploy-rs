@@ -51,6 +51,12 @@
                 },
                 "interactiveSudo": {
                     "type": ["boolean", "null"]
+                },
+                "sudoFile": {
+                    "type": ["path", "null"]
+                },
+                "sudoSecret": {
+                    "type": ["string", "null"]
                 }
             }
         },

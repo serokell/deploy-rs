@@ -20,7 +20,7 @@ let
     done <$refs
   '';
 
-  mkTest = { name ? "", user ? "root", flakes ? true, isLocal ? true, deployArgs }: let
+  mkTest = { name ? "", user ? "root", flakes ? true, isLocal ? true, sops ? false, deployArgs }: let
     nodes = {
       server = { nodes, ... }: {
         imports = [
@@ -36,7 +36,7 @@ let
       };
       client = { nodes, ... }: {
         imports = [ (import ./common.nix { inherit inputs pkgs flakes; }) ];
-        environment.systemPackages = [ pkgs.deploy-rs.deploy-rs ];
+        environment.systemPackages = [ pkgs.deploy-rs.deploy-rs ] ++ lib.optionals sops [ pkgs.sops ];
         # nix evaluation takes a lot of memory, especially in non-flake usage
         virtualisation.memorySize = lib.mkForce 4096;
         virtualisation.additionalPaths = lib.optionals isLocal [
@@ -97,6 +97,14 @@ let
       client.succeed("cp ${./server.nix} ./server.nix")
       client.succeed("cp ${./common.nix} ./common.nix")
       client.succeed("cp ${serverNetworkJSON} ./network.json")
+
+      # Prepare sops keys
+      client.succeed("cp ${./sops/.sops.yaml} ./.sops.yaml")
+      client.succeed("cp ${./sops/password.yaml} ./password.yaml")
+      # this is where sops looks for private keys
+      client.succeed("mkdir -p /root/.config/sops/age/")
+      client.succeed("cp ${./sops/age_private.txt} /root/.config/sops/age/keys.txt")
+
       client.succeed("nix --extra-experimental-features flakes flake lock")
 
       # Setup SSH key
@@ -114,6 +122,9 @@ let
 
       # Make sure the hello and figlet packages are missing
       server.fail("su ${user} -l -c 'hello | figlet'")
+
+      # Create a missing directory
+      server.succeed("mkdir -p /root/.local/state/nix/profiles")
 
       # Deploy to the server
       client.succeed("deploy ${deployArgs}")
@@ -158,7 +169,7 @@ in {
     deployArgs = "-s .#profile -- --offline";
   };
   hyphen-ssh-opts-regression = mkTest {
-    name = "profile";
+    name = "ssh-ops-regression";
     user = "deploy";
     deployArgs = "-s .#profile --ssh-opts '-p 22 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' -- --offline";
   };
@@ -172,5 +183,17 @@ in {
     name = "non-flake-with-flakes";
     flakes = true;
     deployArgs = "--file . --targets server";
+  };
+  sops = mkTest {
+    name = "sops";
+    user = "sops";
+    sops = true;
+    deployArgs = "-s .#sops";
+  };
+  sops-override-arguments = mkTest {
+    name = "sops-override-arguments";
+    user = "sops";
+    sops = true;
+    deployArgs = "-s .#server --sudo-file ./password.yaml --sudo-secret passwords/sops --ssh-user sops";
   };
 }

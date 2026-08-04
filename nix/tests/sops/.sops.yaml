@@ -1,0 +1,7 @@
+keys:
+  - &primary age179s8jnppgy9kwakmva8av6frpnhgg9myrvk3xlfpanmhvvzyh96sdygfcm
+creation_rules:
+  - path_regex: password.yaml
+    key_groups:
+      - age:
+          - *primary

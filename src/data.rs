@@ -45,6 +45,11 @@ pub struct GenericSettings {
     )]
     #[merge(strategy = merge_groups)]
     pub groups: BTreeSet<String>,
+    // sops integration for secrets
+    #[serde(rename(deserialize = "sudoFile"))]
+    pub sudo_file: Option<PathBuf>,
+    #[serde(rename(deserialize = "sudoSecret"))]
+    pub sudo_secret: Option<String>,
 }
 
 #[derive(Deserialize)]

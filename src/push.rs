@@ -469,7 +469,7 @@ pub async fn build_profile_remotely(
         let mut copy_command = Command::new("nix");
         copy_command
             .arg("copy")
-            .arg("-s") // fetch dependencies from substitures, not localhost
+            .arg("-s") // fetch dependencies from substitutes, not localhost
             .arg("--to")
             .arg(&store_address)
             .arg("--derivation")

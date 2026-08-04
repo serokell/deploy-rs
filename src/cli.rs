@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
+use std::str::Utf8Error;
 use std::time::Duration;
 
 use clap::{ArgMatches, FromArgMatches, Parser};
@@ -21,6 +22,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::process::Stdio;
 use thiserror::Error;
+use tokio::fs::try_exists;
 use tokio::process::Command;
 use tokio::task::JoinSet;
 
@@ -121,6 +123,12 @@ pub struct Opts {
     /// Prompt for sudo password during activation.
     #[arg(long)]
     interactive_sudo: Option<bool>,
+    /// File for the sudo password with sops integration
+    #[arg(long)]
+    sudo_file: Option<PathBuf>,
+    /// Key for the sudo password with sops integration
+    #[arg(long)]
+    sudo_secret: Option<String>,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -434,6 +442,8 @@ pub enum RunDeployError {
     RevokeProfile(String, String, deploy::deploy::RevokeProfileError),
     #[error("Deployment to node {0} failed, rolled back to previous generation")]
     Rollback(String),
+    #[error("Failed to get the password from sops: {0}")]
+    Sops(#[from] deploy::cli::SopsError),
 }
 
 type ToDeploy<'a> = Vec<(
@@ -595,6 +605,20 @@ async fn run_deploy(
 
         let mut deploy_defs = deploy_data.defs()?;
 
+        if deploy_data.merged_settings.sudo.is_some()
+            && (deploy_data.merged_settings.interactive_sudo.is_some()
+                || deploy_data.merged_settings.sudo_secret.is_some())
+        {
+            warn!(
+                    "Custom sudo commands should be configured to accept password input from stdin when using the 'interactive sudo' option. Deployment may fail if the custom command ignores stdin."
+            );
+        } else {
+            // this configures sudo to hide the password prompt and accept input from stdin
+            // at the time of writing, deploy_defs.sudo defaults to 'sudo -u root' when using user=root and sshUser as non-root
+            let original = deploy_defs.sudo.unwrap_or("sudo".to_string());
+            deploy_defs.sudo = Some(format!("{} -S -p \"\"", original));
+        }
+
         if deploy_data
             .merged_settings
             .interactive_sudo
@@ -603,17 +627,6 @@ async fn run_deploy(
             warn!(
                 "Interactive sudo is enabled! Using a sudo password is less secure than correctly configured SSH keys.\nPlease use keys in production environments."
             );
-
-            if deploy_data.merged_settings.sudo.is_some() {
-                warn!(
-                    "Custom sudo commands should be configured to accept password input from stdin when using the 'interactive sudo' option. Deployment may fail if the custom command ignores stdin."
-                );
-            } else {
-                // this configures sudo to hide the password prompt and accept input from stdin
-                // at the time of writing, deploy_defs.sudo defaults to 'sudo -u root' when using user=root and sshUser as non-root
-                let original = deploy_defs.sudo.unwrap_or("sudo".to_string());
-                deploy_defs.sudo = Some(format!("{} -S -p \"\"", original));
-            }
 
             info!(
                 "You will now be prompted for the sudo password for {}.",
@@ -625,6 +638,73 @@ async fn run_deploy(
             ))
             .unwrap_or("".to_string());
 
+            deploy_defs.sudo_password = Some(sudo_password);
+        } else if deploy_data.merged_settings.sudo_file.is_some()
+            && deploy_data.merged_settings.sudo_secret.is_some()
+        {
+            // SAFETY: we already checked if it is some
+            let path = deploy_data.merged_settings.sudo_file.clone().unwrap();
+            let key = deploy_data.merged_settings.sudo_secret.clone().unwrap();
+
+            if !try_exists(&path).await.unwrap() {
+                return Err(RunDeployError::Sops(SopsError::SopsFileNotFound(format!(
+                    "{path:?} not found"
+                ))));
+            }
+
+            // We deserialize to json
+            let out = Command::new("sops")
+                .arg("--output-type")
+                .arg("json")
+                .arg("-d")
+                .arg(&path)
+                .output()
+                .await
+                .map_err(|err| {
+                    RunDeployError::Sops(SopsError::SopsFailedDecryption(
+                        path.to_string_lossy().into(),
+                        err,
+                    ))
+                })?;
+
+            let conv_out = std::str::from_utf8(&out.stdout)
+                .map_err(|err| RunDeployError::Sops(SopsError::SopsCannotConvert(err)))?;
+
+            let mut m: serde_json::Map<String, serde_json::Value> = serde_json::from_str(conv_out)
+                .map_err(|err| RunDeployError::Sops(SopsError::SerdeDeserialize(err)))?;
+
+            let mut sudo_password = String::new();
+
+            // We support nested keys like a/b/c
+            for i in key.split('/') {
+                match m.get(i) {
+                    Some(v) => match v {
+                        serde_json::Value::String(s) => {
+                            sudo_password = s.into();
+                        }
+                        serde_json::Value::Bool(b) => {
+                            sudo_password = b.to_string();
+                        }
+                        serde_json::Value::Number(n) => {
+                            sudo_password = n.to_string();
+                        }
+                        serde_json::Value::Object(map) => {
+                            m = map.clone();
+                        }
+                        _ => {
+                            return Err(RunDeployError::Sops(SopsError::SerdeUnexpectedType(
+                                "We dont handle Arrays, Bools, None, Numbers".into(),
+                            )));
+                        }
+                    },
+                    None => {
+                        return Err(RunDeployError::Sops(SopsError::SopsKeyNotFound(format!(
+                            "Did not find {} in Map",
+                            i
+                        ))));
+                    }
+                }
+            }
             deploy_defs.sudo_password = Some(sudo_password);
         }
 
@@ -858,8 +938,8 @@ async fn run_deploy(
     }
 
     // Run all activations
-    // In case of an error, rollback any previoulsy made deployment.
-    // Rollbacks adhere to the global seeting to auto_rollback and secondary
+    // In case of an error, rollback any previously made deployment.
+    // Rollbacks adhere to the global seating to auto_rollback and secondary
     // the profile's configuration
     let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs)> = vec![];
     for (_, deploy_data, deploy_defs) in &parts {
@@ -873,7 +953,7 @@ async fn run_deploy(
             if rollback_succeeded && cmd_overrides.auto_rollback.unwrap_or(true) {
                 info!("Revoking previous deploys");
                 // revoking all previous deploys
-                // (adheres to profile configuration if not set explicitely by
+                // (adheres to profile configuration if not set explicitly by
                 //  the command line)
                 for (deploy_data, deploy_defs) in &succeeded {
                     if deploy_data.merged_settings.auto_rollback.unwrap_or(true) {
@@ -900,6 +980,22 @@ async fn run_deploy(
     }
 
     Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum SopsError {
+    #[error("Failed to decrypt file {0}: {1}")]
+    SopsFailedDecryption(String, std::io::Error),
+    #[error("Failed to find sops file: {0}")]
+    SopsFileNotFound(String),
+    #[error("Failed to convert the output of sops to a str: {0}")]
+    SopsCannotConvert(Utf8Error),
+    #[error("Failed to deserialize: {0}")]
+    SerdeDeserialize(serde_json::Error),
+    #[error("Error unexpected type: {0}")]
+    SerdeUnexpectedType(String),
+    #[error("Failed to find key: {0}")]
+    SopsKeyNotFound(String),
 }
 
 #[derive(Error, Debug)]
@@ -969,6 +1065,8 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         remote_build: opts.remote_build,
         sudo: opts.sudo,
         interactive_sudo: opts.interactive_sudo,
+        sudo_file: opts.sudo_file,
+        sudo_secret: opts.sudo_secret,
     };
 
     let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;
