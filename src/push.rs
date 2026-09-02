@@ -486,7 +486,7 @@ pub async fn build_profile_remotely(
     };
     let store_address = format!("ssh-ng://{}@{}", data.deploy_defs.ssh_user, hostname);
 
-    let ssh_opts_str = data.deploy_data.merged_settings.ssh_opts.join(" ");
+    let ssh_opts_str = join_ssh_opts(&data.deploy_data.merged_settings.ssh_opts);
 
     // copy the derivation to remote host so it can be built there
     let copy_command_status = {
@@ -768,16 +768,14 @@ fn parse_build_out_path(stdout: &[u8]) -> Result<String, PushProfileError> {
     Ok(trimmed.to_string())
 }
 
+/// Joins ssh options into the `NIX_SSHOPTS` string, quoting any option
+/// that contains a space so it isn't split apart on Nix's end.
+fn join_ssh_opts(ssh_opts: &[String]) -> String {
+    shlex::try_join(ssh_opts.iter().map(String::as_str)).unwrap_or(ssh_opts.join(" "))
+}
+
 pub async fn push_profile(data: &PushProfileData, closure: &str) -> Result<(), PushProfileError> {
-    let ssh_opts_str = data
-        .deploy_data
-        .merged_settings
-        .ssh_opts
-        // This should provide some extra safety, but it also breaks for some reason, oh well
-        // .iter()
-        // .map(|x| format!("'{}'", x))
-        // .collect::<Vec<String>>()
-        .join(" ");
+    let ssh_opts_str = join_ssh_opts(&data.deploy_data.merged_settings.ssh_opts);
 
     // remote building guarantees that the resulting derivation is stored on the target system
     // no need to copy after building
@@ -881,5 +879,20 @@ mod test {
         let stdout = b"/nix/store/a\n/nix/store/b\n";
         let err = parse_build_out_path(stdout).expect_err("multiline stdout must error");
         assert!(matches!(err, PushProfileError::BuildStdoutMultiline(_)));
+    }
+
+    #[test]
+    fn join_ssh_opts_round_trips_option_containing_a_space() {
+        // Regression test for #343.
+        let ssh_opts = vec!["-o".to_string(), "ProxyCommand=foo bar".to_string()];
+        let joined = join_ssh_opts(&ssh_opts);
+        assert_eq!(shlex::split(&joined).unwrap(), ssh_opts);
+    }
+
+    #[test]
+    fn join_ssh_opts_round_trips_plain_options() {
+        let ssh_opts = vec!["-o".to_string(), "StrictHostKeyChecking=no".to_string()];
+        let joined = join_ssh_opts(&ssh_opts);
+        assert_eq!(shlex::split(&joined).unwrap(), ssh_opts);
     }
 }

@@ -20,6 +20,13 @@ pub fn make_lock_path(temp_path: &Path, closure: &str) -> PathBuf {
     temp_path.join(format!("deploy-rs-canary-{}", lock_hash))
 }
 
+/// Splits `--ssh-opts` like a POSIX shell, so a quoted option isn't broken
+/// apart on its own spaces. Falls back to a plain space split if the
+/// string isn't validly quoted.
+fn parse_ssh_opts(ssh_opts: &str) -> Vec<String> {
+    shlex::split(ssh_opts).unwrap_or(ssh_opts.split(' ').map(|x| x.to_owned()).collect())
+}
+
 const fn make_emoji(level: log::Level) -> &'static str {
     match level {
         log::Level::Error => "❌",
@@ -533,7 +540,7 @@ pub fn make_deploy_data(
         merged_settings.user = cmd_overrides.profile_user.clone();
     }
     if let Some(ref ssh_opts) = cmd_overrides.ssh_opts {
-        merged_settings.ssh_opts = ssh_opts.split(' ').map(|x| x.to_owned()).collect();
+        merged_settings.ssh_opts = parse_ssh_opts(ssh_opts);
     }
     if let Some(fast_connection) = cmd_overrides.fast_connection {
         merged_settings.fast_connection = Some(fast_connection);
@@ -564,5 +571,32 @@ pub fn make_deploy_data(
         debug_logs,
         log_dir,
         progressbar: None,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_ssh_opts_keeps_quoted_proxycommand_as_one_token() {
+        // Regression test for #130.
+        let ssh_opts = r#"-o ProxyCommand="wstunnel -L stdio:%h:%p wss://wstunnel.example.com""#;
+        assert_eq!(
+            parse_ssh_opts(ssh_opts),
+            vec![
+                "-o",
+                "ProxyCommand=wstunnel -L stdio:%h:%p wss://wstunnel.example.com",
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_ssh_opts_falls_back_to_space_split_on_bad_quoting() {
+        let ssh_opts = r#"-o ProxyCommand="unterminated"#;
+        assert_eq!(
+            parse_ssh_opts(ssh_opts),
+            vec!["-o", "ProxyCommand=\"unterminated"]
+        );
     }
 }
