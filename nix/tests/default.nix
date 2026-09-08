@@ -22,6 +22,12 @@ let
 
   mkTest = { name ? "", user ? "root", flakes ? true, isLocal ? true, deployArgs
            , expectCancellationWithin ? null
+           # Test-specific assertions to run after the deploy succeeds. Defaults to
+           # the generic "packages actually got installed" check most tests want.
+           , verify ? ''
+             # Make sure packages are present after deployment
+             server.succeed("su ${user} -l -c 'hello | figlet' >&2")
+           ''
            }: let
     nodes = {
       server = { nodes, ... }: {
@@ -129,10 +135,9 @@ let
       server.fail("su ${user} -l -c 'hello | figlet'")
 
       # Deploy to the server
-      client.succeed("deploy ${deployArgs}")
+      deploy_output = client.succeed("deploy ${deployArgs} 2>&1")
 
-      # Make sure packages are present after deployment
-      server.succeed("su ${user} -l -c 'hello | figlet' >&2")
+      ${verify}
       ''}
     '';
   };
@@ -196,4 +201,18 @@ in {
   };
   # Pure-evaluation test for the drvPath auto-extraction. Runs without a VM.
   transform-deploy = import ./transform-deploy.nix { inherit pkgs; };
+  # e2e test for #261: lines forwarded from the server are prefixed with the
+  # fax machine emoji, both on stdout and stderr, while genuinely local
+  # output (deploy-rs's own log lines) is left unprefixed.
+  prefix-demarcation = mkTest {
+    name = "prefix-demarcation";
+    user = "deploy";
+    deployArgs = "-s .#prefix-demarcation -- --offline";
+    verify = ''
+      assert "📠 PREFIX_TEST_STDOUT_MARKER" in deploy_output, deploy_output
+      assert "📠 PREFIX_TEST_STDERR_MARKER" in deploy_output, deploy_output
+      assert "Deployment confirmed." in deploy_output, deploy_output
+      assert "📠 Deployment confirmed." not in deploy_output, deploy_output
+    '';
+  };
 }

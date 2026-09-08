@@ -81,6 +81,23 @@
           '';
         in deploy-rs.lib.${system}.activate.custom failingActivate "$PROFILE/bin/activate";
       };
+      # Only exists for the prefix-demarcation e2e test (#261): gives it
+      # predictable, distinct markers on each stream to look for, without
+      # affecting what "-s .#profile" deploys for the other profile tests.
+      prefix-demarcation = {
+        hostname = "server";
+        sshUser = "${user}";
+        sshOpts = [
+          "-o" "UserKnownHostsFile=/dev/null"
+          "-o" "StrictHostKeyChecking=no"
+        ];
+        profiles."echo-markers".path = let
+          activateProfile = pkgs.writeShellScriptBin "activate" ''
+            echo "PREFIX_TEST_STDOUT_MARKER"
+            echo "PREFIX_TEST_STDERR_MARKER" >&2
+          '';
+        in deploy-rs.lib.${system}.activate.custom activateProfile "$PROFILE/bin/activate";
+      };
     };
   };
 }
