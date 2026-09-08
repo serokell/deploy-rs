@@ -20,6 +20,39 @@ pub fn make_lock_path(temp_path: &Path, closure: &str) -> PathBuf {
     temp_path.join(format!("deploy-rs-canary-{}", lock_hash))
 }
 
+pub fn make_cancel_path(temp_path: &Path, closure: &str) -> PathBuf {
+    let lock_hash = &closure["/nix/store/".len()..closure.find('-').unwrap_or(closure.len())];
+    temp_path.join(format!("deploy-rs-cancel-{}", lock_hash))
+}
+
+#[cfg(test)]
+mod sentinel_path_tests {
+    use super::*;
+
+    #[test]
+    fn canary_and_cancel_paths_are_distinct() {
+        let temp_path = Path::new("/tmp");
+        let closure = "/nix/store/somehash-test";
+
+        assert_eq!(
+            make_lock_path(temp_path, closure),
+            PathBuf::from("/tmp/deploy-rs-canary-somehash")
+        );
+        assert_eq!(
+            make_cancel_path(temp_path, closure),
+            PathBuf::from("/tmp/deploy-rs-cancel-somehash")
+        );
+    }
+
+    #[test]
+    fn cancel_path_handles_a_closure_without_a_name() {
+        assert_eq!(
+            make_cancel_path(Path::new("/tmp"), "/nix/store/somehash"),
+            PathBuf::from("/tmp/deploy-rs-cancel-somehash")
+        );
+    }
+}
+
 const fn make_emoji(level: log::Level) -> &'static str {
     match level {
         log::Level::Error => "❌",

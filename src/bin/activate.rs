@@ -255,6 +255,12 @@ pub enum ActivationConfirmationError {
     WaitingError(#[from] DangerZoneError),
 }
 
+#[derive(Debug)]
+pub enum WaitEvent {
+    Confirmed,
+    Cancelled,
+}
+
 #[derive(Error, Debug)]
 pub enum DangerZoneError {
     #[error("Timeout elapsed for confirmation")]
@@ -263,16 +269,19 @@ pub enum DangerZoneError {
     NoConfirmation,
     #[error("inotify encountered an error: {0}")]
     Watch(notify::Error),
+    #[error("Activation cancelled by deployment client")]
+    Cancelled,
 }
 
 async fn danger_zone(
-    mut events: mpsc::Receiver<Result<(), notify::Error>>,
+    mut events: mpsc::Receiver<Result<WaitEvent, notify::Error>>,
     confirm_timeout: u16,
 ) -> Result<(), DangerZoneError> {
     info!("Waiting for confirmation event...");
 
     match timeout(Duration::from_secs(confirm_timeout as u64), events.recv()).await {
-        Ok(Some(Ok(()))) => Ok(()),
+        Ok(Some(Ok(WaitEvent::Confirmed))) => Ok(()),
+        Ok(Some(Ok(WaitEvent::Cancelled))) => Err(DangerZoneError::Cancelled),
         Ok(Some(Err(e))) => Err(DangerZoneError::Watch(e)),
         Ok(None) => Err(DangerZoneError::NoConfirmation),
         Err(_) => Err(DangerZoneError::TimesUp),
@@ -285,7 +294,7 @@ fn confirmation_watcher(
 ) -> Result<
     (
         RecommendedWatcher,
-        mpsc::Receiver<Result<(), notify::Error>>,
+        mpsc::Receiver<Result<WaitEvent, notify::Error>>,
     ),
     notify::Error,
 > {
@@ -300,7 +309,7 @@ fn confirmation_watcher(
                         && e.paths.iter().any(|path| path == &lock_path) =>
                 {
                     debug!("Got canary removal event, sending on channel");
-                    deleted.try_send(Ok(()))
+                    deleted.try_send(Ok(WaitEvent::Confirmed))
                 }
                 Err(e) => {
                     debug!("Got error waiting for removal event, sending on channel");
@@ -317,6 +326,38 @@ fn confirmation_watcher(
     watcher.watch(temp_path, RecursiveMode::NonRecursive)?;
 
     Ok((watcher, done))
+}
+
+async fn create_activation_cancel(temp_path: &Path, closure: &str) {
+    let cancel_path = deploy::make_cancel_path(temp_path, closure);
+
+    debug!("Creating cancel file to signal wait process");
+
+    if let Some(parent) = cancel_path.parent() {
+        if let Err(e) = fs::create_dir_all(parent).await {
+            debug!("Failed to create parent directory for cancel file: {}", e);
+            return;
+        }
+    }
+
+    if let Err(e) = fs::File::create(&cancel_path).await {
+        debug!("Failed to create cancel file: {}", e);
+    } else {
+        debug!(
+            "Cancel file created successfully at {}",
+            cancel_path.display()
+        );
+    }
+}
+
+async fn remove_activation_cancel(temp_path: &Path, closure: &str) {
+    let cancel_path = deploy::make_cancel_path(temp_path, closure);
+
+    match fs::remove_file(&cancel_path).await {
+        Ok(()) => debug!("Removed cancel file at {}", cancel_path.display()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+        Err(e) => debug!("Failed to remove cancel file: {}", e),
+    }
 }
 
 pub async fn activation_confirmation(
@@ -383,6 +424,114 @@ mod tests {
             .await
             .expect("remove test directory");
     }
+
+    fn test_closure(id: u64) -> String {
+        format!("/nix/store/0000000000000000000000000000000cancel-test-{id}")
+    }
+
+    async fn test_directory(name: &str, id: u64) -> PathBuf {
+        let temp_path =
+            env::temp_dir().join(format!("deploy-rs-{name}-{}-{id}", std::process::id()));
+
+        fs::create_dir_all(&temp_path)
+            .await
+            .expect("create test directory");
+
+        temp_path
+    }
+
+    #[tokio::test]
+    async fn wait_cancelled_when_cancel_file_already_exists() {
+        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
+        let temp_path = env::temp_dir().join(format!(
+            "deploy-rs-cancel-before-{}-{id}",
+            std::process::id()
+        ));
+        let closure = test_closure(id);
+        fs::create_dir_all(&temp_path)
+            .await
+            .expect("create test directory");
+
+        // Cancel file exists before wait() is even called.
+        create_activation_cancel(&temp_path, &closure).await;
+
+        let wait_result = wait(temp_path.clone(), closure.clone(), Some(5)).await;
+        match wait_result {
+            Err(WaitError::Waiting(DangerZoneError::Cancelled)) => {}
+            other => panic!("expected Cancelled, got {:?}", other),
+        }
+
+        let _ = fs::remove_dir_all(&temp_path).await;
+    }
+
+    #[tokio::test]
+    async fn wait_cancelled_when_cancel_file_created_while_waiting() {
+        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
+        let temp_path = test_directory("cancel-during", id).await;
+        let closure = test_closure(id);
+
+        let waiting = tokio::spawn(wait(temp_path.clone(), closure.clone(), Some(10)));
+
+        // Let wait() get past its existence check, so that the sentinel is picked up
+        // by the watcher rather than by the check.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        create_activation_cancel(&temp_path, &closure).await;
+
+        match waiting.await.expect("join wait task") {
+            Err(WaitError::Waiting(DangerZoneError::Cancelled)) => {}
+            other => panic!("expected Cancelled, got {:?}", other),
+        }
+
+        assert!(
+            !deploy::make_cancel_path(&temp_path, &closure).exists(),
+            "wait should not leave the cancel file behind"
+        );
+
+        let _ = fs::remove_dir_all(&temp_path).await;
+    }
+
+    #[tokio::test]
+    async fn wait_returns_when_canary_created_while_waiting() {
+        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
+        let temp_path = test_directory("canary-during", id).await;
+        let closure = test_closure(id);
+
+        let waiting = tokio::spawn(wait(temp_path.clone(), closure.clone(), Some(10)));
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        fs::File::create(deploy::make_lock_path(&temp_path, &closure))
+            .await
+            .expect("create canary file");
+
+        waiting
+            .await
+            .expect("join wait task")
+            .expect("observe canary creation");
+
+        let _ = fs::remove_dir_all(&temp_path).await;
+    }
+
+    #[tokio::test]
+    async fn remove_activation_cancel_clears_the_sentinel() {
+        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
+        let temp_path = test_directory("cancel-removal", id).await;
+        let closure = test_closure(id);
+        let cancel_path = deploy::make_cancel_path(&temp_path, &closure);
+
+        // Removing an absent sentinel is a no-op, not an error.
+        remove_activation_cancel(&temp_path, &closure).await;
+
+        create_activation_cancel(&temp_path, &closure).await;
+        assert!(cancel_path.exists(), "cancel file should have been created");
+
+        remove_activation_cancel(&temp_path, &closure).await;
+        assert!(
+            !cancel_path.exists(),
+            "cancel file should have been removed"
+        );
+
+        let _ = fs::remove_dir_all(&temp_path).await;
+    }
 }
 
 #[derive(Error, Debug)]
@@ -398,23 +547,31 @@ pub async fn wait(
     activation_timeout: Option<u16>,
 ) -> Result<(), WaitError> {
     let lock_path = deploy::make_lock_path(&temp_path, &closure);
+    let cancel_path = deploy::make_cancel_path(&temp_path, &closure);
 
     let (created, done) = mpsc::channel(1);
 
     let mut watcher: RecommendedWatcher = {
         // TODO: fix wasteful clone
         let lock_path = lock_path.clone();
+        let cancel_path = cancel_path.clone();
 
         recommended_watcher(move |res: Result<notify::event::Event, notify::Error>| {
             let send_result = match res {
                 Ok(e) if e.kind == notify::EventKind::Create(notify::event::CreateKind::File) => {
                     match &e.paths[..] {
-                        [x] => match lock_path.canonicalize() {
-                            // 'lock_path' may not exist yet when some other files are created in 'temp_path'
-                            // x is already supposed to be canonical path
-                            Ok(lock_path) if x == &lock_path => created.try_send(Ok(())),
-                            _ => Ok(()),
-                        },
+                        // neither path may exist yet when some other files are created
+                        // in 'temp_path'
+                        // x is already supposed to be canonical path
+                        [x] => {
+                            if lock_path.canonicalize().is_ok_and(|p| x == &p) {
+                                created.try_send(Ok(WaitEvent::Confirmed))
+                            } else if cancel_path.canonicalize().is_ok_and(|p| x == &p) {
+                                created.try_send(Ok(WaitEvent::Cancelled))
+                            } else {
+                                Ok(())
+                            }
+                        }
                         _ => Ok(()),
                     }
                 }
@@ -435,8 +592,21 @@ pub async fn wait(
         watcher.unwatch(&temp_path)?;
         return Ok(());
     }
+    // 'activate' may have failed before the watcher above existed, so the sentinel
+    // it leaves behind has to be picked up here rather than waited for.
+    if fs::metadata(&cancel_path).await.is_ok() {
+        watcher.unwatch(&temp_path)?;
+        remove_activation_cancel(&temp_path, &closure).await;
+        return Err(DangerZoneError::Cancelled.into());
+    }
 
-    danger_zone(done, activation_timeout.unwrap_or(240)).await?;
+    let waited = danger_zone(done, activation_timeout.unwrap_or(240)).await;
+
+    if matches!(waited, Err(DangerZoneError::Cancelled)) {
+        remove_activation_cancel(&temp_path, &closure).await;
+    }
+
+    waited?;
 
     info!("Found canary file, done waiting!");
 
@@ -488,6 +658,14 @@ pub async fn activate(
     boot: bool,
     test: bool,
 ) -> Result<(), ActivateError> {
+    // The deployer only spawns a 'wait' process under these conditions, so they are
+    // also the only ones under which there is anything to signal a cancellation to.
+    let signal_cancellation = magic_rollback && !boot && !dry_activate;
+
+    if signal_cancellation {
+        remove_activation_cancel(&temp_path, &closure).await;
+    }
+
     if !dry_activate {
         info!("Activating profile");
         let mut nix_env_set_command = Command::new("nix-env");
@@ -503,6 +681,9 @@ pub async fn activate(
         match nix_env_set_exit_status.code() {
             Some(0) => (),
             _exit_code => {
+                if signal_cancellation {
+                    create_activation_cancel(&temp_path, &closure).await;
+                }
                 if auto_rollback && !dry_activate {
                     deactivate(&profile_path).await?;
                 }
@@ -538,6 +719,9 @@ pub async fn activate(
     {
         Ok(x) => x,
         Err(e) => {
+            if signal_cancellation {
+                create_activation_cancel(&temp_path, &closure).await;
+            }
             if auto_rollback && !dry_activate {
                 deactivate(&profile_path).await?;
             }
@@ -549,6 +733,9 @@ pub async fn activate(
         match activate_status.code() {
             Some(0) => (),
             _exit_code => {
+                if signal_cancellation {
+                    create_activation_cancel(&temp_path, &closure).await;
+                }
                 if auto_rollback {
                     deactivate(&profile_path).await?;
                 }

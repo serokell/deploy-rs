@@ -67,6 +67,20 @@
           in deploy-rs.lib.${system}.activate.custom activateProfile "$PROFILE/bin/activate";
         };
       };
+      failing-server = {
+        hostname = "server";
+        sshUser = "root";
+        sshOpts = [
+          "-o" "UserKnownHostsFile=/dev/null"
+          "-o" "StrictHostKeyChecking=no"
+        ];
+        profiles.system.path = let
+          failingActivate = pkgs.writeShellScriptBin "activate" ''
+            echo "intentional activation failure for cancellation test" >&2
+            exit 1
+          '';
+        in deploy-rs.lib.${system}.activate.custom failingActivate "$PROFILE/bin/activate";
+      };
     };
   };
 }
