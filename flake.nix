@@ -35,7 +35,9 @@
             "nix/.*.nix$"
           ];
 
-          cargoLock.lockFile = ./Cargo.lock;
+          cargoDeps = final.rustPlatform.importCargoLock {
+            lockFile = ./Cargo.lock;
+          };
 
           meta = {
             description = "A Simple multi-profile Nix-flake deploy tool"; 
