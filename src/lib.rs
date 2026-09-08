@@ -256,6 +256,8 @@ pub struct CmdOverrides {
     pub activation_timeout: Option<u16>,
     pub sudo: Option<String>,
     pub interactive_sudo: Option<bool>,
+    pub pre_activate: Option<String>,
+    pub post_activate: Option<String>,
     pub dry_activate: bool,
     pub remote_build: bool,
 }
@@ -585,6 +587,12 @@ pub fn make_deploy_data(
     }
     if let Some(interactive_sudo) = cmd_overrides.interactive_sudo {
         merged_settings.interactive_sudo = Some(interactive_sudo);
+    }
+    if cmd_overrides.pre_activate.is_some() {
+        merged_settings.pre_activate = cmd_overrides.pre_activate.clone();
+    }
+    if cmd_overrides.post_activate.is_some() {
+        merged_settings.post_activate = cmd_overrides.post_activate.clone();
     }
 
     DeployData {

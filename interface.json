@@ -51,6 +51,12 @@
                 },
                 "interactiveSudo": {
                     "type": ["boolean", "null"]
+                },
+                "preActivate": {
+                    "type": ["boolean", "null"]
+                },
+                "postActivate": {
+                    "type": ["boolean", "null"]
                 }
             }
         },

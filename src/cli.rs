@@ -126,6 +126,12 @@ pub struct Opts {
     /// Prompt for sudo password during activation.
     #[arg(long)]
     interactive_sudo: Option<bool>,
+    /// Run a command locally before activating on the remote host (preActivate hook)
+    #[arg(long)]
+    pre_activate: Option<String>,
+    /// Run a command locally after activating on the remote host (postActivate hook)
+    #[arg(long)]
+    post_activate: Option<String>,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -459,6 +465,8 @@ pub enum RunDeployError {
     RevokeProfile(String, String, deploy::deploy::RevokeProfileError),
     #[error("Deployment to node {0} failed, rolled back to previous generation")]
     Rollback(String),
+    #[error("Failed to run {1} hook for node {0}: {2}")]
+    ActivationHook(String, String, ActivationHookError),
 }
 
 type ToDeploy<'a> = Vec<(
@@ -478,6 +486,71 @@ type LocalBuildResults = Vec<Result<BuiltProfile, RunDeployError>>;
 
 fn separator(_state: &ProgressState, w: &mut dyn std::fmt::Write) {
     let _ = write!(w, "│");
+}
+
+#[derive(Error, Debug)]
+pub enum ActivationHookError {
+    #[error("Failed to spawn {0} hook: {1}")]
+    Spawn(String, std::io::Error),
+    #[error("{0} hook exited with a non-zero code: {1:?}")]
+    Exit(String, Option<i32>),
+}
+
+/// Run a client-side activation hook (`preActivate` / `postActivate`).
+///
+/// The command runs locally via `sh -c` with the deploy/SSH context exported as
+/// environment variables.
+///
+/// Exposed env vars:
+///   DEPLOY_RS_HOOK, DEPLOY_RS_SSH_ADDR, DEPLOY_RS_SSH_USER, DEPLOY_RS_HOSTNAME,
+///   DEPLOY_RS_SSH_OPTS, DEPLOY_RS_SUDO, DEPLOY_RS_PROFILE_PATH, DEPLOY_RS_NODE,
+///   DEPLOY_RS_PROFILE, DEPLOY_RS_BOOT
+async fn run_activation_hook(
+    hook_name: &str,
+    command: &str,
+    deploy_data: &deploy::DeployData,
+    deploy_defs: &deploy::DeployDefs,
+    closure: &str,
+    boot: bool,
+) -> Result<(), ActivationHookError> {
+    let hostname = match deploy_data.cmd_overrides.hostname {
+        Some(ref x) => x.as_str(),
+        None => deploy_data.node.node_settings.hostname.as_str(),
+    };
+    let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
+
+    info!(
+        "Running {} hook for profile `{}` of node `{}`",
+        hook_name, deploy_data.profile_name, deploy_data.node_name
+    );
+
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .env("DEPLOY_RS_HOOK", hook_name)
+        .env("DEPLOY_RS_SSH_ADDR", &ssh_addr)
+        .env("DEPLOY_RS_SSH_USER", &deploy_defs.ssh_user)
+        .env("DEPLOY_RS_HOSTNAME", hostname)
+        .env(
+            "DEPLOY_RS_SSH_OPTS",
+            deploy_data.merged_settings.ssh_opts.join(" "),
+        )
+        .env(
+            "DEPLOY_RS_SUDO",
+            deploy_defs.sudo.clone().unwrap_or_default(),
+        )
+        .env("DEPLOY_RS_PROFILE_PATH", closure)
+        .env("DEPLOY_RS_NODE", &deploy_data.node_name)
+        .env("DEPLOY_RS_PROFILE", &deploy_data.profile_name)
+        .env("DEPLOY_RS_BOOT", if boot { "1" } else { "0" })
+        .status()
+        .await
+        .map_err(|e| ActivationHookError::Spawn(hook_name.to_string(), e))?;
+
+    match status.code() {
+        Some(0) => Ok(()),
+        a => Err(ActivationHookError::Exit(hook_name.to_string(), a)),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -921,7 +994,30 @@ async fn run_deploy(
                 deploy_data.profile_name.clone(),
             ))
             .expect("every profile should have a build closure recorded");
-        if let Err(e) = deploy::deploy::deploy_profile(
+
+        // Client-side pre-activation hook
+        if !dry_activate {
+            if let Some(ref hook) = deploy_data.merged_settings.pre_activate {
+                run_activation_hook(
+                    "pre-activate",
+                    hook,
+                    deploy_data,
+                    deploy_defs,
+                    closure,
+                    boot,
+                )
+                .await
+                .map_err(|e| {
+                    RunDeployError::ActivationHook(
+                        deploy_data.node_name.to_string(),
+                        "pre-activate".to_string(),
+                        e,
+                    )
+                })?;
+            }
+        }
+
+        let deploy_result = deploy::deploy::deploy_profile(
             deploy_data,
             deploy_defs,
             closure,
@@ -929,8 +1025,30 @@ async fn run_deploy(
             boot,
             test,
         )
-        .await
-        {
+        .await;
+
+        // Client-side post-activation hook
+        if !dry_activate {
+            if let Some(ref hook) = deploy_data.merged_settings.post_activate {
+                if let Err(e) = run_activation_hook(
+                    "post-activate",
+                    hook,
+                    deploy_data,
+                    deploy_defs,
+                    closure,
+                    boot,
+                )
+                .await
+                {
+                    warn!(
+                        "post-activate hook for node {} failed: {}",
+                        deploy_data.node_name, e
+                    );
+                }
+            }
+        }
+
+        if let Err(e) = deploy_result {
             error!("{}", e);
             if dry_activate {
                 info!("dry run, not rolling back");
@@ -1034,6 +1152,8 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         remote_build: opts.remote_build,
         sudo: opts.sudo,
         interactive_sudo: opts.interactive_sudo,
+        pre_activate: opts.pre_activate,
+        post_activate: opts.post_activate,
     };
 
     let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;
