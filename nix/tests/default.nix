@@ -238,4 +238,20 @@ in {
       assert "📠 error: no profile version older than the current" in deploy_output, deploy_output
     '';
   };
+  # e2e test for --no-demarcate-output: the prefix must disappear entirely,
+  # without breaking the deploy itself.
+  no-demarcate-output = mkTest {
+    name = "no-demarcate-output";
+    user = "deploy";
+    deploySteps = ''
+      deploy_output = client.succeed(
+        "deploy --no-demarcate-output -s .#prefix-demarcation -- --offline 2>&1"
+      )
+
+      assert "PREFIX_TEST_STDOUT_MARKER" in deploy_output, deploy_output
+      assert "PREFIX_TEST_STDERR_MARKER" in deploy_output, deploy_output
+      assert "Deployment confirmed." in deploy_output, deploy_output
+      assert "📠" not in deploy_output, deploy_output
+    '';
+  };
 }

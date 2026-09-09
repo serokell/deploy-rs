@@ -443,7 +443,12 @@ fn warn_stdstream_task_err(stream_name: &str, stdstream_task_result: Result<(), 
 
 async fn read_remote_process_child(
     mut process_child: tokio::process::Child,
+    demarcate: bool,
 ) -> Result<std::process::ExitStatus, std::io::Error> {
+    if !demarcate {
+        return process_child.wait().await;
+    }
+
     let stdout = process_child.stdout.take().expect("stdout piped");
     let stderr = process_child.stderr.take().expect("stderr piped");
 
@@ -466,6 +471,7 @@ pub async fn deploy_profile(
     dry_activate: bool,
     boot: bool,
     test: bool,
+    demarcate_output: bool,
 ) -> Result<(), DeployProfileError> {
     if !dry_activate {
         info!(
@@ -514,9 +520,15 @@ pub async fn deploy_profile(
     let mut ssh_activate_command = Command::new("ssh");
     ssh_activate_command
         .arg(&ssh_addr)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
         .stdin(std::process::Stdio::piped());
+    if demarcate_output {
+        // Only piped when we actually plan to drain and re-print it via
+        // read_remote_process_child; otherwise leaving it inherited lets
+        // output stream directly to the terminal.
+        ssh_activate_command
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+    }
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
         ssh_activate_command.arg(ssh_opt);
@@ -547,7 +559,8 @@ pub async fn deploy_profile(
                 })?;
         }
 
-        let ssh_activate_result = read_remote_process_child(ssh_activate_child).await;
+        let ssh_activate_result =
+            read_remote_process_child(ssh_activate_child, demarcate_output).await;
 
         match ssh_activate_result {
             Err(err) => {
@@ -621,6 +634,11 @@ pub async fn deploy_profile(
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::piped());
+        if demarcate_output {
+            ssh_wait_command
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+        }
 
         for ssh_opt in &deploy_data.merged_settings.ssh_opts {
             ssh_wait_command.arg(ssh_opt);
@@ -630,7 +648,8 @@ pub async fn deploy_profile(
         let (send_activated, recv_activated) = tokio::sync::oneshot::channel();
 
         let thread = tokio::spawn(async move {
-            let ssh_activate_result = read_remote_process_child(ssh_activate_child).await;
+            let ssh_activate_result =
+                read_remote_process_child(ssh_activate_child, demarcate_output).await;
 
             let maybe_err = match ssh_activate_result {
                 Err(err) => Some(DeployProfileError::SSHActivate(
@@ -676,7 +695,7 @@ pub async fn deploy_profile(
         }
 
         tokio::select! {
-            x = read_remote_process_child(ssh_wait_child) => {
+            x = read_remote_process_child(ssh_wait_child, demarcate_output) => {
                 debug!("Wait command ended");
                 let status = x.map_err(|err| DeployProfileError::SSHWait(command::CommandError::RunError(err)))?;
                 match status.code() {
@@ -741,6 +760,7 @@ pub async fn revoke(
     deploy_data: &crate::DeployData,
     deploy_defs: &crate::DeployDefs,
     closure: &str,
+    demarcate_output: bool,
 ) -> Result<(), RevokeProfileError> {
     let self_revoke_command = build_revoke_command(&RevokeCommandData {
         sudo: &deploy_defs.sudo,
@@ -763,6 +783,11 @@ pub async fn revoke(
     ssh_revoke_command
         .arg(&ssh_addr)
         .stdin(std::process::Stdio::piped());
+    if demarcate_output {
+        ssh_revoke_command
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+    }
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
         ssh_revoke_command.arg(ssh_opt);
@@ -770,8 +795,6 @@ pub async fn revoke(
 
     let mut ssh_revoke_child = ssh_revoke_command
         .arg(self_revoke_command)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|err| {
             RevokeProfileError::SSHRevoke(command::CommandError::OtherError(
@@ -790,7 +813,7 @@ pub async fn revoke(
             .map_err(|err| RevokeProfileError::SSHRevoke(command::CommandError::RunError(err)))?;
     }
 
-    let ssh_revoke_result = read_remote_process_child(ssh_revoke_child).await;
+    let ssh_revoke_result = read_remote_process_child(ssh_revoke_child, demarcate_output).await;
     match ssh_revoke_result {
         Err(x) => Err(RevokeProfileError::SSHRevoke(
             command::CommandError::RunError(x),
@@ -884,5 +907,56 @@ mod tests {
         write_task.await.unwrap();
 
         assert_eq!(String::from_utf8(out).unwrap(), "📠 abc\n📠 def\n");
+    }
+
+    struct AlwaysFailWriter;
+
+    impl tokio::io::AsyncWrite for AlwaysFailWriter {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+            _buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::task::Poll::Ready(Err(std::io::Error::other("write always fails")))
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_forward_reader_drains_reader_after_write_failure() {
+        // Regression test: if the local write fails, forward_reader must
+        // keep draining the reader until EOF instead of abandoning it, so
+        // the remote child on the other end of the pipe never blocks on a
+        // full OS pipe buffer.
+        let (mut writer, reader) = tokio::io::duplex(4);
+        let input: Vec<u8> = (0..5000).map(|_| b'x').collect();
+
+        let write_task = tokio::spawn(async move {
+            writer.write_all(&input).await.unwrap();
+        });
+
+        let result = forward_reader(reader, AlwaysFailWriter).await;
+        assert!(result.is_err(), "the write error must still be reported");
+
+        // If forward_reader stopped draining after the first write failure,
+        // the duplex's bounded buffer (capacity 4) would fill up and this
+        // would hang forever instead of completing.
+        tokio::time::timeout(std::time::Duration::from_secs(5), write_task)
+            .await
+            .expect("reader was not fully drained after the write failure")
+            .unwrap();
     }
 }
