@@ -98,6 +98,30 @@
           '';
         in deploy-rs.lib.${system}.activate.custom activateProfile "$PROFILE/bin/activate";
       };
+      # Only exists for the revoke-demarcation e2e test (#261).
+      revoke-demarcation = {
+        hostname = "server";
+        sshUser = "${user}";
+        sshOpts = [
+          "-o" "UserKnownHostsFile=/dev/null"
+          "-o" "StrictHostKeyChecking=no"
+        ];
+        profilesOrder = [ "echo-markers" "always-fail" ];
+        profiles = {
+          "echo-markers".path = let
+            activateProfile = pkgs.writeShellScriptBin "activate" ''
+              echo "PREFIX_TEST_STDOUT_MARKER"
+              echo "PREFIX_TEST_STDERR_MARKER" >&2
+            '';
+          in deploy-rs.lib.${system}.activate.custom activateProfile "$PROFILE/bin/activate";
+          "always-fail".path = let
+            activateProfile = pkgs.writeShellScriptBin "activate" ''
+              echo "ALWAYS_FAIL_MARKER" >&2
+              exit 1
+            '';
+          in deploy-rs.lib.${system}.activate.custom activateProfile "$PROFILE/bin/activate";
+        };
+      };
     };
   };
 }

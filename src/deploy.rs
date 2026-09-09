@@ -435,6 +435,30 @@ async fn forward_reader<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrit
     }
 }
 
+fn warn_stdstream_task_err(stream_name: &str, stdstream_task_result: Result<(), std::io::Error>) {
+    if let Err(err) = stdstream_task_result {
+        warn!("Error while decoding {}: {}", stream_name, err)
+    }
+}
+
+async fn read_remote_process_child(
+    mut process_child: tokio::process::Child,
+) -> Result<std::process::ExitStatus, std::io::Error> {
+    let stdout = process_child.stdout.take().expect("stdout piped");
+    let stderr = process_child.stderr.take().expect("stderr piped");
+
+    let stdout_task = forward_reader(stdout, tokio::io::stdout());
+    let stderr_task = forward_reader(stderr, tokio::io::stderr());
+
+    let (result, stdout_task_result, stderr_task_result) =
+        tokio::join!(process_child.wait(), stdout_task, stderr_task);
+
+    warn_stdstream_task_err("stdout", stdout_task_result);
+    warn_stdstream_task_err("stderr", stderr_task_result);
+
+    result
+}
+
 pub async fn deploy_profile(
     deploy_data: &super::DeployData,
     deploy_defs: &super::DeployDefs,
@@ -498,15 +522,6 @@ pub async fn deploy_profile(
         ssh_activate_command.arg(ssh_opt);
     }
 
-    fn warn_stdstream_task_err(
-        stream_name: &str,
-        stdstream_task_result: Result<(), std::io::Error>,
-    ) {
-        if let Err(err) = stdstream_task_result {
-            warn!("Error while decoding {}: {}", stream_name, err)
-        }
-    }
-
     if !magic_rollback || dry_activate || boot {
         let mut ssh_activate_child = ssh_activate_command
             .arg(self_activate_command)
@@ -516,12 +531,6 @@ pub async fn deploy_profile(
                     SSHActivateError::OtherError(err),
                 ))
             })?;
-
-        let stdout = ssh_activate_child.stdout.take().expect("stdout piped");
-        let stderr = ssh_activate_child.stderr.take().expect("stderr piped");
-
-        let stdout_task = forward_reader(stdout, tokio::io::stdout());
-        let stderr_task = forward_reader(stderr, tokio::io::stderr());
 
         if deploy_data
             .merged_settings
@@ -538,8 +547,7 @@ pub async fn deploy_profile(
                 })?;
         }
 
-        let (ssh_activate_result, stdout_task_result, stderr_task_result) =
-            tokio::join!(ssh_activate_child.wait(), stdout_task, stderr_task);
+        let ssh_activate_result = read_remote_process_child(ssh_activate_child).await;
 
         match ssh_activate_result {
             Err(err) => {
@@ -561,9 +569,6 @@ pub async fn deploy_profile(
                 };
             }
         }
-
-        warn_stdstream_task_err("stdout", stdout_task_result);
-        warn_stdstream_task_err("stderr", stderr_task_result);
 
         if dry_activate {
             info!("Completed dry-activate!");
@@ -592,12 +597,6 @@ pub async fn deploy_profile(
                     SSHActivateError::OtherError(err),
                 ))
             })?;
-
-        let stdout = ssh_activate_child.stdout.take().expect("stdout piped");
-        let stderr = ssh_activate_child.stderr.take().expect("stderr piped");
-
-        let stdout_task = forward_reader(stdout, tokio::io::stdout());
-        let stderr_task = forward_reader(stderr, tokio::io::stderr());
 
         if deploy_data
             .merged_settings
@@ -631,8 +630,7 @@ pub async fn deploy_profile(
         let (send_activated, recv_activated) = tokio::sync::oneshot::channel();
 
         let thread = tokio::spawn(async move {
-            let (ssh_activate_result, stdout_task_result, stderr_task_result) =
-                tokio::join!(ssh_activate_child.wait(), stdout_task, stderr_task);
+            let ssh_activate_result = read_remote_process_child(ssh_activate_child).await;
 
             let maybe_err = match ssh_activate_result {
                 Err(err) => Some(DeployProfileError::SSHActivate(
@@ -649,9 +647,6 @@ pub async fn deploy_profile(
                 },
             };
 
-            warn_stdstream_task_err("stdout", stdout_task_result);
-            warn_stdstream_task_err("stderr", stderr_task_result);
-
             if let Some(err) = maybe_err {
                 // The receiver is gone if the main task already returned; that is fine.
                 let _ = send_activate.send(err);
@@ -664,12 +659,6 @@ pub async fn deploy_profile(
             .arg(self_wait_command)
             .spawn()
             .map_err(|err| DeployProfileError::SSHWait(command::CommandError::RunError(err)))?;
-
-        let wait_stdout = ssh_wait_child.stdout.take().expect("stdout piped");
-        let wait_stderr = ssh_wait_child.stderr.take().expect("stderr piped");
-
-        let wait_stdout_task = forward_reader(wait_stdout, tokio::io::stdout());
-        let wait_stderr_task = forward_reader(wait_stderr, tokio::io::stderr());
 
         if deploy_data
             .merged_settings
@@ -687,13 +676,7 @@ pub async fn deploy_profile(
         }
 
         tokio::select! {
-            x = async {
-                let (result, stdout_task_result, stderr_task_result) =
-                    tokio::join!(ssh_wait_child.wait(), wait_stdout_task, wait_stderr_task);
-                warn_stdstream_task_err("stdout", stdout_task_result);
-                warn_stdstream_task_err("stderr", stderr_task_result);
-                result
-            } => {
+            x = read_remote_process_child(ssh_wait_child) => {
                 debug!("Wait command ended");
                 let status = x.map_err(|err| DeployProfileError::SSHWait(command::CommandError::RunError(err)))?;
                 match status.code() {
@@ -776,17 +759,19 @@ pub async fn revoke(
 
     let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
 
-    let mut ssh_activate_command = Command::new("ssh");
-    ssh_activate_command
+    let mut ssh_revoke_command = Command::new("ssh");
+    ssh_revoke_command
         .arg(&ssh_addr)
         .stdin(std::process::Stdio::piped());
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_activate_command.arg(ssh_opt);
+        ssh_revoke_command.arg(ssh_opt);
     }
 
-    let mut ssh_revoke_child = ssh_activate_command
+    let mut ssh_revoke_child = ssh_revoke_command
         .arg(self_revoke_command)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|err| {
             RevokeProfileError::SSHRevoke(command::CommandError::OtherError(
@@ -805,18 +790,19 @@ pub async fn revoke(
             .map_err(|err| RevokeProfileError::SSHRevoke(command::CommandError::RunError(err)))?;
     }
 
-    let result = ssh_revoke_child.wait_with_output().await;
-
-    match result {
+    let ssh_revoke_result = read_remote_process_child(ssh_revoke_child).await;
+    match ssh_revoke_result {
         Err(x) => Err(RevokeProfileError::SSHRevoke(
             command::CommandError::RunError(x),
         )),
-        Ok(ref x) => match x.status.code() {
+        Ok(ref exit_status) => match exit_status.code() {
             Some(0) => Ok(()),
-            _exit_code => Err(RevokeProfileError::SSHRevoke(command::CommandError::Exit(
-                x.clone(),
-                format!("{:?}", ssh_activate_command),
-            ))),
+            _exit_code => Err(RevokeProfileError::SSHRevoke(
+                command::CommandError::ExitStatus(
+                    *exit_status,
+                    format!("{:?}", ssh_revoke_command),
+                ),
+            )),
         },
     }
 }

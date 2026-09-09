@@ -20,11 +20,14 @@ let
     done <$refs
   '';
 
-  mkTest = { name ? "", user ? "root", flakes ? true, isLocal ? true, deployArgs
+  mkTest = { name ? "", user ? "root", flakes ? true, isLocal ? true, deployArgs ? null
            , expectCancellationWithin ? null
-           # Test-specific assertions to run after the deploy succeeds. Defaults to
-           # the generic "packages actually got installed" check most tests want.
-           , verify ? ''
+           # Everything from invoking `deploy` onward. Defaults to one deploy of
+           # `deployArgs` plus the generic package-installed check. Override for
+           # tests needing multiple deploys, an expected failure, or custom checks.
+           , deploySteps ? ''
+             deploy_output = client.succeed("deploy ${deployArgs} 2>&1")
+
              # Make sure packages are present after deployment
              server.succeed("su ${user} -l -c 'hello | figlet' >&2")
            ''
@@ -134,10 +137,7 @@ let
       # Make sure the hello and figlet packages are missing
       server.fail("su ${user} -l -c 'hello | figlet'")
 
-      # Deploy to the server
-      deploy_output = client.succeed("deploy ${deployArgs} 2>&1")
-
-      ${verify}
+      ${deploySteps}
       ''}
     '';
   };
@@ -207,12 +207,35 @@ in {
   prefix-demarcation = mkTest {
     name = "prefix-demarcation";
     user = "deploy";
-    deployArgs = "-s .#prefix-demarcation -- --offline";
-    verify = ''
+    deploySteps = ''
+      deploy_output = client.succeed("deploy -s .#prefix-demarcation -- --offline 2>&1")
+
       assert "📠 PREFIX_TEST_STDOUT_MARKER" in deploy_output, deploy_output
       assert "📠 PREFIX_TEST_STDERR_MARKER" in deploy_output, deploy_output
       assert "Deployment confirmed." in deploy_output, deploy_output
       assert "📠 Deployment confirmed." not in deploy_output, deploy_output
+    '';
+  };
+  # e2e test for #261's revoke() fix. A later profile fails during a
+  # multi-profile deploy, so deploy-rs rolls back the profile that already
+  # succeeded. The rollback re-runs the old activation script over its own
+  # fresh SSH session, so it must get demarcated too.
+  revoke-demarcation = mkTest {
+    name = "revoke-demarcation";
+    user = "deploy";
+    deploySteps = ''
+      # Deploy both profiles: echo-markers succeeds, always-fail fails,
+      # triggering deploy-rs's revoke() on echo-markers. There is only one
+      # generation yet, so the rollback itself fails too, but that
+      # failure's own remote output must still be demarcated correctly.
+      deploy_output = client.fail("deploy -s .#revoke-demarcation -- --offline 2>&1")
+
+      assert "📠 PREFIX_TEST_STDOUT_MARKER" in deploy_output, deploy_output
+      assert "📠 PREFIX_TEST_STDERR_MARKER" in deploy_output, deploy_output
+      assert "📠 ALWAYS_FAIL_MARKER" in deploy_output, deploy_output
+      assert "Revoking previous deploys" in deploy_output, deploy_output
+      assert "📠 Revoking previous deploys" not in deploy_output, deploy_output
+      assert "📠 error: no profile version older than the current" in deploy_output, deploy_output
     '';
   };
 }
