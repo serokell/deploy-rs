@@ -59,6 +59,11 @@ pub struct Opts {
     /// pipe deploy into nix-output-monitor or capture clean CI logs.
     #[arg(long)]
     no_progress: bool,
+    /// Disable prefixing lines coming from the remote server with an emoji.
+    /// Use this if a script or another tool parses deploy's output and the
+    /// prefix would interfere with it.
+    #[arg(long)]
+    no_demarcate_output: bool,
 
     /// Keep the build outputs of each built profile
     #[arg(short, long)]
@@ -498,6 +503,7 @@ async fn run_deploy(
     log_dir: &Option<String>,
     rollback_succeeded: bool,
     no_progress: bool,
+    demarcate_output: bool,
     mp: MultiProgress,
 ) -> Result<(), RunDeployError> {
     let to_deploy: ToDeploy = deploy_flakes
@@ -928,6 +934,7 @@ async fn run_deploy(
             dry_activate,
             boot,
             test,
+            demarcate_output,
         )
         .await
         {
@@ -942,15 +949,20 @@ async fn run_deploy(
                 //  the command line)
                 for (deploy_data, deploy_defs, prev_closure) in &succeeded {
                     if deploy_data.merged_settings.auto_rollback.unwrap_or(true) {
-                        deploy::deploy::revoke(deploy_data, deploy_defs, prev_closure)
-                            .await
-                            .map_err(|e| {
-                                RunDeployError::RevokeProfile(
-                                    deploy_data.profile_name.to_string(),
-                                    deploy_data.node_name.to_string(),
-                                    e,
-                                )
-                            })?;
+                        deploy::deploy::revoke(
+                            deploy_data,
+                            deploy_defs,
+                            prev_closure,
+                            demarcate_output,
+                        )
+                        .await
+                        .map_err(|e| {
+                            RunDeployError::RevokeProfile(
+                                deploy_data.profile_name.to_string(),
+                                deploy_data.node_name.to_string(),
+                                e,
+                            )
+                        })?;
                     }
                 }
                 return Err(RunDeployError::Rollback(deploy_data.node_name.to_string()));
@@ -1080,6 +1092,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         &opts.log_dir,
         opts.rollback_succeeded.unwrap_or(true),
         opts.no_progress,
+        !opts.no_demarcate_output,
         mp,
     )
     .await?;

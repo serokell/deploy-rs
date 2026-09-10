@@ -4,10 +4,13 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 use std::path::Path;
 use thiserror::Error;
-use tokio::{io::AsyncWriteExt, process::Command};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    process::Command,
+};
 
 use crate::{command, DeployDataDefsError, DeployDefs, ProfileInfo};
 
@@ -395,6 +398,72 @@ pub enum DeployProfileError {
     InvalidDeployDataDefs(#[from] DeployDataDefsError),
 }
 
+async fn forward_reader<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
+    mut reader: R,
+    mut writer: W,
+) -> std::io::Result<()> {
+    const BUF_SIZE: usize = 65536;
+    let prefix = &'📠'.to_string().into_bytes();
+    let mut buf = [0u8; BUF_SIZE];
+
+    // We could instead use None, but having '\n' here is simpler and has the same effect.
+    let mut previous_byte = b'\n';
+    let mut out = Vec::with_capacity(BUF_SIZE);
+    loop {
+        let num_bytes_read = reader.read(&mut buf[..]).await?;
+        if num_bytes_read == 0 {
+            return Ok(());
+        }
+
+        out.clear();
+        buf[..num_bytes_read].iter().for_each(|current_byte| {
+            if previous_byte == b'\n' {
+                out.extend_from_slice(prefix);
+                out.push(b' ');
+            }
+            out.push(*current_byte);
+            previous_byte = *current_byte;
+        });
+
+        if let Err(err) = writer.write_all(&out[..]).await {
+            // Keep draining the reader so the child on the other end of the
+            // pipe never blocks trying to write more than its OS pipe buffer
+            // holds, even though we can no longer show its output.
+            while reader.read(&mut buf[..]).await? != 0 {}
+            return Err(err);
+        }
+    }
+}
+
+fn warn_stdstream_task_err(stream_name: &str, stdstream_task_result: Result<(), std::io::Error>) {
+    if let Err(err) = stdstream_task_result {
+        warn!("Error while decoding {}: {}", stream_name, err)
+    }
+}
+
+async fn read_remote_process_child(
+    mut process_child: tokio::process::Child,
+    demarcate: bool,
+) -> Result<std::process::ExitStatus, std::io::Error> {
+    if !demarcate {
+        return process_child.wait().await;
+    }
+
+    let stdout = process_child.stdout.take().expect("stdout piped");
+    let stderr = process_child.stderr.take().expect("stderr piped");
+
+    let stdout_task = forward_reader(stdout, tokio::io::stdout());
+    let stderr_task = forward_reader(stderr, tokio::io::stderr());
+
+    let (result, stdout_task_result, stderr_task_result) =
+        tokio::join!(process_child.wait(), stdout_task, stderr_task);
+
+    warn_stdstream_task_err("stdout", stdout_task_result);
+    warn_stdstream_task_err("stderr", stderr_task_result);
+
+    result
+}
+
 pub async fn deploy_profile(
     deploy_data: &super::DeployData,
     deploy_defs: &super::DeployDefs,
@@ -402,6 +471,7 @@ pub async fn deploy_profile(
     dry_activate: bool,
     boot: bool,
     test: bool,
+    demarcate_output: bool,
 ) -> Result<(), DeployProfileError> {
     if !dry_activate {
         info!(
@@ -451,6 +521,14 @@ pub async fn deploy_profile(
     ssh_activate_command
         .arg(&ssh_addr)
         .stdin(std::process::Stdio::piped());
+    if demarcate_output {
+        // Only piped when we actually plan to drain and re-print it via
+        // read_remote_process_child; otherwise leaving it inherited lets
+        // output stream directly to the terminal.
+        ssh_activate_command
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+    }
 
     for ssh_opt in &deploy_data.merged_settings.ssh_opts {
         ssh_activate_command.arg(ssh_opt);
@@ -481,22 +559,29 @@ pub async fn deploy_profile(
                 })?;
         }
 
-        let ssh_activate_exit_status = ssh_activate_child
-            .wait()
-            .await
-            .map_err(|err| DeployProfileError::SSHActivate(command::CommandError::RunError(err)))?;
+        let ssh_activate_result =
+            read_remote_process_child(ssh_activate_child, demarcate_output).await;
 
-        match ssh_activate_exit_status.code() {
-            Some(0) => (),
-            _exit_code => {
+        match ssh_activate_result {
+            Err(err) => {
                 return Err(DeployProfileError::SSHActivate(
-                    command::CommandError::ExitStatus(
-                        ssh_activate_exit_status,
-                        format!("{:?}", ssh_activate_command),
-                    ),
+                    command::CommandError::RunError(err),
                 ))
             }
-        };
+            Ok(ssh_activate_exit_status) => {
+                match ssh_activate_exit_status.code() {
+                    Some(0) => (),
+                    _exit_code => {
+                        return Err(DeployProfileError::SSHActivate(
+                            command::CommandError::ExitStatus(
+                                ssh_activate_exit_status,
+                                format!("{:?}", ssh_activate_command),
+                            ),
+                        ))
+                    }
+                };
+            }
+        }
 
         if dry_activate {
             info!("Completed dry-activate!");
@@ -546,7 +631,14 @@ pub async fn deploy_profile(
         let mut ssh_wait_command = Command::new("ssh");
         ssh_wait_command
             .arg(&ssh_addr)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::piped());
+        if demarcate_output {
+            ssh_wait_command
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+        }
 
         for ssh_opt in &deploy_data.merged_settings.ssh_opts {
             ssh_wait_command.arg(ssh_opt);
@@ -556,17 +648,18 @@ pub async fn deploy_profile(
         let (send_activated, recv_activated) = tokio::sync::oneshot::channel();
 
         let thread = tokio::spawn(async move {
-            let o = ssh_activate_child.wait_with_output().await;
+            let ssh_activate_result =
+                read_remote_process_child(ssh_activate_child, demarcate_output).await;
 
-            let maybe_err = match o {
-                Err(x) => Some(DeployProfileError::SSHActivate(
-                    command::CommandError::RunError(x),
+            let maybe_err = match ssh_activate_result {
+                Err(err) => Some(DeployProfileError::SSHActivate(
+                    command::CommandError::RunError(err),
                 )),
-                Ok(ref x) => match x.status.code() {
+                Ok(ref exit_status) => match exit_status.code() {
                     Some(0) => None,
                     _exit_code => Some(DeployProfileError::SSHActivate(
-                        command::CommandError::Exit(
-                            x.clone(),
+                        command::CommandError::ExitStatus(
+                            *exit_status,
                             format!("{:?}", ssh_activate_command),
                         ),
                     )),
@@ -602,7 +695,7 @@ pub async fn deploy_profile(
         }
 
         tokio::select! {
-            x = ssh_wait_child.wait() => {
+            x = read_remote_process_child(ssh_wait_child, demarcate_output) => {
                 debug!("Wait command ended");
                 let status = x.map_err(|err| DeployProfileError::SSHWait(command::CommandError::RunError(err)))?;
                 match status.code() {
@@ -667,6 +760,7 @@ pub async fn revoke(
     deploy_data: &crate::DeployData,
     deploy_defs: &crate::DeployDefs,
     closure: &str,
+    demarcate_output: bool,
 ) -> Result<(), RevokeProfileError> {
     let self_revoke_command = build_revoke_command(&RevokeCommandData {
         sudo: &deploy_defs.sudo,
@@ -685,16 +779,21 @@ pub async fn revoke(
 
     let ssh_addr = format!("{}@{}", deploy_defs.ssh_user, hostname);
 
-    let mut ssh_activate_command = Command::new("ssh");
-    ssh_activate_command
+    let mut ssh_revoke_command = Command::new("ssh");
+    ssh_revoke_command
         .arg(&ssh_addr)
         .stdin(std::process::Stdio::piped());
-
-    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
-        ssh_activate_command.arg(ssh_opt);
+    if demarcate_output {
+        ssh_revoke_command
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
     }
 
-    let mut ssh_revoke_child = ssh_activate_command
+    for ssh_opt in &deploy_data.merged_settings.ssh_opts {
+        ssh_revoke_command.arg(ssh_opt);
+    }
+
+    let mut ssh_revoke_child = ssh_revoke_command
         .arg(self_revoke_command)
         .spawn()
         .map_err(|err| {
@@ -714,18 +813,150 @@ pub async fn revoke(
             .map_err(|err| RevokeProfileError::SSHRevoke(command::CommandError::RunError(err)))?;
     }
 
-    let result = ssh_revoke_child.wait_with_output().await;
-
-    match result {
+    let ssh_revoke_result = read_remote_process_child(ssh_revoke_child, demarcate_output).await;
+    match ssh_revoke_result {
         Err(x) => Err(RevokeProfileError::SSHRevoke(
             command::CommandError::RunError(x),
         )),
-        Ok(ref x) => match x.status.code() {
+        Ok(ref exit_status) => match exit_status.code() {
             Some(0) => Ok(()),
-            _exit_code => Err(RevokeProfileError::SSHRevoke(command::CommandError::Exit(
-                x.clone(),
-                format!("{:?}", ssh_activate_command),
-            ))),
+            _exit_code => Err(RevokeProfileError::SSHRevoke(
+                command::CommandError::ExitStatus(
+                    *exit_status,
+                    format!("{:?}", ssh_revoke_command),
+                ),
+            )),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_forward_reader_prefixes_each_line() {
+        let mut out = Vec::new();
+        forward_reader(&b"hello\nworld\n"[..], &mut out)
+            .await
+            .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "📠 hello\n📠 world\n");
+    }
+
+    #[tokio::test]
+    async fn test_forward_reader_prefixes_last_line_without_trailing_newline() {
+        let mut out = Vec::new();
+        forward_reader(&b"hello\nworld"[..], &mut out)
+            .await
+            .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "📠 hello\n📠 world");
+    }
+
+    #[tokio::test]
+    async fn test_forward_reader_empty_input() {
+        let mut out = Vec::new();
+        forward_reader(&b""[..], &mut out).await.unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_forward_reader_prefixes_blank_lines_between_content() {
+        let mut out = Vec::new();
+        forward_reader(&b"a\n\n\nb\n"[..], &mut out).await.unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "📠 a\n📠 \n📠 \n📠 b\n");
+    }
+
+    #[tokio::test]
+    async fn test_forward_reader_prefixes_leading_newline() {
+        let mut out = Vec::new();
+        forward_reader(&b"\nfoo\n"[..], &mut out).await.unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "📠 \n📠 foo\n");
+    }
+
+    #[tokio::test]
+    async fn test_forward_reader_long_line_split_across_many_reads() {
+        let (mut writer, reader) = tokio::io::duplex(4);
+        let input: Vec<u8> = (0..500).map(|_| b'x').collect();
+        let expected_body = String::from_utf8(input.clone()).unwrap();
+
+        let write_task = tokio::spawn(async move {
+            writer.write_all(&input).await.unwrap();
+        });
+
+        let mut out = Vec::new();
+        forward_reader(reader, &mut out).await.unwrap();
+        write_task.await.unwrap();
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            format!("📠 {}", expected_body)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_forward_reader_newline_split_across_reads() {
+        let (mut writer, reader) = tokio::io::duplex(1);
+        let input = b"abc\ndef\n".to_vec();
+
+        let write_task = tokio::spawn(async move {
+            writer.write_all(&input).await.unwrap();
+        });
+
+        let mut out = Vec::new();
+        forward_reader(reader, &mut out).await.unwrap();
+        write_task.await.unwrap();
+
+        assert_eq!(String::from_utf8(out).unwrap(), "📠 abc\n📠 def\n");
+    }
+
+    struct AlwaysFailWriter;
+
+    impl tokio::io::AsyncWrite for AlwaysFailWriter {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+            _buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::task::Poll::Ready(Err(std::io::Error::other("write always fails")))
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_forward_reader_drains_reader_after_write_failure() {
+        // Regression test: if the local write fails, forward_reader must
+        // keep draining the reader until EOF instead of abandoning it, so
+        // the remote child on the other end of the pipe never blocks on a
+        // full OS pipe buffer.
+        let (mut writer, reader) = tokio::io::duplex(4);
+        let input: Vec<u8> = (0..5000).map(|_| b'x').collect();
+
+        let write_task = tokio::spawn(async move {
+            writer.write_all(&input).await.unwrap();
+        });
+
+        let result = forward_reader(reader, AlwaysFailWriter).await;
+        assert!(result.is_err(), "the write error must still be reported");
+
+        // If forward_reader stopped draining after the first write failure,
+        // the duplex's bounded buffer (capacity 4) would fill up and this
+        // would hang forever instead of completing.
+        tokio::time::timeout(std::time::Duration::from_secs(5), write_task)
+            .await
+            .expect("reader was not fully drained after the write failure")
+            .unwrap();
     }
 }
