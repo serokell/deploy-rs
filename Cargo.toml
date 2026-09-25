@@ -7,6 +7,13 @@ name = "deploy-rs"
 version = "0.1.0"
 authors = ["notgne2 <gen2@gen2.space>", "Serokell <hi@serokell.io>"]
 edition = "2018"
+rust-version = "1.85"
+description = "A simple multi-profile Nix-flake deploy tool."
+license = "MPL-2.0"
+repository = "https://github.com/serokell/deploy-rs"
+readme = "README.md"
+keywords = ["nix", "nixos", "flake", "deploy", "deployment"]
+categories = ["command-line-utilities", "development-tools"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
