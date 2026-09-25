@@ -7,6 +7,7 @@ name = "deploy-rs"
 version = "0.1.0"
 authors = ["notgne2 <gen2@gen2.space>", "Serokell <hi@serokell.io>"]
 edition = "2018"
+resolver = "3"
 rust-version = "1.85"
 description = "A simple multi-profile Nix-flake deploy tool."
 license = "MPL-2.0"
