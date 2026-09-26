@@ -365,6 +365,12 @@ pub async fn activation_confirmation(
     confirm_timeout: u16,
     closure: String,
 ) -> Result<(), ActivationConfirmationError> {
+    // FSEvents (macOS) reports canonicalized event paths, and temp_path may be a
+    // symlink (e.g. /tmp -> /private/tmp). Canonicalize so the lock path used by
+    // confirmation_watcher's removal-event comparison matches what the watcher
+    // actually reports, otherwise the confirmation event is never observed and
+    // magic rollback triggers despite a confirmed deployment.
+    let temp_path = temp_path.canonicalize().unwrap_or(temp_path);
     let lock_path = deploy::make_lock_path(&temp_path, &closure);
 
     debug!("Ensuring parent directory exists for canary file");
@@ -423,6 +429,43 @@ mod tests {
         fs::remove_dir(&temp_path)
             .await
             .expect("remove test directory");
+    }
+
+    /// temp_path may be reached through a symlink (macOS: /tmp -> /private/tmp).
+    /// FSEvents/inotify report the real path for removal events, so the watcher
+    /// must compare against the canonicalized lock path, not the raw one.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn confirmation_watcher_matches_through_symlinked_temp_path() {
+        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
+        let real_path = test_directory("canary-symlink-real", id).await;
+        let link_path = env::temp_dir().join(format!(
+            "deploy-rs-canary-symlink-link-{}-{id}",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&link_path).await;
+        std::os::unix::fs::symlink(&real_path, &link_path)
+            .expect("create symlinked temp path");
+
+        let closure = test_closure(id);
+        let waiting = tokio::spawn(activation_confirmation(
+            link_path.clone(),
+            10,
+            closure.clone(),
+        ));
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        fs::remove_file(deploy::make_lock_path(&link_path, &closure))
+            .await
+            .expect("remove canary file");
+
+        waiting
+            .await
+            .expect("join activation confirmation task")
+            .expect("confirmation must arrive for symlinked temp path");
+
+        let _ = fs::remove_dir_all(&real_path).await;
+        let _ = fs::remove_file(&link_path).await;
     }
 
     fn test_closure(id: u64) -> String {
