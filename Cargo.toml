@@ -15,6 +15,19 @@ repository = "https://github.com/serokell/deploy-rs"
 readme = "README.md"
 keywords = ["nix", "flake", "deployment", "ssh", "operations"]
 categories = ["command-line-utilities", "development-tools"]
+exclude = [
+    ".gitignore",
+    "examples/",
+    "flake.nix",
+    "flake.lock",
+    "default.nix",
+    "shell.nix",
+    "docs/",
+    ".envrc",
+    ".github/",
+    "interface.json",
+    "nix/tests/",
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
