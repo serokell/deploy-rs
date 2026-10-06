@@ -19,6 +19,7 @@ jobs:
   check:
     needs: get-matrix
     name: check ${{ matrix.check }}
+    timeout-minutes: 60
     runs-on: [self-hosted, nix]
     strategy:
       fail-fast: false

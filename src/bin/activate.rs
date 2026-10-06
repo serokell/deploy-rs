@@ -271,8 +271,6 @@ pub enum DangerZoneError {
     Watch(notify::Error),
     #[error("Activation cancelled by deployment client")]
     Cancelled,
-    #[error("Could not inspect activation confirmation file: {0}")]
-    ConfirmationFile(#[from] std::io::Error),
 }
 
 async fn danger_zone(
@@ -287,47 +285,6 @@ async fn danger_zone(
         Ok(Some(Err(e))) => Err(DangerZoneError::Watch(e)),
         Ok(None) => Err(DangerZoneError::NoConfirmation),
         Err(_) => Err(DangerZoneError::TimesUp),
-    }
-}
-
-async fn confirmation_wait(
-    events: mpsc::Receiver<Result<WaitEvent, notify::Error>>,
-    confirm_timeout: u16,
-    lock_path: &Path,
-) -> Result<(), DangerZoneError> {
-    let removed = async {
-        loop {
-            match fs::symlink_metadata(lock_path).await {
-                Ok(_) => tokio::time::sleep(Duration::from_millis(100)).await,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    let parent = lock_path
-                        .parent()
-                        .filter(|path| !path.as_os_str().is_empty())
-                        .unwrap_or_else(|| Path::new("."));
-                    let metadata = fs::metadata(parent).await?;
-
-                    if !metadata.is_dir() {
-                        return Err(DangerZoneError::ConfirmationFile(std::io::Error::new(
-                            std::io::ErrorKind::NotADirectory,
-                            "Activation confirmation parent is not a directory",
-                        )));
-                    }
-
-                    return Ok(());
-                }
-                Err(error) => return Err(DangerZoneError::ConfirmationFile(error)),
-            }
-        }
-    };
-
-    tokio::select! {
-        result = danger_zone(events, confirm_timeout) => result,
-        result = timeout(Duration::from_secs(confirm_timeout as u64), removed) => {
-            match result {
-                Ok(result) => result,
-                Err(_) => Err(DangerZoneError::TimesUp),
-            }
-        }
     }
 }
 
@@ -428,7 +385,7 @@ pub async fn activation_confirmation(
         .await
         .map_err(ActivationConfirmationError::CreateConfirmFile)?;
 
-    confirmation_wait(done, confirm_timeout, &lock_path)
+    danger_zone(done, confirm_timeout)
         .await
         .map_err(ActivationConfirmationError::WaitingError)
 }
@@ -452,7 +409,7 @@ mod tests {
         fs::create_dir_all(&temp_path)
             .await
             .expect("create test directory");
-        let (_watcher, done) =
+        let (_watcher, mut done) =
             confirmation_watcher(&temp_path, &lock_path).expect("create confirmation watcher");
 
         fs::File::create(&lock_path)
@@ -462,152 +419,78 @@ mod tests {
             .await
             .expect("remove canary file");
 
-        confirmation_wait(done, 1, &lock_path)
-            .await
-            .expect("observe canary removal");
+        match done.recv().await {
+            Some(Ok(WaitEvent::Confirmed)) => {}
+            other => panic!("expected confirmation, got {:?}", other),
+        }
         fs::remove_dir(&temp_path)
             .await
             .expect("remove test directory");
     }
 
-    #[tokio::test]
-    async fn confirmation_wait_observes_removal_without_a_notification() {
-        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
-        let temp_path = test_directory("confirmation-no-event", id).await;
-        let lock_path = temp_path.join("canary");
-
-        fs::File::create(&lock_path)
-            .await
-            .expect("create canary file");
-        fs::remove_file(&lock_path)
-            .await
-            .expect("remove canary file");
+    #[tokio::test(start_paused = true)]
+    async fn danger_zone_respects_the_confirmation_deadline() {
         let (_sender, events) = mpsc::channel(1);
+        let started = tokio::time::Instant::now();
 
-        confirmation_wait(events, 1, &lock_path)
-            .await
-            .expect("observe removal without a watcher notification");
-
-        fs::remove_dir(&temp_path)
-            .await
-            .expect("remove test directory");
-    }
-
-    #[tokio::test]
-    async fn confirmation_wait_times_out_while_the_canary_exists() {
-        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
-        let temp_path = test_directory("confirmation-pending", id).await;
-        let lock_path = temp_path.join("canary");
-        fs::File::create(&lock_path)
-            .await
-            .expect("create canary file");
-        let (_sender, events) = mpsc::channel(1);
-
-        match confirmation_wait(events, 1, &lock_path).await {
+        match danger_zone(events, 7).await {
             Err(DangerZoneError::TimesUp) => {}
             other => panic!("expected TimesUp, got {:?}", other),
         }
 
-        fs::remove_file(&lock_path)
-            .await
-            .expect("remove canary file");
-        fs::remove_dir(&temp_path)
-            .await
-            .expect("remove test directory");
+        assert_eq!(started.elapsed(), Duration::from_secs(7));
     }
 
-    #[tokio::test]
-    async fn confirmation_wait_observes_later_removal_without_a_notification() {
-        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
-        let temp_path = test_directory("confirmation-later", id).await;
-        let lock_path = temp_path.join("canary");
-        fs::File::create(&lock_path)
+    #[tokio::test(start_paused = true)]
+    async fn danger_zone_accepts_confirmation() {
+        let (sender, events) = mpsc::channel(1);
+        sender
+            .send(Ok(WaitEvent::Confirmed))
             .await
-            .expect("create canary file");
-        let (_sender, events) = mpsc::channel(1);
+            .expect("send confirmation");
 
-        let removal = async {
-            tokio::time::sleep(Duration::from_millis(25)).await;
-            fs::remove_file(&lock_path)
-                .await
-                .expect("remove canary file");
-        };
-        let (confirmed, ()) = tokio::join!(confirmation_wait(events, 1, &lock_path), removal);
-        confirmed.expect("observe later removal without a watcher notification");
-
-        fs::remove_dir(&temp_path)
-            .await
-            .expect("remove test directory");
+        danger_zone(events, 1).await.expect("accept confirmation");
     }
 
-    #[tokio::test]
-    async fn confirmation_wait_reports_file_inspection_errors() {
-        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
-        let temp_path = test_directory("confirmation-error", id).await;
-        let file_path = temp_path.join("file");
-        fs::File::create(&file_path)
+    #[tokio::test(start_paused = true)]
+    async fn danger_zone_reports_cancellation() {
+        let (sender, events) = mpsc::channel(1);
+        sender
+            .send(Ok(WaitEvent::Cancelled))
             .await
-            .expect("create regular file");
-        let lock_path = file_path.join("canary");
-        let (_sender, events) = mpsc::channel(1);
+            .expect("send cancellation");
 
-        match confirmation_wait(events, 1, &lock_path).await {
-            Err(DangerZoneError::ConfirmationFile(error)) => {
-                assert_eq!(error.kind(), std::io::ErrorKind::NotADirectory);
+        match danger_zone(events, 1).await {
+            Err(DangerZoneError::Cancelled) => {}
+            other => panic!("expected Cancelled, got {:?}", other),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn danger_zone_reports_watcher_errors() {
+        let (sender, events) = mpsc::channel(1);
+        sender
+            .send(Err(notify::Error::generic("watcher failed")))
+            .await
+            .expect("send watcher error");
+
+        match danger_zone(events, 1).await {
+            Err(DangerZoneError::Watch(error)) => {
+                assert_eq!(error.to_string(), "watcher failed");
             }
-            other => panic!("expected a file inspection error, got {:?}", other),
-        }
-
-        fs::remove_file(&file_path)
-            .await
-            .expect("remove regular file");
-        fs::remove_dir(&temp_path)
-            .await
-            .expect("remove test directory");
-    }
-
-    #[tokio::test]
-    async fn confirmation_wait_rejects_a_removed_parent_directory() {
-        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
-        let temp_path = test_directory("confirmation-parent-removed", id).await;
-        let lock_path = temp_path.join("canary");
-        fs::File::create(&lock_path)
-            .await
-            .expect("create canary file");
-        fs::remove_dir_all(&temp_path)
-            .await
-            .expect("remove parent directory");
-        let (_sender, events) = mpsc::channel(1);
-
-        match confirmation_wait(events, 1, &lock_path).await {
-            Err(DangerZoneError::ConfirmationFile(error)) => {
-                assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
-            }
-            other => panic!("expected a missing parent error, got {:?}", other),
+            other => panic!("expected Watch, got {:?}", other),
         }
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn confirmation_wait_does_not_confirm_a_dangling_symlink() {
-        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
-        let temp_path = test_directory("confirmation-symlink", id).await;
-        let lock_path = temp_path.join("canary");
-        std::os::unix::fs::symlink(temp_path.join("missing-target"), &lock_path)
-            .expect("create dangling canary symlink");
-        let (_sender, events) = mpsc::channel(1);
+    #[tokio::test(start_paused = true)]
+    async fn danger_zone_reports_a_closed_channel() {
+        let (sender, events) = mpsc::channel(1);
+        drop(sender);
 
-        match confirmation_wait(events, 1, &lock_path).await {
-            Err(DangerZoneError::TimesUp) => {}
-            other => panic!("expected TimesUp while the entry exists, got {:?}", other),
+        match danger_zone(events, 1).await {
+            Err(DangerZoneError::NoConfirmation) => {}
+            other => panic!("expected NoConfirmation, got {:?}", other),
         }
-
-        fs::remove_file(&lock_path)
-            .await
-            .expect("remove canary symlink");
-        fs::remove_dir(&temp_path)
-            .await
-            .expect("remove test directory");
     }
 
     fn test_closure(id: u64) -> String {
