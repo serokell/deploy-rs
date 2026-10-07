@@ -409,7 +409,7 @@ mod tests {
         fs::create_dir_all(&temp_path)
             .await
             .expect("create test directory");
-        let (_watcher, done) =
+        let (_watcher, mut done) =
             confirmation_watcher(&temp_path, &lock_path).expect("create confirmation watcher");
 
         fs::File::create(&lock_path)
@@ -419,10 +419,78 @@ mod tests {
             .await
             .expect("remove canary file");
 
-        danger_zone(done, 1).await.expect("observe canary removal");
+        match done.recv().await {
+            Some(Ok(WaitEvent::Confirmed)) => {}
+            other => panic!("expected confirmation, got {:?}", other),
+        }
         fs::remove_dir(&temp_path)
             .await
             .expect("remove test directory");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn danger_zone_respects_the_confirmation_deadline() {
+        let (_sender, events) = mpsc::channel(1);
+        let started = tokio::time::Instant::now();
+
+        match danger_zone(events, 7).await {
+            Err(DangerZoneError::TimesUp) => {}
+            other => panic!("expected TimesUp, got {:?}", other),
+        }
+
+        assert_eq!(started.elapsed(), Duration::from_secs(7));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn danger_zone_accepts_confirmation() {
+        let (sender, events) = mpsc::channel(1);
+        sender
+            .send(Ok(WaitEvent::Confirmed))
+            .await
+            .expect("send confirmation");
+
+        danger_zone(events, 1).await.expect("accept confirmation");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn danger_zone_reports_cancellation() {
+        let (sender, events) = mpsc::channel(1);
+        sender
+            .send(Ok(WaitEvent::Cancelled))
+            .await
+            .expect("send cancellation");
+
+        match danger_zone(events, 1).await {
+            Err(DangerZoneError::Cancelled) => {}
+            other => panic!("expected Cancelled, got {:?}", other),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn danger_zone_reports_watcher_errors() {
+        let (sender, events) = mpsc::channel(1);
+        sender
+            .send(Err(notify::Error::generic("watcher failed")))
+            .await
+            .expect("send watcher error");
+
+        match danger_zone(events, 1).await {
+            Err(DangerZoneError::Watch(error)) => {
+                assert_eq!(error.to_string(), "watcher failed");
+            }
+            other => panic!("expected Watch, got {:?}", other),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn danger_zone_reports_a_closed_channel() {
+        let (sender, events) = mpsc::channel(1);
+        drop(sender);
+
+        match danger_zone(events, 1).await {
+            Err(DangerZoneError::NoConfirmation) => {}
+            other => panic!("expected NoConfirmation, got {:?}", other),
+        }
     }
 
     fn test_closure(id: u64) -> String {

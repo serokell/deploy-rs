@@ -63,3 +63,6 @@ path = "src/lib.rs"
 lto = true
 opt-level = "s"
 codegen-units = 1
+
+[dev-dependencies]
+tokio = { version = "1.44.0", features = ["test-util"] }
