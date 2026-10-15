@@ -23,7 +23,7 @@
 
         deploy-rs = final.rustPlatform.buildRustPackage {
           pname = "deploy-rs";
-          version = "0.1.0";
+          version = "1.0.0";
 
           src = final.lib.sourceByRegex ./. [
             "Cargo.lock"
