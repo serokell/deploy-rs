@@ -26,7 +26,7 @@ use tokio::task::JoinSet;
 
 /// Simple Rust rewrite of a simple Nix Flake deployment tool
 #[derive(Parser, Debug, Clone)]
-#[command(version = "1.0", author = "Serokell <https://serokell.io/>")]
+#[command(version, author = "Serokell <https://serokell.io/>")]
 pub struct Opts {
     /// The flake to deploy
     #[arg(group = "deploy")]
