@@ -11,6 +11,8 @@ SPDX-License-Identifier: MPL-2.0
 
 A Simple, multi-profile Nix-flake deploy tool.
 
+[![crates.io](https://img.shields.io/crates/v/deploy-rs.svg)](https://crates.io/crates/deploy-rs)
+
 Questions? Need help? Join us on Matrix: [`#deploy-rs:matrix.org`](https://matrix.to/#/#deploy-rs:matrix.org)
 
 ## Usage
@@ -27,6 +29,8 @@ Any "extra" arguments will be passed into the Nix calls, so for instance to depl
 
 You can try out this tool easily with `nix run`:
 - `nix run github:serokell/deploy-rs your-flake`
+
+You can also install it from [crates.io](https://crates.io/crates/deploy-rs) with `cargo install deploy-rs`, which needs Rust 1.85 or newer. This installs the `deploy` and `activate` binaries. deploy-rs still needs Nix on your machine to build and copy profiles.
 
 If you want to deploy multiple flakes or a subset of profiles with one invocation, instead of calling `deploy <flake>` you can issue `deploy --targets <flake> [<flake> ...]` where `<flake>` is supposed to take the same format as discussed before.
 
