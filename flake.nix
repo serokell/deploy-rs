@@ -26,13 +26,13 @@
           version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
 
           src = final.lib.sourceByRegex ./. [
-            "Cargo.lock"
-            "Cargo.toml"
+            "Cargo\\.lock"
+            "Cargo\\.toml"
             "src"
             "src/bin"
-            ".*.rs$"
+            ".*\\.rs$"
             "nix"
-            "nix/.*.nix$"
+            "nix/.*\\.nix$"
           ];
 
           cargoLock.lockFile = ./Cargo.lock;
