@@ -23,7 +23,7 @@
 
         deploy-rs = final.rustPlatform.buildRustPackage {
           pname = "deploy-rs";
-          version = "0.1.0";
+          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
 
           src = final.lib.sourceByRegex ./. [
             "Cargo.lock"
