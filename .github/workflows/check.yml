@@ -22,6 +22,8 @@ jobs:
     runs-on: [self-hosted, nix]
     strategy:
       fail-fast: false
+      # running all  VM test once can exhaust the memory of the shared runner host
+      max-parallel: 6
       # this matrix consists of the names of all checks defined in flake.nix
       matrix: ${{fromJson(needs.get-matrix.outputs.check-matrix)}}
     steps:
