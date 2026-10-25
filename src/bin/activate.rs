@@ -681,11 +681,11 @@ pub async fn activate(
         match nix_env_set_exit_status.code() {
             Some(0) => (),
             _exit_code => {
-                if signal_cancellation {
-                    create_activation_cancel(&temp_path, &closure).await;
-                }
                 if auto_rollback && !dry_activate {
                     deactivate(&profile_path).await?;
+                }
+                if signal_cancellation {
+                    create_activation_cancel(&temp_path, &closure).await;
                 }
                 return Err(ActivateError::SetProfile(
                     command::CommandError::ExitStatus(
@@ -719,11 +719,11 @@ pub async fn activate(
     {
         Ok(x) => x,
         Err(e) => {
-            if signal_cancellation {
-                create_activation_cancel(&temp_path, &closure).await;
-            }
             if auto_rollback && !dry_activate {
                 deactivate(&profile_path).await?;
+            }
+            if signal_cancellation {
+                create_activation_cancel(&temp_path, &closure).await;
             }
             return Err(e);
         }
@@ -733,11 +733,11 @@ pub async fn activate(
         match activate_status.code() {
             Some(0) => (),
             _exit_code => {
-                if signal_cancellation {
-                    create_activation_cancel(&temp_path, &closure).await;
-                }
                 if auto_rollback {
                     deactivate(&profile_path).await?;
+                }
+                if signal_cancellation {
+                    create_activation_cancel(&temp_path, &closure).await;
                 }
                 return Err(ActivateError::RunActivate(
                     command::CommandError::ExitStatus(
