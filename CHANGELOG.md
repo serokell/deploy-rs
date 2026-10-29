@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `sudoCopy` (and `--sudo-copy`): copy the closure as root on the target,
+  through the `sudo` command, so an `sshUser` that is not a trusted user of
+  the target's Nix daemon can deploy unsigned paths. Sudo must not ask for a
+  password; `sudoCopy` cannot be combined with `interactiveSudo`.
+
 ## [1.0.0] - 2026-10-19
 
 ### Added

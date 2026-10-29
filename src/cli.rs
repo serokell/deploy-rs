@@ -131,6 +131,11 @@ pub struct Opts {
     /// Prompt for sudo password during activation.
     #[arg(long)]
     interactive_sudo: Option<bool>,
+    /// Copy the closure as root on the target, through the sudo command, for an SSH user the
+    /// target's Nix daemon does not trust. Sudo must not ask for a password (e.g. pam_rssh or
+    /// NOPASSWD), since the copy uses the connection's standard input.
+    #[arg(long)]
+    sudo_copy: Option<bool>,
 }
 
 /// Returns if the available Nix installation supports flakes
@@ -464,6 +469,8 @@ pub enum RunDeployError {
     RevokeProfile(String, String, deploy::deploy::RevokeProfileError),
     #[error("Deployment to node {0} failed, rolled back to previous generation")]
     Rollback(String),
+    #[error("Profile {1} of node {0} sets both `sudoCopy` and `interactiveSudo`: the copy uses the connection's standard input, so sudo cannot read a password from it")]
+    SudoCopyInteractive(String, String),
 }
 
 type ToDeploy<'a> = Vec<(
@@ -634,6 +641,18 @@ async fn run_deploy(
         }
 
         let mut deploy_defs = deploy_data.defs()?;
+
+        if deploy_defs.copy_sudo.is_some()
+            && deploy_data
+                .merged_settings
+                .interactive_sudo
+                .unwrap_or(false)
+        {
+            return Err(RunDeployError::SudoCopyInteractive(
+                deploy_data.node_name.to_string(),
+                deploy_data.profile_name.to_string(),
+            ));
+        }
 
         if deploy_data
             .merged_settings
@@ -1046,6 +1065,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         remote_build: opts.remote_build,
         sudo: opts.sudo,
         interactive_sudo: opts.interactive_sudo,
+        sudo_copy: opts.sudo_copy,
     };
 
     let supports_flakes = test_flake_support().await.map_err(RunError::FlakeTest)?;

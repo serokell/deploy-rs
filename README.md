@@ -216,6 +216,15 @@ This is a set of options that can be put in any of the above definitions, with t
   # This defaults to `false`
   interactiveSudo = false;
 
+  # Copy the closure as root on the target, through the `sudo` command above
+  # (`ssh://<sshUser>@<host>?remote-program=sudo -u root nix-store`). Useful when
+  # `sshUser` is not in the target's `nix.settings.trusted-users`, which it then
+  # does not need to be: its Nix daemon refuses unsigned paths from untrusted users.
+  # Sudo must not ask for a password (e.g. `NOPASSWD`, or pam_rssh against a forwarded
+  # agent), so this cannot be combined with `interactiveSudo`.
+  # This defaults to `false`
+  sudoCopy = false;
+
   # This is an optional list of arguments that will be passed to SSH.
   sshOpts = [ "-p" "2121" ];
 

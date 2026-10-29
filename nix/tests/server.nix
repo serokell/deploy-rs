@@ -16,8 +16,26 @@
         openssh.authorizedKeys.keys = [ snakeOilPublicKey ];
       };
       root.openssh.authorizedKeys.keys = [ snakeOilPublicKey ];
+      # Not a trusted user of the Nix daemon, but allowed to sudo: deploys
+      # with `sudoCopy`
+      pusher = {
+        isNormalUser = true;
+        createHome = true;
+        openssh.authorizedKeys.keys = [ snakeOilPublicKey ];
+      };
     };
   };
+  security.sudo.extraRules = [
+    {
+      users = [ "pusher" ];
+      commands = [
+        {
+          command = "ALL";
+          options = [ "NOPASSWD" ];
+        }
+      ];
+    }
+  ];
   services.openssh.enable = true;
   virtualisation.writableStore = true;
 }

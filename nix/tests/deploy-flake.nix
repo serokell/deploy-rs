@@ -38,6 +38,19 @@
         ];
         profiles.system.path = deploy-rs.lib."${system}".activate.nixos self.nixosConfigurations.server;
       };
+      # An sshUser the server's Nix daemon does not trust: the closure is
+      # copied through sudo
+      sudo-copy = {
+        hostname = "server";
+        sshUser = "pusher";
+        user = "root";
+        sudoCopy = true;
+        sshOpts = [
+          "-o" "UserKnownHostsFile=/dev/null"
+          "-o" "StrictHostKeyChecking=no"
+        ];
+        profiles.system.path = deploy-rs.lib."${system}".activate.nixos self.nixosConfigurations.server;
+      };
       server-override = {
         hostname = "override";
         sshUser = "override";
