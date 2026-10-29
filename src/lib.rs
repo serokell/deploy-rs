@@ -256,6 +256,7 @@ pub struct CmdOverrides {
     pub activation_timeout: Option<u16>,
     pub sudo: Option<String>,
     pub interactive_sudo: Option<bool>,
+    pub sudo_copy: Option<bool>,
     pub dry_activate: bool,
     pub remote_build: bool,
 }
@@ -462,6 +463,9 @@ pub struct DeployDefs {
     pub profile_user: String,
     pub sudo: Option<String>,
     pub sudo_password: Option<String>,
+    /// The sudo command prefix (e.g. `sudo -u root`) the closure is copied
+    /// through, when `sudoCopy` is set and `sshUser` is not root.
+    pub copy_sudo: Option<String>,
 }
 enum ProfileInfo {
     ProfilePath {
@@ -493,11 +497,20 @@ impl DeployData {
             _ => None,
         };
 
+        // Copying needs root on the target, whoever the profile belongs to:
+        // root's nix-store imports the paths without asking the daemon, which
+        // refuses unsigned ones from users it does not trust.
+        let copy_sudo: Option<String> = match self.merged_settings.sudo_copy {
+            Some(true) if ssh_user != "root" => Some(format!("{} root", self.get_sudo())),
+            _ => None,
+        };
+
         Ok(DeployDefs {
             ssh_user,
             profile_user,
             sudo,
             sudo_password: None,
+            copy_sudo,
         })
     }
 
@@ -586,6 +599,9 @@ pub fn make_deploy_data(
     if let Some(interactive_sudo) = cmd_overrides.interactive_sudo {
         merged_settings.interactive_sudo = Some(interactive_sudo);
     }
+    if let Some(sudo_copy) = cmd_overrides.sudo_copy {
+        merged_settings.sudo_copy = Some(sudo_copy);
+    }
 
     DeployData {
         node_name,
@@ -597,5 +613,82 @@ pub fn make_deploy_data(
         debug_logs,
         log_dir,
         progressbar: None,
+    }
+}
+
+#[cfg(test)]
+mod copy_sudo_tests {
+    use super::*;
+
+    fn copy_sudo(settings: serde_json::Value) -> Option<String> {
+        let node: data::Node =
+            serde_json::from_value(serde_json::json!({ "hostname": "host", "profiles": {} }))
+                .unwrap();
+        let mut profile = serde_json::json!({ "path": "/nix/store/0-profile", "user": "root" });
+        profile
+            .as_object_mut()
+            .unwrap()
+            .extend(settings.as_object().unwrap().clone());
+        let profile: data::Profile = serde_json::from_value(profile).unwrap();
+        let top: data::GenericSettings = serde_json::from_value(serde_json::json!({})).unwrap();
+        let overrides = CmdOverrides {
+            ssh_user: None,
+            profile_user: None,
+            ssh_opts: None,
+            groups: None,
+            fast_connection: None,
+            auto_rollback: None,
+            hostname: None,
+            magic_rollback: None,
+            temp_path: None,
+            confirm_timeout: None,
+            activation_timeout: None,
+            sudo: None,
+            interactive_sudo: None,
+            sudo_copy: None,
+            dry_activate: false,
+            remote_build: false,
+        };
+
+        make_deploy_data(
+            &top,
+            &node,
+            "node".to_string(),
+            &profile,
+            "profile".to_string(),
+            &overrides,
+            false,
+            None,
+        )
+        .defs()
+        .unwrap()
+        .copy_sudo
+    }
+
+    #[test]
+    fn copy_sudo_is_set_for_a_non_root_ssh_user() {
+        assert_eq!(
+            copy_sudo(serde_json::json!({ "sshUser": "deploy", "sudoCopy": true })),
+            Some("sudo -u root".to_string())
+        );
+    }
+
+    #[test]
+    fn copy_sudo_uses_the_sudo_setting() {
+        assert_eq!(
+            copy_sudo(
+                serde_json::json!({ "sshUser": "deploy", "sudoCopy": true, "sudo": "doas -u" })
+            ),
+            Some("doas -u root".to_string())
+        );
+    }
+
+    #[test]
+    fn copy_sudo_is_unset_for_root_or_without_sudo_copy() {
+        assert_eq!(
+            copy_sudo(serde_json::json!({ "sshUser": "root", "sudoCopy": true })),
+            None
+        );
+        assert_eq!(copy_sudo(serde_json::json!({ "sshUser": "deploy" })), None);
     }
 }

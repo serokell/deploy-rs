@@ -170,6 +170,25 @@ in {
       " -- --offline"
     ];
   };
+  # Deployment as an sshUser the server's Nix daemon does not trust, with the
+  # closure copied as root through sudo
+  sudo-copy = mkTest {
+    name = "sudo-copy";
+    deploySteps = ''
+      # without sudoCopy the untrusted user cannot add the unsigned paths
+      out = client.fail("deploy -s .#sudo-copy --sudo-copy false -- --offline 2>&1")
+      assert "lacks a signature by a trusted key" in out, out
+      server.fail("su root -l -c 'hello | figlet'")
+
+      # interactive sudo would read its password from the copy's input
+      out = client.fail("deploy -s .#sudo-copy --interactive-sudo true -- --offline 2>&1")
+      assert "sets both `sudoCopy` and `interactiveSudo`" in out, out
+
+      client.succeed("deploy -s .#sudo-copy -- --offline 2>&1")
+      server.succeed("su root -l -c 'hello | figlet' >&2")
+      server.succeed("journalctl _COMM=sudo | grep -q 'pusher : .*USER=root ; COMMAND=.*nix-store --serve --write'")
+    '';
+  };
   # User profile deployment
   profile = mkTest {
     name = "profile";

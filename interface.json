@@ -51,6 +51,9 @@
                 },
                 "interactiveSudo": {
                     "type": ["boolean", "null"]
+                },
+                "sudoCopy": {
+                    "type": ["boolean", "null"]
                 }
             }
         },
