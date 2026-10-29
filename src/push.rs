@@ -768,6 +768,36 @@ fn parse_build_out_path(stdout: &[u8]) -> Result<String, PushProfileError> {
     Ok(trimmed.to_string())
 }
 
+/// The store the closure is copied to. With `copy_sudo` (e.g. `sudo -u root`),
+/// `nix-store --serve --write` runs as root on the target and imports the
+/// paths itself, so an `sshUser` the target's daemon does not trust can still
+/// copy unsigned paths.
+fn copy_store_url(ssh_user: &str, hostname: &str, copy_sudo: Option<&str>) -> String {
+    match copy_sudo {
+        Some(sudo) => format!(
+            "ssh://{}@{}?remote-program={}",
+            ssh_user,
+            hostname,
+            percent_encode(&format!("{} nix-store", sudo))
+        ),
+        None => format!("ssh://{}@{}", ssh_user, hostname),
+    }
+}
+
+/// Percent-encodes everything but RFC 3986's unreserved characters, for a
+/// store URL query value.
+fn percent_encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{:02X}", b),
+        })
+        .collect()
+}
+
 pub async fn push_profile(data: &PushProfileData, closure: &str) -> Result<(), PushProfileError> {
     let ssh_opts_str = data
         .deploy_data
@@ -810,7 +840,11 @@ pub async fn push_profile(data: &PushProfileData, closure: &str) -> Result<(), P
 
         copy_command
             .arg("--to")
-            .arg(format!("ssh://{}@{}", data.deploy_defs.ssh_user, hostname))
+            .arg(copy_store_url(
+                &data.deploy_defs.ssh_user,
+                hostname,
+                data.deploy_defs.copy_sudo.as_deref(),
+            ))
             .arg(closure)
             .env("NIX_SSHOPTS", ssh_opts_str);
 
@@ -853,6 +887,26 @@ pub async fn push_profile(data: &PushProfileData, closure: &str) -> Result<(), P
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn copy_store_url_without_sudo() {
+        assert_eq!(
+            copy_store_url("deploy", "server", None),
+            "ssh://deploy@server"
+        );
+    }
+
+    #[test]
+    fn copy_store_url_through_sudo() {
+        assert_eq!(
+            copy_store_url("deploy", "server", Some("sudo -u root")),
+            "ssh://deploy@server?remote-program=sudo%20-u%20root%20nix-store"
+        );
+        assert_eq!(
+            copy_store_url("deploy", "server", Some("doas -u root")),
+            "ssh://deploy@server?remote-program=doas%20-u%20root%20nix-store"
+        );
+    }
 
     #[test]
     fn parse_build_out_path_returns_single_line() {

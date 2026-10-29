@@ -38,6 +38,8 @@ pub struct GenericSettings {
     pub remote_build: Option<bool>,
     #[serde(rename(deserialize = "interactiveSudo"))]
     pub interactive_sudo: Option<bool>,
+    #[serde(rename(deserialize = "sudoCopy"))]
+    pub sudo_copy: Option<bool>,
     #[serde(
         default,
         rename(deserialize = "groups"),

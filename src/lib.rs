@@ -256,6 +256,7 @@ pub struct CmdOverrides {
     pub activation_timeout: Option<u16>,
     pub sudo: Option<String>,
     pub interactive_sudo: Option<bool>,
+    pub sudo_copy: Option<bool>,
     pub dry_activate: bool,
     pub remote_build: bool,
 }
@@ -462,6 +463,9 @@ pub struct DeployDefs {
     pub profile_user: String,
     pub sudo: Option<String>,
     pub sudo_password: Option<String>,
+    /// The sudo command prefix (e.g. `sudo -u root`) the closure is copied
+    /// through, when `sudoCopy` is set and `sshUser` is not root.
+    pub copy_sudo: Option<String>,
 }
 enum ProfileInfo {
     ProfilePath {
@@ -493,11 +497,20 @@ impl DeployData {
             _ => None,
         };
 
+        // Copying needs root on the target, whoever the profile belongs to:
+        // root's nix-store imports the paths without asking the daemon, which
+        // refuses unsigned ones from users it does not trust.
+        let copy_sudo: Option<String> = match self.merged_settings.sudo_copy {
+            Some(true) if ssh_user != "root" => Some(format!("{} root", self.get_sudo())),
+            _ => None,
+        };
+
         Ok(DeployDefs {
             ssh_user,
             profile_user,
             sudo,
             sudo_password: None,
+            copy_sudo,
         })
     }
 
@@ -585,6 +598,9 @@ pub fn make_deploy_data(
     }
     if let Some(interactive_sudo) = cmd_overrides.interactive_sudo {
         merged_settings.interactive_sudo = Some(interactive_sudo);
+    }
+    if let Some(sudo_copy) = cmd_overrides.sudo_copy {
+        merged_settings.sudo_copy = Some(sudo_copy);
     }
 
     DeployData {
