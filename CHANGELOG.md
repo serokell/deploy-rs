@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A deployment that timed out waiting for confirmation no longer leaves its
+  canary file behind, which made later deployments of the same closure report
+  success while the host rolled back. (#415)
+
 ## [1.0.0] - 2026-10-19
 
 ### Added

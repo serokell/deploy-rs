@@ -377,7 +377,7 @@ pub async fn activation_confirmation(
 
     debug!("Creating notify watcher");
 
-    let (_watcher, done) = confirmation_watcher(&temp_path, &lock_path)?;
+    let (watcher, done) = confirmation_watcher(&temp_path, &lock_path)?;
 
     debug!("Creating canary file");
 
@@ -385,9 +385,19 @@ pub async fn activation_confirmation(
         .await
         .map_err(ActivationConfirmationError::CreateConfirmFile)?;
 
-    danger_zone(done, confirm_timeout)
-        .await
-        .map_err(ActivationConfirmationError::WaitingError)
+    let confirmed = danger_zone(done, confirm_timeout).await;
+    drop(watcher);
+
+    // A canary left behind would make the next 'wait' for this closure return at once.
+    if confirmed.is_err() {
+        match fs::remove_file(&lock_path).await {
+            Ok(()) => debug!("Removed canary file at {}", lock_path.display()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+            Err(e) => debug!("Failed to remove canary file: {}", e),
+        }
+    }
+
+    confirmed.map_err(ActivationConfirmationError::WaitingError)
 }
 
 #[cfg(test)]
@@ -507,6 +517,25 @@ mod tests {
             .await
             .expect("join wait task")
             .expect("observe canary creation");
+
+        let _ = fs::remove_dir_all(&temp_path).await;
+    }
+
+    #[tokio::test]
+    async fn activation_confirmation_removes_canary_on_timeout() {
+        let id = TEMP_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
+        let temp_path = test_directory("canary-timeout", id).await;
+        let closure = test_closure(id);
+
+        match activation_confirmation(temp_path.clone(), 1, closure.clone()).await {
+            Err(ActivationConfirmationError::WaitingError(DangerZoneError::TimesUp)) => {}
+            other => panic!("expected TimesUp, got {:?}", other),
+        }
+
+        assert!(
+            !deploy::make_lock_path(&temp_path, &closure).exists(),
+            "a timed out confirmation should not leave the canary behind"
+        );
 
         let _ = fs::remove_dir_all(&temp_path).await;
     }
