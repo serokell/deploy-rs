@@ -53,7 +53,7 @@ mod sentinel_path_tests {
     }
 }
 
-const fn make_emoji(level: log::Level) -> &'static str {
+const fn level_emoji(level: log::Level) -> &'static str {
     match level {
         log::Level::Error => "❌",
         log::Level::Warn => "⚠️",
@@ -63,68 +63,156 @@ const fn make_emoji(level: log::Level) -> &'static str {
     }
 }
 
-pub fn logger_formatter_activate(
+fn logger_format<const EMOJI: bool>(
+    logger_name: &str,
+    logger_emoji: &str,
     w: &mut dyn std::io::Write,
-    _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), std::io::Error> {
     let level = record.level();
 
+    if EMOJI {
+        write!(w, "{} {} ", logger_emoji, level_emoji(level))?;
+    }
+
     write!(
         w,
-        "⭐ {} [activate] [{}] {}",
-        make_emoji(level),
+        "[{}] [{}] {}",
+        logger_name,
         style(level, level.to_string()),
         record.args()
     )
+}
+
+// flexi_logger's `FormatFunction` is a plain `fn` pointer and can't capture
+// whether to print emoji. The const parameter fixes that at compile time, and
+// `formatter_for` picks an instance at runtime. A closure can replace this
+// once `FormatFunction` accepts one.
+
+fn format_activate<const EMOJI: bool>(
+    w: &mut dyn std::io::Write,
+    _now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    logger_format::<EMOJI>("activate", "⭐", w, record)
+}
+
+fn format_wait<const EMOJI: bool>(
+    w: &mut dyn std::io::Write,
+    _now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    logger_format::<EMOJI>("wait", "👀", w, record)
+}
+
+fn format_revoke<const EMOJI: bool>(
+    w: &mut dyn std::io::Write,
+    _now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    logger_format::<EMOJI>("revoke", "↩️", w, record)
+}
+
+fn format_deploy<const EMOJI: bool>(
+    w: &mut dyn std::io::Write,
+    _now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    logger_format::<EMOJI>("deploy", "🚀", w, record)
+}
+
+fn formatter_for<const EMOJI: bool>(logger_type: &LoggerType) -> FormatFunction {
+    match logger_type {
+        LoggerType::Deploy => format_deploy::<EMOJI>,
+        LoggerType::Activate => format_activate::<EMOJI>,
+        LoggerType::Wait => format_wait::<EMOJI>,
+        LoggerType::Revoke => format_revoke::<EMOJI>,
+    }
+}
+
+pub fn logger_formatter_activate(
+    w: &mut dyn std::io::Write,
+    now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    format_activate::<true>(w, now, record)
 }
 
 pub fn logger_formatter_wait(
     w: &mut dyn std::io::Write,
-    _now: &mut DeferredNow,
+    now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), std::io::Error> {
-    let level = record.level();
-
-    write!(
-        w,
-        "👀 {} [wait] [{}] {}",
-        make_emoji(level),
-        style(level, level.to_string()),
-        record.args()
-    )
+    format_wait::<true>(w, now, record)
 }
 
 pub fn logger_formatter_revoke(
     w: &mut dyn std::io::Write,
-    _now: &mut DeferredNow,
+    now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), std::io::Error> {
-    let level = record.level();
-
-    write!(
-        w,
-        "↩️ {} [revoke] [{}] {}",
-        make_emoji(level),
-        style(level, level.to_string()),
-        record.args()
-    )
+    format_revoke::<true>(w, now, record)
 }
 
 pub fn logger_formatter_deploy(
     w: &mut dyn std::io::Write,
-    _now: &mut DeferredNow,
+    now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), std::io::Error> {
-    let level = record.level();
+    format_deploy::<true>(w, now, record)
+}
 
-    write!(
-        w,
-        "🚀 {} [deploy] [{}] {}",
-        make_emoji(level),
-        style(level, level.to_string()),
-        record.args()
-    )
+#[cfg(test)]
+mod logger_format_tests {
+    use super::*;
+
+    // flexi_logger 0.16 has no public `DeferredNow` constructor. These tests
+    // call `logger_format` directly instead of the `FormatFunction`s.
+    fn render<const EMOJI: bool>(name: &str, emoji: &str, level: log::Level) -> String {
+        let mut out = Vec::new();
+        logger_format::<EMOJI>(
+            name,
+            emoji,
+            &mut out,
+            &Record::builder()
+                .args(format_args!("hello"))
+                .level(level)
+                .build(),
+        )
+        .unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    fn styled_level(level: log::Level) -> String {
+        style(level, level.to_string()).to_string()
+    }
+
+    #[test]
+    fn emoji_format_matches_the_1_0_0_format() {
+        assert_eq!(
+            render::<true>("deploy", "🚀", log::Level::Info),
+            format!("🚀 ℹ️ [deploy] [{}] hello", styled_level(log::Level::Info))
+        );
+        assert_eq!(
+            render::<true>("activate", "⭐", log::Level::Error),
+            format!(
+                "⭐ ❌ [activate] [{}] hello",
+                styled_level(log::Level::Error)
+            )
+        );
+    }
+
+    #[test]
+    fn no_emoji_format_drops_both_emoji() {
+        assert_eq!(
+            render::<false>("wait", "👀", log::Level::Warn),
+            format!("[wait] [{}] hello", styled_level(log::Level::Warn))
+        );
+        assert_eq!(
+            render::<false>("revoke", "↩️", log::Level::Trace),
+            format!("[revoke] [{}] hello", styled_level(log::Level::Trace))
+        );
+    }
 }
 
 pub enum LoggerType {
@@ -186,16 +274,41 @@ impl Log for LogWrapper {
     }
 }
 
+/// Options for how deploy-rs formats its output.
+///
+/// Start from `OutputOptions::default()` and set the fields you need.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputOptions {
+    /// Print emoji in log lines and in the prefix on forwarded remote output.
+    /// `true` by default.
+    pub emoji: bool,
+}
+
+impl Default for OutputOptions {
+    fn default() -> Self {
+        Self { emoji: true }
+    }
+}
+
 pub fn init_logger(
     debug_logs: bool,
     log_dir: Option<&str>,
     logger_type: &LoggerType,
 ) -> Result<(MultiProgress, ReconfigurationHandle), FlexiLoggerError> {
-    let logger_formatter = match &logger_type {
-        LoggerType::Deploy => logger_formatter_deploy,
-        LoggerType::Activate => logger_formatter_activate,
-        LoggerType::Wait => logger_formatter_wait,
-        LoggerType::Revoke => logger_formatter_revoke,
+    init_logger_with_options(debug_logs, log_dir, logger_type, OutputOptions::default())
+}
+
+pub fn init_logger_with_options(
+    debug_logs: bool,
+    log_dir: Option<&str>,
+    logger_type: &LoggerType,
+    options: OutputOptions,
+) -> Result<(MultiProgress, ReconfigurationHandle), FlexiLoggerError> {
+    let logger_formatter = if options.emoji {
+        formatter_for::<true>(logger_type)
+    } else {
+        formatter_for::<false>(logger_type)
     };
 
     let (logger, handle) = if let Some(log_dir) = log_dir {

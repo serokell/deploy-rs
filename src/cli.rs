@@ -59,11 +59,17 @@ pub struct Opts {
     /// pipe deploy into nix-output-monitor or capture clean CI logs.
     #[arg(long)]
     no_progress: bool,
-    /// Disable prefixing lines coming from the remote server with an emoji.
+    /// Disable prefixing lines coming from the remote server with a marker
+    /// (📠, or `[remote]` with --no-emoji).
     /// Use this if a script or another tool parses deploy's output and the
     /// prefix would interfere with it.
     #[arg(long)]
     no_demarcate_output: bool,
+    /// Disable emoji in log output, progress bars, and the remote output prefix.
+    /// The target's `activate-rs` must be from a deploy-rs version that knows
+    /// this flag.
+    #[arg(long)]
+    no_emoji: bool,
 
     /// Keep the build outputs of each built profile
     #[arg(short, long)]
@@ -505,6 +511,7 @@ async fn run_deploy(
     no_progress: bool,
     demarcate_output: bool,
     mp: MultiProgress,
+    output_options: deploy::OutputOptions,
 ) -> Result<(), RunDeployError> {
     let to_deploy: ToDeploy = deploy_flakes
         .iter()
@@ -735,15 +742,22 @@ async fn run_deploy(
         .expect("invalid template")
         .with_key("sep", separator)
         .tick_strings(&["⢎ ", "⠎⠁", "⠊⠑", "⠈⠱", " ⡱", "⢀⡰", "⢄⡠", "⢆⡀"]);
-    let finish_style = || {
-        ProgressStyle::with_template("✅ {prefix} {sep:.blue} {msg}")
+    let (finish_icon, finish_icon_error) = if output_options.emoji {
+        ("✅", "❌")
+    } else {
+        ("[done]", "[failed]")
+    };
+    let finish_style = move || {
+        ProgressStyle::with_template(&format!("{finish_icon} {{prefix}} {{sep:.blue}} {{msg}}"))
             .expect("invalid template")
             .with_key("sep", separator)
     };
-    let finish_style_error = || {
-        ProgressStyle::with_template("❌ {prefix} {sep:.blue} {msg}")
-            .expect("invalid template")
-            .with_key("sep", separator)
+    let finish_style_error = move || {
+        ProgressStyle::with_template(&format!(
+            "{finish_icon_error} {{prefix}} {{sep:.blue}} {{msg}}"
+        ))
+        .expect("invalid template")
+        .with_key("sep", separator)
     };
     let new_spinner = || ProgressBar::new_spinner().with_style(spinner_style.clone());
 
@@ -927,7 +941,7 @@ async fn run_deploy(
                 deploy_data.profile_name.clone(),
             ))
             .expect("every profile should have a build closure recorded");
-        if let Err(e) = deploy::deploy::deploy_profile(
+        if let Err(e) = deploy::deploy::deploy_profile_with_options(
             deploy_data,
             deploy_defs,
             closure,
@@ -935,6 +949,7 @@ async fn run_deploy(
             boot,
             test,
             demarcate_output,
+            output_options,
         )
         .await
         {
@@ -949,11 +964,12 @@ async fn run_deploy(
                 //  the command line)
                 for (deploy_data, deploy_defs, prev_closure) in &succeeded {
                     if deploy_data.merged_settings.auto_rollback.unwrap_or(true) {
-                        deploy::deploy::revoke(
+                        deploy::deploy::revoke_with_options(
                             deploy_data,
                             deploy_defs,
                             prev_closure,
                             demarcate_output,
+                            output_options,
                         )
                         .await
                         .map_err(|e| {
@@ -1007,10 +1023,15 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         None => Opts::parse(),
     };
 
-    let (mp, _handle) = deploy::init_logger(
+    let output_options = deploy::OutputOptions {
+        emoji: !opts.no_emoji,
+    };
+
+    let (mp, _handle) = deploy::init_logger_with_options(
         opts.debug_logs,
         opts.log_dir.as_deref(),
         &deploy::LoggerType::Deploy,
+        output_options,
     )?;
 
     let deploys = opts
@@ -1094,6 +1115,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         opts.no_progress,
         !opts.no_demarcate_output,
         mp,
+        output_options,
     )
     .await?;
 

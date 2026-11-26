@@ -254,4 +254,38 @@ in {
       assert "📠" not in deploy_output, deploy_output
     '';
   };
+  # e2e test for --no-emoji (#360): deploy-rs's own log lines, the remote
+  # activate and wait log lines, and the demarcation prefix all lose their
+  # emoji. Checking the remote lines also checks that deploy passes the flag
+  # on to activate-rs.
+  no-emoji = mkTest {
+    name = "no-emoji";
+    user = "deploy";
+    deploySteps = ''
+      deploy_output = client.succeed("deploy --no-emoji -s .#prefix-demarcation -- --offline 2>&1")
+
+      assert "[remote] PREFIX_TEST_STDOUT_MARKER" in deploy_output, deploy_output
+      assert "[remote] PREFIX_TEST_STDERR_MARKER" in deploy_output, deploy_output
+      assert "[remote] [activate] [" in deploy_output, deploy_output
+      assert "[deploy] [" in deploy_output, deploy_output
+      assert "Deployment confirmed." in deploy_output, deploy_output
+      for emoji in ["📠", "🚀", "⭐", "👀", "↩️", "ℹ️", "⚠️", "❌", "✅"]:
+          assert emoji not in deploy_output, deploy_output
+    '';
+  };
+  # e2e test for --no-emoji on the rollback path: the remote revoke command
+  # must get the flag too.
+  revoke-no-emoji = mkTest {
+    name = "revoke-no-emoji";
+    user = "deploy";
+    deploySteps = ''
+      deploy_output = client.fail("deploy --no-emoji -s .#revoke-demarcation -- --offline 2>&1")
+
+      assert "[remote] ALWAYS_FAIL_MARKER" in deploy_output, deploy_output
+      assert "Revoking previous deploys" in deploy_output, deploy_output
+      assert "[remote] [revoke] [" in deploy_output, deploy_output
+      for emoji in ["📠", "🚀", "⭐", "👀", "↩️", "ℹ️", "⚠️", "❌", "✅"]:
+          assert emoji not in deploy_output, deploy_output
+    '';
+  };
 }
