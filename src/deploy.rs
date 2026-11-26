@@ -27,10 +27,15 @@ struct ActivateCommandData<'a> {
     dry_activate: bool,
     boot: bool,
     test: bool,
+    no_emoji: bool,
 }
 
 fn build_activate_command(data: &ActivateCommandData) -> String {
     let mut self_activate_command = format!("{}/activate-rs", data.closure);
+
+    if data.no_emoji {
+        self_activate_command = format!("{} --no-emoji", self_activate_command);
+    }
 
     if data.debug_logs {
         self_activate_command = format!("{} --debug-logs", self_activate_command);
@@ -121,8 +126,29 @@ fn test_activation_command_builder() {
             dry_activate,
             boot,
             test,
+            no_emoji: false,
         }),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt activate '/nix/store/blah/etc' --profile-path '/blah/profiles/test' --temp-path '/tmp' --confirm-timeout 30 --magic-rollback --auto-rollback"
+            .to_string(),
+    );
+
+    assert_eq!(
+        build_activate_command(&ActivateCommandData {
+            sudo: &sudo,
+            profile_info,
+            closure,
+            auto_rollback,
+            temp_path,
+            confirm_timeout,
+            magic_rollback,
+            debug_logs,
+            log_dir,
+            dry_activate,
+            boot,
+            test,
+            no_emoji: true,
+        }),
+        "sudo -u test /nix/store/blah/etc/activate-rs --no-emoji --debug-logs --log-dir /tmp/something.txt activate '/nix/store/blah/etc' --profile-path '/blah/profiles/test' --temp-path '/tmp' --confirm-timeout 30 --magic-rollback --auto-rollback"
             .to_string(),
     );
 }
@@ -134,10 +160,15 @@ struct WaitCommandData<'a> {
     activation_timeout: Option<u16>,
     debug_logs: bool,
     log_dir: Option<&'a str>,
+    no_emoji: bool,
 }
 
 fn build_wait_command(data: &WaitCommandData) -> String {
     let mut self_activate_command = format!("{}/activate-rs", data.closure);
+
+    if data.no_emoji {
+        self_activate_command = format!("{} --no-emoji", self_activate_command);
+    }
 
     if data.debug_logs {
         self_activate_command = format!("{} --debug-logs", self_activate_command);
@@ -183,9 +214,24 @@ fn test_wait_command_builder() {
             temp_path,
             activation_timeout,
             debug_logs,
-            log_dir
+            log_dir,
+            no_emoji: false,
         }),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt wait '/nix/store/blah/etc' --temp-path '/tmp' --activation-timeout 600"
+            .to_string(),
+    );
+
+    assert_eq!(
+        build_wait_command(&WaitCommandData {
+            sudo: &sudo,
+            closure,
+            temp_path,
+            activation_timeout,
+            debug_logs,
+            log_dir,
+            no_emoji: true,
+        }),
+        "sudo -u test /nix/store/blah/etc/activate-rs --no-emoji --debug-logs --log-dir /tmp/something.txt wait '/nix/store/blah/etc' --temp-path '/tmp' --activation-timeout 600"
             .to_string(),
     );
 }
@@ -196,10 +242,15 @@ struct RevokeCommandData<'a> {
     profile_info: ProfileInfo,
     debug_logs: bool,
     log_dir: Option<&'a str>,
+    no_emoji: bool,
 }
 
 fn build_revoke_command(data: &RevokeCommandData) -> String {
     let mut self_activate_command = format!("{}/activate-rs", data.closure);
+
+    if data.no_emoji {
+        self_activate_command = format!("{} --no-emoji", self_activate_command);
+    }
 
     if data.debug_logs {
         self_activate_command = format!("{} --debug-logs", self_activate_command);
@@ -236,7 +287,7 @@ fn build_revoke_command(data: &RevokeCommandData) -> String {
 fn test_revoke_command_builder() {
     let sudo = Some("sudo -u test".to_string());
     let closure = "/nix/store/blah/etc";
-    let profile_info = ProfileInfo::ProfilePath {
+    let profile_info = || ProfileInfo::ProfilePath {
         profile_path: "/nix/var/nix/per-user/user/profile".to_string(),
     };
     let debug_logs = true;
@@ -246,11 +297,25 @@ fn test_revoke_command_builder() {
         build_revoke_command(&RevokeCommandData {
             sudo: &sudo,
             closure,
-            profile_info,
+            profile_info: profile_info(),
             debug_logs,
-            log_dir
+            log_dir,
+            no_emoji: false,
         }),
         "sudo -u test /nix/store/blah/etc/activate-rs --debug-logs --log-dir /tmp/something.txt revoke --profile-path '/nix/var/nix/per-user/user/profile'"
+            .to_string(),
+    );
+
+    assert_eq!(
+        build_revoke_command(&RevokeCommandData {
+            sudo: &sudo,
+            closure,
+            profile_info: profile_info(),
+            debug_logs,
+            log_dir,
+            no_emoji: true,
+        }),
+        "sudo -u test /nix/store/blah/etc/activate-rs --no-emoji --debug-logs --log-dir /tmp/something.txt revoke --profile-path '/nix/var/nix/per-user/user/profile'"
             .to_string(),
     );
 }
@@ -401,9 +466,14 @@ pub enum DeployProfileError {
 async fn forward_reader<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
     mut reader: R,
     mut writer: W,
+    no_emoji: bool,
 ) -> std::io::Result<()> {
     const BUF_SIZE: usize = 65536;
-    let prefix = &'📠'.to_string().into_bytes();
+    let prefix: &[u8] = if no_emoji {
+        b"[remote]"
+    } else {
+        "📠".as_bytes()
+    };
     let mut buf = [0u8; BUF_SIZE];
 
     // We could instead use None, but having '\n' here is simpler and has the same effect.
@@ -444,6 +514,7 @@ fn warn_stdstream_task_err(stream_name: &str, stdstream_task_result: Result<(), 
 async fn read_remote_process_child(
     mut process_child: tokio::process::Child,
     demarcate: bool,
+    no_emoji: bool,
 ) -> Result<std::process::ExitStatus, std::io::Error> {
     if !demarcate {
         return process_child.wait().await;
@@ -452,8 +523,8 @@ async fn read_remote_process_child(
     let stdout = process_child.stdout.take().expect("stdout piped");
     let stderr = process_child.stderr.take().expect("stderr piped");
 
-    let stdout_task = forward_reader(stdout, tokio::io::stdout());
-    let stderr_task = forward_reader(stderr, tokio::io::stderr());
+    let stdout_task = forward_reader(stdout, tokio::io::stdout(), no_emoji);
+    let stderr_task = forward_reader(stderr, tokio::io::stderr(), no_emoji);
 
     let (result, stdout_task_result, stderr_task_result) =
         tokio::join!(process_child.wait(), stdout_task, stderr_task);
@@ -473,6 +544,35 @@ pub async fn deploy_profile(
     test: bool,
     demarcate_output: bool,
 ) -> Result<(), DeployProfileError> {
+    deploy_profile_with_options(
+        deploy_data,
+        deploy_defs,
+        closure,
+        dry_activate,
+        boot,
+        test,
+        demarcate_output,
+        crate::OutputOptions::default(),
+    )
+    .await
+}
+
+/// Like `deploy_profile`, but `options` sets how the remote log lines and the
+/// prefix on forwarded remote output look. With `options.emoji` false, the
+/// target's `activate-rs` must support `--no-emoji`, or the remote command fails.
+#[allow(clippy::too_many_arguments)]
+pub async fn deploy_profile_with_options(
+    deploy_data: &super::DeployData,
+    deploy_defs: &super::DeployDefs,
+    closure: &str,
+    dry_activate: bool,
+    boot: bool,
+    test: bool,
+    demarcate_output: bool,
+    options: crate::OutputOptions,
+) -> Result<(), DeployProfileError> {
+    let no_emoji = !options.emoji;
+
     if !dry_activate {
         info!(
             "Activating profile `{}` for node `{}`",
@@ -506,6 +606,7 @@ pub async fn deploy_profile(
         dry_activate,
         boot,
         test,
+        no_emoji,
     });
 
     debug!("Constructed activation command: {}", self_activate_command);
@@ -560,7 +661,7 @@ pub async fn deploy_profile(
         }
 
         let ssh_activate_result =
-            read_remote_process_child(ssh_activate_child, demarcate_output).await;
+            read_remote_process_child(ssh_activate_child, demarcate_output, no_emoji).await;
 
         match ssh_activate_result {
             Err(err) => {
@@ -598,6 +699,7 @@ pub async fn deploy_profile(
             activation_timeout,
             debug_logs: deploy_data.debug_logs,
             log_dir: deploy_data.log_dir.as_deref(),
+            no_emoji,
         });
 
         debug!("Constructed wait command: {}", self_wait_command);
@@ -647,7 +749,7 @@ pub async fn deploy_profile(
 
         let thread = tokio::spawn(async move {
             let ssh_activate_result =
-                read_remote_process_child(ssh_activate_child, demarcate_output).await;
+                read_remote_process_child(ssh_activate_child, demarcate_output, no_emoji).await;
 
             let maybe_err = match ssh_activate_result {
                 Err(err) => Some(DeployProfileError::SSHActivate(
@@ -693,7 +795,7 @@ pub async fn deploy_profile(
         }
 
         tokio::select! {
-            x = read_remote_process_child(ssh_wait_child, demarcate_output) => {
+            x = read_remote_process_child(ssh_wait_child, demarcate_output, no_emoji) => {
                 debug!("Wait command ended");
                 let status = x.map_err(|err| DeployProfileError::SSHWait(command::CommandError::RunError(err)))?;
                 match status.code() {
@@ -760,12 +862,35 @@ pub async fn revoke(
     closure: &str,
     demarcate_output: bool,
 ) -> Result<(), RevokeProfileError> {
+    revoke_with_options(
+        deploy_data,
+        deploy_defs,
+        closure,
+        demarcate_output,
+        crate::OutputOptions::default(),
+    )
+    .await
+}
+
+/// Like `revoke`, but `options` sets how the remote log lines and the prefix
+/// on forwarded remote output look. With `options.emoji` false, the target's
+/// `activate-rs` must support `--no-emoji`, or the remote command fails.
+pub async fn revoke_with_options(
+    deploy_data: &crate::DeployData,
+    deploy_defs: &crate::DeployDefs,
+    closure: &str,
+    demarcate_output: bool,
+    options: crate::OutputOptions,
+) -> Result<(), RevokeProfileError> {
+    let no_emoji = !options.emoji;
+
     let self_revoke_command = build_revoke_command(&RevokeCommandData {
         sudo: &deploy_defs.sudo,
         closure,
         profile_info: deploy_data.get_profile_info()?,
         debug_logs: deploy_data.debug_logs,
         log_dir: deploy_data.log_dir.as_deref(),
+        no_emoji,
     });
 
     debug!("Constructed revoke command: {}", self_revoke_command);
@@ -811,7 +936,8 @@ pub async fn revoke(
             .map_err(|err| RevokeProfileError::SSHRevoke(command::CommandError::RunError(err)))?;
     }
 
-    let ssh_revoke_result = read_remote_process_child(ssh_revoke_child, demarcate_output).await;
+    let ssh_revoke_result =
+        read_remote_process_child(ssh_revoke_child, demarcate_output, no_emoji).await;
     match ssh_revoke_result {
         Err(x) => Err(RevokeProfileError::SSHRevoke(
             command::CommandError::RunError(x),
@@ -835,7 +961,7 @@ mod tests {
     #[tokio::test]
     async fn test_forward_reader_prefixes_each_line() {
         let mut out = Vec::new();
-        forward_reader(&b"hello\nworld\n"[..], &mut out)
+        forward_reader(&b"hello\nworld\n"[..], &mut out, false)
             .await
             .unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "📠 hello\n📠 world\n");
@@ -844,7 +970,7 @@ mod tests {
     #[tokio::test]
     async fn test_forward_reader_prefixes_last_line_without_trailing_newline() {
         let mut out = Vec::new();
-        forward_reader(&b"hello\nworld"[..], &mut out)
+        forward_reader(&b"hello\nworld"[..], &mut out, false)
             .await
             .unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "📠 hello\n📠 world");
@@ -853,21 +979,25 @@ mod tests {
     #[tokio::test]
     async fn test_forward_reader_empty_input() {
         let mut out = Vec::new();
-        forward_reader(&b""[..], &mut out).await.unwrap();
+        forward_reader(&b""[..], &mut out, false).await.unwrap();
         assert!(out.is_empty());
     }
 
     #[tokio::test]
     async fn test_forward_reader_prefixes_blank_lines_between_content() {
         let mut out = Vec::new();
-        forward_reader(&b"a\n\n\nb\n"[..], &mut out).await.unwrap();
+        forward_reader(&b"a\n\n\nb\n"[..], &mut out, false)
+            .await
+            .unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "📠 a\n📠 \n📠 \n📠 b\n");
     }
 
     #[tokio::test]
     async fn test_forward_reader_prefixes_leading_newline() {
         let mut out = Vec::new();
-        forward_reader(&b"\nfoo\n"[..], &mut out).await.unwrap();
+        forward_reader(&b"\nfoo\n"[..], &mut out, false)
+            .await
+            .unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "📠 \n📠 foo\n");
     }
 
@@ -882,12 +1012,42 @@ mod tests {
         });
 
         let mut out = Vec::new();
-        forward_reader(reader, &mut out).await.unwrap();
+        forward_reader(reader, &mut out, false).await.unwrap();
         write_task.await.unwrap();
 
         assert_eq!(
             String::from_utf8(out).unwrap(),
             format!("📠 {}", expected_body)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_forward_reader_no_emoji_prefixes_each_line() {
+        let mut out = Vec::new();
+        forward_reader(&b"hello\n\nworld"[..], &mut out, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "[remote] hello\n[remote] \n[remote] world"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_forward_reader_no_emoji_newline_split_across_reads() {
+        let (mut writer, reader) = tokio::io::duplex(1);
+
+        let write_task = tokio::spawn(async move {
+            writer.write_all(b"abc\ndef\n").await.unwrap();
+        });
+
+        let mut out = Vec::new();
+        forward_reader(reader, &mut out, true).await.unwrap();
+        write_task.await.unwrap();
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "[remote] abc\n[remote] def\n"
         );
     }
 
@@ -901,7 +1061,7 @@ mod tests {
         });
 
         let mut out = Vec::new();
-        forward_reader(reader, &mut out).await.unwrap();
+        forward_reader(reader, &mut out, false).await.unwrap();
         write_task.await.unwrap();
 
         assert_eq!(String::from_utf8(out).unwrap(), "📠 abc\n📠 def\n");
@@ -946,7 +1106,7 @@ mod tests {
             writer.write_all(&input).await.unwrap();
         });
 
-        let result = forward_reader(reader, AlwaysFailWriter).await;
+        let result = forward_reader(reader, AlwaysFailWriter, false).await;
         assert!(result.is_err(), "the write error must still be reported");
 
         // If forward_reader stopped draining after the first write failure,
