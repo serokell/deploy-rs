@@ -36,6 +36,8 @@ pub struct GenericSettings {
     pub sudo: Option<String>,
     #[serde(default, rename(deserialize = "remoteBuild"))]
     pub remote_build: Option<bool>,
+    #[serde(rename(deserialize = "remoteEval"))]
+    pub remote_eval: Option<bool>,
     #[serde(rename(deserialize = "interactiveSudo"))]
     pub interactive_sudo: Option<bool>,
     #[serde(
@@ -88,7 +90,7 @@ pub struct NodeSettings {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ProfileSettings {
-    pub path: String,
+    pub path: Option<String>,
     #[serde(rename(deserialize = "profilePath"))]
     pub profile_path: Option<String>,
     /// `.drv` path of the derivation that produces `path`. Populated by the

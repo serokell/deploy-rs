@@ -258,6 +258,7 @@ pub struct CmdOverrides {
     pub interactive_sudo: Option<bool>,
     pub dry_activate: bool,
     pub remote_build: bool,
+    pub remote_eval: Option<bool>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -556,8 +557,9 @@ pub fn make_deploy_data(
     merged_settings.merge(top_settings.clone());
 
     // build all machines remotely when the command line flag is set
-    if cmd_overrides.remote_build {
-        merged_settings.remote_build = Some(cmd_overrides.remote_build);
+    merged_settings.remote_eval = cmd_overrides.remote_eval.or(merged_settings.remote_eval);
+    if cmd_overrides.remote_build || merged_settings.remote_eval == Some(true) {
+        merged_settings.remote_build = Some(true);
     }
     if cmd_overrides.ssh_user.is_some() {
         merged_settings.ssh_user = cmd_overrides.ssh_user.clone();

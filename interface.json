@@ -49,6 +49,9 @@
                 "tempPath": {
                     "type": ["string", "null"]
                 },
+                "remoteEval": {
+                    "type": ["boolean", "null"]
+                },
                 "interactiveSudo": {
                     "type": ["boolean", "null"]
                 }

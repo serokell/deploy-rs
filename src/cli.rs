@@ -80,6 +80,10 @@ pub struct Opts {
     #[arg(long)]
     remote_build: bool,
 
+    /// Evaluate and build profiles on the target (use --remote-eval=false to disable)
+    #[arg(long, require_equals = true, num_args = 0..=1, default_missing_value = "true")]
+    remote_eval: Option<bool>,
+
     /// Override the SSH user with the given value
     #[arg(long)]
     ssh_user: Option<String>,
@@ -215,10 +219,24 @@ pub enum GetDeploymentDataError {
     ProfileNoNode,
 }
 
+pub(crate) fn nix_string(value: &str) -> String {
+    format!(
+        "\"{}\"",
+        value
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace("${", "\\${")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r")
+            .replace('\t', "\\t")
+    )
+}
+
 /// Evaluates the Nix in the given `repo` and return the processed Data from it
 async fn get_deployment_data(
     supports_flakes: bool,
     flakes: &[deploy::DeployFlake<'_>],
+    remote_eval: Option<bool>,
     extra_build_args: &[String],
 ) -> Result<Vec<deploy::data::Data>, GetDeploymentDataError> {
     futures_util::stream::iter(flakes).then(|flake| async move {
@@ -231,72 +249,51 @@ async fn get_deployment_data(
         Command::new("nix-instantiate")
     };
 
-    // Auto-extracts `drvPath` for profiles whose `path` is a derivation, so the
-    // binary can resolve content-addressed and floating-output derivations
-    // whose eval-time `outPath` is a placeholder. The Nix file is a
-    // self-contained function from `deploy` to `deploy`; see
-    // `nix/transform-deploy.nix`.
-    let patch_deploy = include_str!("../nix/transform-deploy.nix");
+    let override_value = match remote_eval {
+        Some(true) => "true",
+        Some(false) => "false",
+        None => "null",
+    };
+    let patch_deploy = format!(
+        "({}) {override_value}",
+        include_str!("../nix/transform-deploy.nix")
+    );
 
     if supports_flakes {
-        eval_command
-            .arg("eval")
-            .arg("--json")
-            .arg(format!("{}#deploy", flake.repo))
-            // We use --apply instead of --expr so that we don't have to deal with builtins.getFlake
-            .arg("--apply");
-        match (&flake.node, &flake.profile) {
-            (Some(node), Some(profile)) => {
-                // Ignore all nodes and all profiles but the one we're evaluating
-                eval_command.arg(format!(
-                    r#"
-                      deploy:
-                      let patchDeploy = ({2}); in
-                      patchDeploy (deploy // {{
-                        nodes = {{
-                          "{0}" = deploy.nodes."{0}" // {{
-                            profiles = {{
-                              inherit (deploy.nodes."{0}".profiles) "{1}";
-                            }};
-                          }};
-                        }};
-                      }})
-                     "#,
-                    node, profile, patch_deploy
-                ))
-            }
-            (Some(node), None) => {
-                // Ignore all nodes but the one we're evaluating
-                eval_command.arg(format!(
-                    r#"
-                      deploy:
-                      let patchDeploy = ({1}); in
-                      patchDeploy (deploy // {{
-                        nodes = {{
-                          inherit (deploy.nodes) "{0}";
-                        }};
-                      }})
-                    "#,
-                    node, patch_deploy
-                ))
-            }
-            (None, None) => {
-                // We need to evaluate all profiles of all nodes anyway, so just do it strictly
-                eval_command.arg(format!("deploy: ({}) deploy", patch_deploy))
-            }
-            (None, Some(_)) => return Err(GetDeploymentDataError::ProfileNoNode),
+        eval_command.arg("eval").arg("--json");
+        if deploy::push::is_pinned_github_flake(flake.repo) {
+            eval_command.args(["--no-update-lock-file", "--expr"]).arg(format!(
+                "(builtins.getFlake {}).deploy",
+                nix_string(flake.repo),
+            ));
+        } else {
+            eval_command.arg(format!("{}#deploy", flake.repo));
         }
+
+        let selection = match (&flake.node, &flake.profile) {
+            (Some(node), Some(profile)) => format!(
+                r#"let node = {node}; profile = {profile}; n = deploy.nodes.${{node}}; in
+                   deploy // {{ nodes = {{ ${{node}} = n // {{
+                     profiles = {{ ${{profile}} = n.profiles.${{profile}}; }};
+                   }}; }}; }}"#,
+                node = nix_string(node),
+                profile = nix_string(profile),
+            ),
+            (Some(node), None) => format!(
+                r#"let node = {}; in deploy // {{ nodes = {{ ${{node}} = deploy.nodes.${{node}}; }}; }}"#,
+                nix_string(node),
+            ),
+            (None, None) => "deploy".into(),
+            (None, Some(_)) => return Err(GetDeploymentDataError::ProfileNoNode),
+        };
+        eval_command.arg("--apply").arg(format!("deploy: ({patch_deploy}) ({selection})"));
     } else {
         eval_command
-            .arg("--strict")
-            .arg("--read-write-mode")
-            .arg("--json")
-            .arg("--eval")
-            .arg("-E")
+            .args(["--strict", "--read-write-mode", "--json", "--eval", "-E"])
             .arg(format!(
-                "({1}) (let r = import {0}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy)",
-                flake.repo, patch_deploy
-            ))
+                "({patch_deploy}) (let r = import {}/.; in if builtins.isFunction r then (r {{}}).deploy else r.deploy)",
+                flake.repo
+            ));
     };
 
     eval_command.args(extra_build_args).stdout(Stdio::piped());
@@ -330,7 +327,7 @@ async fn get_deployment_data(
 struct PromptPart<'a> {
     user: &'a str,
     ssh_user: &'a str,
-    path: &'a str,
+    path: String,
     hostname: &'a str,
     ssh_opts: &'a [String],
 }
@@ -344,14 +341,17 @@ fn print_deployment(
 ) -> Result<(), toml::ser::Error> {
     let mut part_map: HashMap<String, HashMap<String, PromptPart>> = HashMap::new();
 
-    for (_, data, defs) in parts {
+    for (flake, data, defs) in parts {
         let settings = &data.profile.profile_settings;
-        // Pre-build, a floating-output profile's `path` is just an opaque
-        // placeholder. Show the `.drv` instead so the preview is meaningful.
-        let displayed_path: &str = if settings.path.starts_with("/nix/store/") {
-            &settings.path
-        } else {
-            settings.drv_path.as_deref().unwrap_or(&settings.path)
+        let displayed_path = match settings.path.as_deref() {
+            Some(path) if path.starts_with("/nix/store/") => path.to_owned(),
+            Some(path) => settings.drv_path.as_deref().unwrap_or(path).to_owned(),
+            None => format!(
+                "{}#deploy.nodes.{}.profiles.{}.path (remote eval)",
+                flake.repo,
+                nix_string(&data.node_name),
+                nix_string(&data.profile_name),
+            ),
         };
         part_map
             .entry(data.node_name.to_string())
@@ -464,6 +464,18 @@ pub enum RunDeployError {
     RevokeProfile(String, String, deploy::deploy::RevokeProfileError),
     #[error("Deployment to node {0} failed, rolled back to previous generation")]
     Rollback(String),
+    #[error("Profile {0} on node {1} has no path")]
+    MissingPath(String, String),
+    #[error(
+        "remoteEval requires a github:OWNER/REPO/COMMIT flake reference with a full commit SHA"
+    )]
+    UnpinnedRemoteEval,
+    #[error("remoteEval does not support extra Nix arguments after --")]
+    RemoteEvalExtraArgs,
+    #[error("remoteEval does not support --keep-result or --result-path")]
+    RemoteEvalResultLink,
+    #[error("remoteEval requires node and profile names made of letters, digits, hyphens, or underscores")]
+    RemoteEvalSelector,
 }
 
 type ToDeploy<'a> = Vec<(
@@ -473,8 +485,8 @@ type ToDeploy<'a> = Vec<(
     (&'a str, &'a deploy::data::Profile),
 )>;
 
-// (node_name, profile_name, closure) for a profile that finished building.
-type BuiltProfile = (String, String, String);
+// Index into parts and the realised closure for that deployment.
+type BuiltProfile = (usize, String);
 // Per-host build results from the async remote-build pipeline: one Vec of
 // BuiltProfile per host (built in order), or an error if that host's build failed.
 type RemoteBuildResults = Vec<Result<Vec<BuiltProfile>, RunDeployError>>;
@@ -633,6 +645,29 @@ async fn run_deploy(
             }
         }
 
+        if deploy_data.merged_settings.remote_eval == Some(true) {
+            if !supports_flakes || !deploy::push::is_pinned_github_flake(deploy_flake.repo) {
+                return Err(RunDeployError::UnpinnedRemoteEval);
+            }
+            if ![node_name, profile_name].iter().all(|name| {
+                !name.is_empty()
+                    && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b))
+            }) {
+                return Err(RunDeployError::RemoteEvalSelector);
+            }
+            if !extra_build_args.is_empty() {
+                return Err(RunDeployError::RemoteEvalExtraArgs);
+            }
+            if keep_result || result_path.is_some() {
+                return Err(RunDeployError::RemoteEvalResultLink);
+            }
+        } else if profile.profile_settings.path.is_none() {
+            return Err(RunDeployError::MissingPath(
+                profile_name.to_owned(),
+                node_name.to_owned(),
+            ));
+        }
+
         let mut deploy_defs = deploy_data.defs()?;
 
         if deploy_data
@@ -683,21 +718,27 @@ async fn run_deploy(
     }
 
     let data_iter = || {
-        parts.iter().map(
-            |(deploy_flake, deploy_data, deploy_defs)| deploy::push::PushProfileData {
-                supports_flakes,
-                check_sigs,
-                repo: deploy_flake.repo.to_string(),
-                deploy_data: deploy_data.clone(),
-                deploy_defs: deploy_defs.clone(),
-                keep_result,
-                result_path: result_path.map(str::to_string),
-                extra_build_args: extra_build_args.to_vec(),
-            },
-        )
+        parts
+            .iter()
+            .enumerate()
+            .map(|(index, (deploy_flake, deploy_data, deploy_defs))| {
+                (
+                    index,
+                    deploy::push::PushProfileData {
+                        supports_flakes,
+                        check_sigs,
+                        repo: deploy_flake.repo.to_string(),
+                        deploy_data: deploy_data.clone(),
+                        deploy_defs: deploy_defs.clone(),
+                        keep_result,
+                        result_path: result_path.map(str::to_string),
+                        extra_build_args: extra_build_args.to_vec(),
+                    },
+                )
+            })
     };
 
-    let (remote_builds, local_builds): (Vec<_>, Vec<_>) = data_iter().partition(|data| {
+    let (remote_builds, local_builds): (Vec<_>, Vec<_>) = data_iter().partition(|(_, data)| {
         data.deploy_data
             .merged_settings
             .remote_build
@@ -709,13 +750,13 @@ async fn run_deploy(
         remote_builds
             .into_iter()
             .fold(HashMap::new(), |mut accum, elem| {
-                match accum.get_mut(&elem.deploy_data.node_name) {
+                match accum.get_mut(&elem.1.deploy_data.node_name) {
                     Some(v) => {
                         v.push(elem);
                         accum
                     }
                     None => {
-                        accum.insert(elem.deploy_data.node_name.clone(), vec![elem]);
+                        accum.insert(elem.1.deploy_data.node_name.clone(), vec![elem]);
                         accum
                     }
                 }
@@ -750,8 +791,7 @@ async fn run_deploy(
     // Build (and, for local profiles, push) phase. Each profile's build yields
     // its realised /nix/store/... path, which every subsequent step needs:
     // push, activate, confirm, and revoke. The async pipeline below reorders
-    // and regroups profiles by host, so closures are keyed by (node, profile)
-    // instead of threaded through a parallel Vec.
+    // and regroups profiles by host, so closures are keyed by deployment index.
     let (remote_results, local_results): (RemoteBuildResults, LocalBuildResults) = join!(
         // remote builds can be run asynchronously
         async move {
@@ -773,7 +813,7 @@ async fn run_deploy(
                     let mut result = Ok(());
 
                     // build profile in order, one after the other
-                    for mut profile in profiles {
+                    for (index, mut profile) in profiles {
                         let nodename = profile.deploy_data.node_name.clone();
                         let profilename = profile.deploy_data.profile_name.clone();
                         if let Some(pb) = &pb {
@@ -791,7 +831,7 @@ async fn run_deploy(
                         );
 
                         match deploy::push::build_profile(&profile).await {
-                            Ok(closure) => built.push((nodename, profilename, closure)),
+                            Ok(closure) => built.push((index, closure)),
                             Err(e) => {
                                 result =
                                     Err(RunDeployError::BuildProfile(profilename, nodename, e));
@@ -823,7 +863,7 @@ async fn run_deploy(
         async move {
             let mut set = JoinSet::new();
 
-            for mut data in local_builds.into_iter() {
+            for (index, mut data) in local_builds {
                 let node_name = data.deploy_data.node_name.to_string();
                 let profile_name = data.deploy_data.profile_name.to_string();
 
@@ -883,7 +923,7 @@ async fn run_deploy(
                                     }
                                 }
                             }
-                            res.map(|()| (node_name, profile_name, closure))
+                            res.map(|()| (index, closure))
                         });
                     }
                     Err(e) => {
@@ -904,15 +944,13 @@ async fn run_deploy(
 
     // abort here if any build + push or push + build failed, and collect the
     // realised closure for every profile that made it through
-    let mut closures: HashMap<(String, String), String> = HashMap::new();
+    let mut closures = HashMap::new();
     for result in remote_results {
-        for (node_name, profile_name, closure) in result? {
-            closures.insert((node_name, profile_name), closure);
-        }
+        closures.extend(result?);
     }
     for result in local_results {
-        let (node_name, profile_name, closure) = result?;
-        closures.insert((node_name, profile_name), closure);
+        let (index, closure) = result?;
+        closures.insert(index, closure);
     }
 
     // Run all activations
@@ -920,12 +958,9 @@ async fn run_deploy(
     // Rollbacks adhere to the global seeting to auto_rollback and secondary
     // the profile's configuration
     let mut succeeded: Vec<(&deploy::DeployData, &deploy::DeployDefs, &str)> = vec![];
-    for (_, deploy_data, deploy_defs) in &parts {
+    for (index, (_, deploy_data, deploy_defs)) in parts.iter().enumerate() {
         let closure = closures
-            .get(&(
-                deploy_data.node_name.clone(),
-                deploy_data.profile_name.clone(),
-            ))
+            .get(&index)
             .expect("every profile should have a build closure recorded");
         if let Err(e) = deploy::deploy::deploy_profile(
             deploy_data,
@@ -989,6 +1024,8 @@ pub enum RunError {
     FlakeTest(std::io::Error),
     #[error("Failed to check deployment: {0}")]
     CheckDeployment(#[from] CheckDeploymentError),
+    #[error("remoteEval requires --skip-checks because flake checks can evaluate profiles on the controller")]
+    RemoteEvalRequiresSkipChecks,
     #[error("Failed to evaluate deployment data: {0}")]
     GetDeploymentData(#[from] GetDeploymentDataError),
     #[error("Error parsing flake: {0}")]
@@ -1044,6 +1081,7 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         activation_timeout: opts.activation_timeout,
         dry_activate: opts.dry_activate,
         remote_build: opts.remote_build,
+        remote_eval: opts.remote_eval,
         sudo: opts.sudo,
         interactive_sudo: opts.interactive_sudo,
     };
@@ -1063,7 +1101,28 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
 
     let using_flakes = supports_flakes && !do_not_want_flakes;
 
+    let data = get_deployment_data(
+        using_flakes,
+        &deploy_flakes,
+        opts.remote_eval,
+        &opts.extra_build_args,
+    )
+    .await?;
     if !opts.skip_checks {
+        if data.iter().any(|deploy| {
+            deploy.nodes.values().any(|node| {
+                node.node_settings.profiles.values().any(|profile| {
+                    cmd_overrides
+                        .remote_eval
+                        .or(profile.generic_settings.remote_eval)
+                        .or(node.generic_settings.remote_eval)
+                        .or(deploy.generic_settings.remote_eval)
+                        == Some(true)
+                })
+            })
+        }) {
+            return Err(RunError::RemoteEvalRequiresSkipChecks);
+        }
         let mut set = std::collections::HashSet::new();
         deploy_flakes.iter().for_each(|item| {
             set.insert(item.repo);
@@ -1074,7 +1133,6 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
         }
     }
     let result_path = opts.result_path.as_deref();
-    let data = get_deployment_data(using_flakes, &deploy_flakes, &opts.extra_build_args).await?;
     run_deploy(
         deploy_flakes,
         data,
@@ -1098,4 +1156,30 @@ pub async fn run(args: Option<&ArgMatches>) -> Result<(), RunError> {
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod remote_eval_tests {
+    use super::*;
+
+    #[test]
+    fn cli_remote_eval_has_three_states() {
+        for (args, expected) in [
+            (&["deploy", ".#node"][..], None),
+            (&["deploy", "--remote-eval", ".#node"][..], Some(true)),
+            (
+                &["deploy", "--remote-eval=false", ".#node"][..],
+                Some(false),
+            ),
+        ] {
+            let opts = Opts::try_parse_from(args).unwrap();
+            assert_eq!(opts.remote_eval, expected);
+            assert_eq!(opts.target.as_deref(), Some(".#node"));
+        }
+    }
+
+    #[test]
+    fn nix_strings_escape_interpolation_and_quotes() {
+        assert_eq!(nix_string(r#"a."${x}\b"#), r#""a.\"\${x}\\b""#);
+    }
 }
