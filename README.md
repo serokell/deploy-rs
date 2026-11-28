@@ -257,6 +257,18 @@ This is a set of options that can be put in any of the above definitions, with t
 
 Some of these options can be provided during `deploy` invocation to override default values or values provided in your flake, see `deploy --help`.
 
+### Evaluate and build on the target
+
+Set `remoteEval = true` at the deploy, node, or profile level to evaluate the profile's derivation on the target. The most specific setting wins. Use `--remote-eval` or `--remote-eval=false` to override the flake settings. The default is `false`. Remote evaluation implies `remoteBuild = true` for that profile.
+
+```console
+deploy --skip-checks --remote-eval 'github:OWNER/REPO/FULL_COMMIT_SHA#node.profile'
+```
+
+The controller evaluates deployment metadata. The target evaluates and builds the selected derivation's `out` output as `sshUser`, using the existing SSH options. The usual profile user and rollback settings apply during activation.
+
+Use a GitHub flake reference with a full 40-character commit SHA and locked inputs that both machines can access. Use `--skip-checks` because flake checks can force profile derivations on the controller. Remote evaluation does not support local flakes, non-flake deployments, extra Nix arguments after `--`, or result links. Local flake support is deferred until archive transfer and lock identity are verified.
+
 ## About Serokell
 
 deploy-rs is maintained and funded with ❤️ by [Serokell](https://serokell.io/).

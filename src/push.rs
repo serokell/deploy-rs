@@ -103,6 +103,10 @@ pub enum PushProfileError {
     BuildStdoutEmpty,
     #[error("Nix build command printed multiple output paths, expected exactly one: {0}")]
     BuildStdoutMultiline(String),
+    #[error("Remote build returned an invalid Nix store path: {0:?}")]
+    InvalidRemoteStorePath(String),
+    #[error("Profile has no path")]
+    MissingPath,
 }
 
 #[derive(Clone)]
@@ -531,28 +535,109 @@ pub async fn build_profile_remotely(
         a => return Err(PushProfileError::CopyExit(a)),
     };
 
-    let build_output = {
-        let mut build_command = Command::new("nix");
-        build_command
-            .arg("build")
-            .arg(derivation_name)
-            .arg("--eval-store")
-            .arg("auto")
-            .arg("--store")
-            .arg(&store_address)
-            .arg("--print-out-paths")
-            .args(data.extra_build_args.clone())
-            .env("NIX_SSHOPTS", ssh_opts_str.clone());
+    let mut build_command = Command::new("nix");
+    build_command
+        .arg("build")
+        .arg(derivation_name)
+        .args(["--eval-store", "auto", "--store"])
+        .arg(&store_address)
+        .arg("--print-out-paths")
+        .args(&data.extra_build_args)
+        .env("NIX_SSHOPTS", ssh_opts_str);
+    if data.deploy_data.progressbar.is_some() {
+        build_command.args(["--log-format", "internal-json"]);
+    }
+    run_remote_build_command(data, build_command).await
+}
 
+pub(crate) fn is_pinned_github_flake(repo: &str) -> bool {
+    let Some(repo) = repo.strip_prefix("github:") else {
+        return false;
+    };
+    let parts: Vec<_> = repo.split('/').collect();
+    let [owner, name, rev] = parts.as_slice() else {
+        return false;
+    };
+    [owner, name].iter().all(|part| {
+        !part.is_empty()
+            && **part != "."
+            && **part != ".."
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+    }) && rev.len() == 40
+        && rev.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+async fn evaluate_and_build_remotely(data: &PushProfileData) -> Result<String, PushProfileError> {
+    let deploy = &data.deploy_data;
+    let hostname = deploy
+        .cmd_overrides
+        .hostname
+        .as_deref()
+        .unwrap_or(&deploy.node.node_settings.hostname);
+
+    let expression = format!(
+        "(builtins.getFlake {}).deploy.nodes.{}.profiles.{}.path.out",
+        super::cli::nix_string(&data.repo),
+        super::cli::nix_string(&deploy.node_name),
+        super::cli::nix_string(&deploy.profile_name),
+    );
+    let mut remote_command = String::from(
+        "nix --extra-experimental-features 'nix-command flakes' build --no-link --print-out-paths --no-update-lock-file"
+    );
+    if deploy.progressbar.is_some() {
+        remote_command.push_str(" --log-format internal-json");
+    }
+    // SSH passes the command through the target's shell. Single-quote the
+    // complete Nix expression after escaping Nix string interpolation above.
+    remote_command.push_str(&format!(
+        " --expr '{}'",
+        expression.replace('\'', "'\"'\"'")
+    ));
+
+    let mut ssh = Command::new("ssh");
+    ssh.arg("-T")
+        .args(&deploy.merged_settings.ssh_opts)
+        .arg("--")
+        .arg(format!("{}@{}", data.deploy_defs.ssh_user, hostname))
+        .arg(remote_command)
+        .stdin(Stdio::null());
+    let path = run_remote_build_command(data, ssh).await?;
+    if !valid_remote_store_path(&path) {
+        return Err(PushProfileError::InvalidRemoteStorePath(path));
+    }
+    Ok(path)
+}
+
+fn valid_remote_store_path(path: &str) -> bool {
+    path.strip_prefix("/nix/store/")
+        .and_then(|path| path.split_once('-'))
+        .is_some_and(|(hash, name)| {
+            hash.len() == 32
+                && hash
+                    .bytes()
+                    .all(|b| b"0123456789abcdfghijklmnpqrsvwxyz".contains(&b))
+                && !name.is_empty()
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"+-._=".contains(&b))
+        })
+}
+
+async fn run_remote_build_command(
+    data: &PushProfileData,
+    mut build_command: Command,
+) -> Result<String, PushProfileError> {
+    let build_output = {
         if let Some(pb) = &data.deploy_data.progressbar {
             // Concurrent deploy: route nix's output through the spinner.
-            build_command.arg("--log-format").arg("internal-json");
             debug!("build command: {:?}", build_command);
             let mut child = build_command
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
-                .expect("failed to spawn nix build command");
+                .map_err(|e| PushProfileError::Build(command::CommandError::RunError(e)))?;
 
             // The realised store path arrives on stdout as a plain line,
             // while only stderr carries the `@nix ...` progress events, so
@@ -609,6 +694,9 @@ pub async fn build_profile_remotely(
 }
 
 pub async fn build_profile(data: &PushProfileData) -> Result<String, PushProfileError> {
+    if data.deploy_data.merged_settings.remote_eval == Some(true) {
+        return evaluate_and_build_remotely(data).await;
+    }
     let profile_settings = &data.deploy_data.profile.profile_settings;
 
     let supports_caret = data.supports_flakes
@@ -628,10 +716,11 @@ pub async fn build_profile(data: &PushProfileData) -> Result<String, PushProfile
         debug!("Using drvPath from flake: {}", drv_path);
         deriver_for_build(drv_path.clone(), supports_caret).await?
     } else {
-        debug!(
-            "Finding the deriver of store path for {}",
-            &profile_settings.path
-        );
+        let path = profile_settings
+            .path
+            .as_deref()
+            .ok_or(PushProfileError::MissingPath)?;
+        debug!("Finding the deriver of store path for {}", path);
 
         // `nix-store --query --deriver` doesn't work on invalid paths, so we parse output of show-derivation :(
         let mut show_derivation_command = Command::new("nix");
@@ -639,7 +728,7 @@ pub async fn build_profile(data: &PushProfileData) -> Result<String, PushProfile
             .arg("--experimental-features")
             .arg("nix-command")
             .arg("show-derivation")
-            .arg(&profile_settings.path);
+            .arg(path);
         let show_derivation_command_str = format!("{:?}", show_derivation_command);
 
         let show_derivation_output = command::Command::new(show_derivation_command)
@@ -881,5 +970,41 @@ mod test {
         let stdout = b"/nix/store/a\n/nix/store/b\n";
         let err = parse_build_out_path(stdout).expect_err("multiline stdout must error");
         assert!(matches!(err, PushProfileError::BuildStdoutMultiline(_)));
+    }
+}
+
+#[cfg(test)]
+mod remote_eval_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_only_full_github_commit_references() {
+        let pinned = "github:example/deploy/0123456789abcdef0123456789abcdef01234567";
+        assert!(is_pinned_github_flake(pinned));
+        for invalid in [
+            ".",
+            "github:example/deploy",
+            "github:example/deploy/master",
+            "github:example/deploy/0123456",
+            "github:example/../0123456789abcdef0123456789abcdef01234567",
+            &format!("{pinned}?dir=subdir"),
+            &format!("{pinned};echo"),
+        ] {
+            assert!(!is_pinned_github_flake(invalid), "{}", invalid);
+        }
+    }
+
+    #[test]
+    fn remote_build_stdout_must_be_safe_to_use_in_activation() {
+        let path = "/nix/store/00000000000000000000000000000000-profile";
+        assert!(valid_remote_store_path(path));
+        for invalid in [
+            "/tmp/profile".to_owned(),
+            format!("{path}/child"),
+            format!("{path};echo"),
+            format!("{path} $(echo)"),
+        ] {
+            assert!(!valid_remote_store_path(&invalid), "{}", invalid);
+        }
     }
 }

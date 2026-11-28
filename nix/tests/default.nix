@@ -201,6 +201,13 @@ in {
   };
   # Pure-evaluation test for the drvPath auto-extraction. Runs without a VM.
   transform-deploy = import ./transform-deploy.nix { inherit pkgs; };
+  remote-eval = pkgs.runCommand "deploy-rs-remote-eval-test" {
+    nativeBuildInputs = [ pkgs.deploy-rs.deploy-rs pkgs.nix ];
+  } ''
+    export NIX_CONFIG="experimental-features = nix-command flakes"
+    bash ${./remote-eval.sh}
+    touch "$out"
+  '';
   # e2e test for #261: lines forwarded from the server are prefixed with the
   # fax machine emoji, both on stdout and stderr, while genuinely local
   # output (deploy-rs's own log lines) is left unprefixed.
